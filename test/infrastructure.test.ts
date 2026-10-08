@@ -174,6 +174,28 @@ describe("identity", () => {
   });
 });
 
+describe("production", () => {
+  it("gets its own resources from every adapter", () => {
+    const auth = "  auth:\n    kind: identity\n    target: workos\n";
+    const root = rootModule(config(api + db() + auth), "production", {});
+    expect(root.terraform.backend.s3.key).toBe(
+      "acme/production/terraform.tfstate",
+    );
+    expect(root.module.cloudflare).toMatchObject({
+      workers: {
+        "acme-api-production": { routes: ["acme.example.com/api/*"] },
+      },
+      hostnames: ["acme.example.com"],
+    });
+    expect(root.module.supabase_db).toMatchObject({
+      name: "acme-db-production",
+    });
+    expect(root.module.workos_auth).toMatchObject({
+      redirect_uris: ["https://acme.example.com/api/auth/callback"],
+    });
+  });
+});
+
 describe("state", () => {
   it("keeps one state per project and environment", () => {
     expect(stateKey("acme", "staging")).toBe("acme/staging/terraform.tfstate");

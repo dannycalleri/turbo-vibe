@@ -43,6 +43,74 @@ describe("the staging job", () => {
   });
 });
 
+describe("the production workflow", () => {
+  const commands = (steps: { run?: string }[]) =>
+    steps
+      .map(
+        (step) => step.run?.match(/turbo-vibe --config "\$CONFIG" (\w+)/)?.[1],
+      )
+      .filter(Boolean);
+
+  it("runs only when a maintainer starts it", async () => {
+    expect(Object.keys((await workflow("production.yml")).on)).toEqual([
+      "workflow_dispatch",
+    ]);
+  });
+
+  it("waits for the production environment's approval and runs one promotion at a time", async () => {
+    const { production } = (await workflow("promote.yml")).jobs;
+    expect(production.environment).toBe("production");
+    expect(production.concurrency["cancel-in-progress"]).toBe(false);
+  });
+
+  it("migrates and deploys the build it chose, from that build's commit, without building anything", async () => {
+    const { steps } = (await workflow("promote.yml")).jobs.production;
+    expect(commands(steps)).toEqual([
+      "promote",
+      "apply",
+      "migrate",
+      "promote",
+      "smoke",
+    ]);
+    const checkout = steps.findIndex(
+      (step: { with?: { ref?: string } }) => step.with?.ref,
+    );
+    expect(steps[checkout].with.ref).toBe(
+      "${{ steps.choose.outputs.build-id }}",
+    );
+    expect(checkout).toBeGreaterThan(
+      steps.findIndex((step: { id?: string }) => step.id === "choose"),
+    );
+    expect(
+      steps.map((step: { run?: string }) => step.run ?? "").join("\n"),
+    ).not.toMatch(/\bdeploy --env|docker build/);
+  });
+
+  it("promotes and smoke-checks the very build it chose and checked out", async () => {
+    const { steps } = (await workflow("promote.yml")).jobs.production;
+    const pinned = steps.filter((step: { run?: string }) =>
+      step.run?.includes("--build-id"),
+    );
+    expect(pinned).toHaveLength(2);
+    for (const step of pinned) {
+      expect(step.env.BUILD_ID).toBe("${{ steps.choose.outputs.build-id }}");
+    }
+    const checkout = steps.findIndex(
+      (step: { with?: { ref?: string } }) => step.with?.ref,
+    );
+    const rebuild = steps.findIndex((step: { name?: string }) =>
+      step.name?.startsWith("Rebuild the CLI"),
+    );
+    expect(rebuild).toBeGreaterThan(checkout);
+  });
+
+  it("runs the same CLI release as the staging workflow", async () => {
+    expect((await workflow("promote.yml")).env.TURBO_VIBE_CLI).toBe(
+      (await workflow("deploy.yml")).env.TURBO_VIBE_CLI,
+    );
+  });
+});
+
 describe("workflows", () => {
   it("never run pull-request code with secrets through pull_request_target", async () => {
     const dir = new URL(".github/workflows/", root);

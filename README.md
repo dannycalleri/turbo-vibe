@@ -24,6 +24,28 @@ A staging `deploy` builds every service once and records what it shipped in the 
 
 `promote --env production` picks the newest staging build that passed. Newer failed or unchecked builds are skipped. It deploys only that build's recorded outputs: the same image digest, and the same files unpacked from the archive. Nothing is built again. With no passing build, it stops before changing anything. `promote --choose` prints the build it would promote and changes nothing. `promote --build-id <id>` promotes exactly that build, and refuses it unless it passed on staging. Use the two together to migrate production from the chosen build's commit before deploying it. `deploy --env production` is refused, so production only ever runs promoted builds.
 
+## Deploy to production
+
+The reusable `promote.yml` workflow is the "Deploy to production" button: call it from a `workflow_dispatch` workflow, the way `.github/workflows/production.yml` does for the kit's example. Its job runs in the GitHub environment `production`. Give that environment required reviewers once (Settings → Environments), and every run waits for an approval before any production secret is used. It then:
+
+1. chooses the latest staging build that passed (`promote --choose`);
+2. checks out that build's commit, so production's infrastructure and migrations match the code being promoted;
+3. runs `apply`, then `migrate`, then `promote --build-id <id>` with the recorded image digests and asset archives, then `smoke`.
+
+Nothing is built. Production's resources come from the same adapters as staging's: its own Worker routes and DNS on the project domain, its own Supabase project, and the callback registered in the WorkOS production environment with the production key.
+
+## Actions minutes per run
+
+Public repositories run GitHub's standard runners at no cost. In a private repository, each run spends minutes from the account's allowance (2,000 a month on GitHub Free). The test-and-build job below was measured on the kit's example. The deploy figures are estimates from their steps.
+
+| Run | Jobs | Minutes |
+|---|---|---|
+| Pull request | test and build (`test`, `deploy --dry-run`) | about 2 (measured 1.5–2) |
+| Merge to `main` | test and build, then deploy staging (`apply`, `migrate`, Docker build and push, `deploy`, `smoke`) | about 7–10, estimated |
+| Deploy to production | one job: `apply`, `migrate`, `promote`, `smoke`, with no build | about 3–5, estimated |
+
+The image build dominates staging. Promotion skips it, which is why it costs less.
+
 ## What a backend must do
 
 A `cloudflare-container` backend listens on port 8080 (also given as `PORT`), reads its database, if the project has one, from `DATABASE_URL`, and answers `GET /api/health` with JSON containing `build_id`. The kit passes the build ID to `docker build` as the build argument `BUILD_ID`; the Dockerfile's final stage turns it into the environment variable the app reports:
