@@ -64,8 +64,18 @@ describe("the workflows init writes", () => {
         ] as const;
       }
     })();
-    expect(() =>
-      execFileSync(lint[0], [...lint[1]], { cwd, encoding: "utf8" }),
-    ).not.toThrow();
+    let findings = "";
+    try {
+      execFileSync(lint[0], [...lint[1]], {
+        cwd,
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+    } catch (error) {
+      const failed = error as { stdout?: string; stderr?: string };
+      findings =
+        `${failed.stdout ?? ""}${failed.stderr ?? ""}` || String(error);
+    }
+    expect(findings).toBe("");
   });
 });
