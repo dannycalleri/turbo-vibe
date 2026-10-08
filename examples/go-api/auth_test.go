@@ -85,7 +85,7 @@ func TestCallbackExchangesTheCodeAndSignsTheUserIn(t *testing.T) {
 	if (*received)["client_secret"] != "sk_test" || (*received)["grant_type"] != "authorization_code" || (*received)["client_id"] != "client_123" {
 		t.Fatalf("token request = %v", *received)
 	}
-	session := cookie(recorder, sessionCookie)
+	session := cookie(recorder, a.sessionName)
 	if session == nil || !session.HttpOnly || !session.Secure {
 		t.Fatalf("session cookie = %+v", session)
 	}
@@ -106,7 +106,7 @@ func TestCallbackRejectsAMismatchedState(t *testing.T) {
 	request.AddCookie(&http.Cookie{Name: stateCookie, Value: "s1"})
 	recorder := serve(a, request)
 
-	if recorder.Code != http.StatusBadRequest || cookie(recorder, sessionCookie) != nil || len(*received) != 0 {
+	if recorder.Code != http.StatusBadRequest || cookie(recorder, a.sessionName) != nil || len(*received) != 0 {
 		t.Fatalf("status = %d, token request = %v", recorder.Code, *received)
 	}
 }
@@ -119,7 +119,7 @@ func TestCallbackFailsWhenWorkOSRejectsTheCode(t *testing.T) {
 	request.AddCookie(&http.Cookie{Name: stateCookie, Value: "s1"})
 	recorder := serve(a, request)
 
-	if recorder.Code != http.StatusBadGateway || cookie(recorder, sessionCookie) != nil {
+	if recorder.Code != http.StatusBadGateway || cookie(recorder, a.sessionName) != nil {
 		t.Fatalf("status = %d", recorder.Code)
 	}
 }
@@ -141,9 +141,35 @@ func TestMeRejectsATamperedOrExpiredSession(t *testing.T) {
 		"foreign":  {newAuth("client_123", "sk_other", callbackURL, ""), valid},
 	} {
 		request := httptest.NewRequest(http.MethodGet, "/api/me", nil)
-		request.AddCookie(&http.Cookie{Name: sessionCookie, Value: check.value})
+		request.AddCookie(&http.Cookie{Name: check.a.sessionName, Value: check.value})
 		if response := serve(check.a, request); response.Code != http.StatusUnauthorized {
 			t.Errorf("%s: status = %d", name, response.Code)
 		}
+	}
+}
+
+func TestSignInOnASeparateAPIHostReturnsToTheFrontendWithASharedCookie(t *testing.T) {
+	workos, _ := fakeWorkOS(t, "ada@example.com")
+	a := newAuth("client_123", "sk_test", "https://api-staging-example.turbovibe.ai/api/auth/callback", workos.URL)
+	a.cookieDomain = "turbovibe.ai"
+	a.afterSignIn = "https://staging-example.turbovibe.ai"
+
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/callback?code=good-code&state=s1", nil)
+	request.AddCookie(&http.Cookie{Name: stateCookie, Value: "s1"})
+	recorder := serve(a, request)
+
+	if recorder.Header().Get("Location") != "https://staging-example.turbovibe.ai" {
+		t.Fatalf("location = %q", recorder.Header().Get("Location"))
+	}
+	if session := cookie(recorder, a.sessionName); session == nil || session.Domain != "turbovibe.ai" {
+		t.Fatalf("session cookie = %+v", session)
+	}
+}
+
+func TestEachEnvironmentNamesItsSessionCookieApart(t *testing.T) {
+	staging := newAuth("client_123", "sk_test_staging", callbackURL, "")
+	production := newAuth("client_456", "sk_live_production", callbackURL, "")
+	if staging.sessionName == production.sessionName {
+		t.Fatalf("both environments use %q, so a shared cookie domain would let one overwrite the other", staging.sessionName)
 	}
 }

@@ -18,6 +18,7 @@ const containersModule = fileURLToPath(
 
 export const compatibilityDate = "2026-10-01";
 export const buildIdPath = "/_turbo-vibe/build-id";
+export const runtimeConfigPath = "/_turbo-vibe/config.json";
 
 export function workerEntry(
   backend: Backend,

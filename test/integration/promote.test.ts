@@ -44,6 +44,7 @@ describe("a promoted backend", () => {
       service,
       environment: "production",
       hostname: "example.turbovibe.ai",
+      backendHostname: "example.turbovibe.ai",
       buildId: "promoted",
       secretNames: [],
       secrets: {},

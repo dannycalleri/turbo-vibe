@@ -11,7 +11,8 @@ import {
   adapters as defaultTargets,
   type TargetCatalog,
 } from "../adapters/index.js";
-import { hostnameFor, pathFor } from "../plan.js";
+import { layout, parentDomain } from "../origins.js";
+import { pathFor } from "../plan.js";
 import { type Config, configSchema, environmentNames } from "./schema.js";
 
 export interface ConfigProblem {
@@ -166,18 +167,6 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
     }
   }
 
-  const backend = Object.entries(config.services).find(
-    ([, service]) => service.kind === "backend",
-  );
-  for (const [name, service] of Object.entries(config.services)) {
-    if (backend && service.target === "vercel-static") {
-      problems.push({
-        path: ["services", name, "target"],
-        message: `service \`${name}\` runs on vercel-static, which cannot yet share a project with a backend (\`${backend[0]}\`)`,
-      });
-    }
-  }
-
   for (const kind of ["database", "identity"] as const) {
     const services = Object.entries(config.services).filter(
       ([, service]) => service.kind === kind,
@@ -203,14 +192,34 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
     }
   }
 
-  const [staging, production] = environmentNames.map((environment) =>
-    hostnameFor(config, environment),
-  );
-  if (staging === production) {
-    problems.push({
-      path: ["environments"],
-      message: `staging and production both use hostname ${staging}`,
-    });
+  const claimed = new Map<string, string>();
+  for (const environment of environmentNames) {
+    const { hostname, backendHostname, crossOrigin } = layout(
+      config,
+      environment,
+    );
+    if (
+      crossOrigin &&
+      !backendHostname.endsWith(`.${parentDomain(hostname)}`)
+    ) {
+      problems.push({
+        path: ["environments"],
+        message: `the ${environment} API hostname ${backendHostname} must be under ${parentDomain(hostname)}, like the frontend's ${hostname}, so the two can share sign-in cookies`,
+      });
+    }
+    const uses: [string, string][] = [[hostname, environment]];
+    if (crossOrigin) uses.push([backendHostname, `the ${environment} API`]);
+    for (const [host, use] of uses) {
+      const earlier = claimed.get(host);
+      if (earlier) {
+        problems.push({
+          path: ["environments"],
+          message: `${earlier} and ${use} both use hostname ${host}`,
+        });
+      } else {
+        claimed.set(host, use);
+      }
+    }
   }
 
   for (const [name, service] of Object.entries(config.services)) {

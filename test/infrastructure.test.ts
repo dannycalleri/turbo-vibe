@@ -187,7 +187,12 @@ describe("vercel-static", () => {
     expect(root.module.vercel).toEqual({
       source: expect.stringMatching(/infra\/vercel$/),
       team_id: "team_123",
-      projects: { "acme-web-staging": { domain: "staging.acme.example.com" } },
+      projects: {
+        "acme-web-staging": {
+          domain: "staging.acme.example.com",
+          environment: {},
+        },
+      },
     });
     expect(root.module.cloudflare).toMatchObject({
       workers: {},
@@ -211,6 +216,52 @@ describe("vercel-static", () => {
         "CLOUDFLARE_ZONE_ID",
       ]),
     );
+  });
+});
+
+describe("a Vercel frontend with a Cloudflare backend", () => {
+  const split = config(
+    `${api}  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: "pnpm build", output: dist }\n`,
+  );
+
+  it("serves the backend from its API hostname and the frontend from the environment's hostname", () => {
+    expect(rootModule(split, "staging", {}).module.cloudflare).toMatchObject({
+      workers: {
+        "acme-api-staging": { routes: ["api.staging.acme.example.com/api/*"] },
+      },
+      hostnames: ["api.staging.acme.example.com"],
+      cnames: { "staging.acme.example.com": "cname.vercel-dns.com" },
+    });
+  });
+
+  it("gives each environment's Vercel project that environment's backend URL", () => {
+    expect(rootModule(split, "staging", {}).module.vercel).toMatchObject({
+      projects: {
+        "acme-web-staging": {
+          environment: {
+            TURBO_VIBE_API_URL: "https://api.staging.acme.example.com",
+          },
+        },
+      },
+    });
+    expect(rootModule(split, "production", {}).module.vercel).toMatchObject({
+      projects: {
+        "acme-web-production": {
+          environment: { TURBO_VIBE_API_URL: "https://api.acme.example.com" },
+        },
+      },
+    });
+  });
+
+  it("registers the sign-in callback on the backend's hostname", () => {
+    const withAuth = config(
+      `${api}  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: "pnpm build", output: dist }\n  auth:\n    kind: identity\n    target: workos\n`,
+    );
+    expect(
+      rootModule(withAuth, "staging", {}).module.workos_auth,
+    ).toMatchObject({
+      redirect_uris: ["https://api.staging.acme.example.com/api/auth/callback"],
+    });
   });
 });
 

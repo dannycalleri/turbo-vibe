@@ -8,7 +8,7 @@ import type {
   WorkosInputs,
 } from "./adapters/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
-import { hostnameFor } from "./plan.js";
+import { hostOf, layout } from "./origins.js";
 
 export const stateSecrets = [
   "TURBO_VIBE_STATE_BUCKET",
@@ -46,7 +46,7 @@ export function composeInfrastructure(
   environment: EnvironmentName,
   managedRedirectUris: Readonly<Record<string, string[]>> = {},
 ): Infrastructure {
-  const hostname = hostnameFor(config, environment);
+  const hosts = layout(config, environment);
   let cloudflare: CloudflareInputs | undefined;
   let supabase: Record<string, SupabaseInputs> | undefined;
   let workos: Record<string, WorkosInputs> | undefined;
@@ -57,7 +57,8 @@ export function composeInfrastructure(
       name,
       service,
       environment,
-      hostname,
+      hostname: hostOf(hosts, service),
+      backendHostname: hosts.backendHostname,
       ...(managedRedirectUris[name]
         ? { managedRedirectUris: managedRedirectUris[name] }
         : {}),
@@ -186,7 +187,7 @@ export function rootModule(
     };
     root.output = {
       ...root.output,
-      vercel_project_ids: { value: "${module.vercel.project_ids}" },
+      vercel_project_ids: { value: `\${module.vercel.project_ids}` },
     };
   }
   for (const [name, inputs] of Object.entries(infrastructure.workos ?? {})) {

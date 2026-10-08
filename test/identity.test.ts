@@ -1,11 +1,11 @@
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { callbackUrl } from "../src/adapters/workos.js";
 import { parseConfig } from "../src/config/load.js";
 import type { Config } from "../src/config/schema.js";
 import { listRedirectUris, redirectUriPlan } from "../src/identity.js";
 import type { Io } from "../src/io.js";
+import { callbackUrl } from "../src/origins.js";
 
 const staging = "https://staging.acme.example.com/api/auth/callback";
 

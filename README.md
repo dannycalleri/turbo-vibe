@@ -85,7 +85,18 @@ A `vercel-static` frontend gets a Vercel project per environment, named `<projec
     build: { command: "pnpm build", output: dist }
 ```
 
-For now a `vercel-static` frontend must be the only service that serves traffic in its project: it cannot yet share a project with a backend.
+With a backend in the same project, the two run on different hosts. The frontend keeps the environment's hostname, and the backend moves to its API hostname: `api.<hostname>` by default, or `environments.<env>.api_hostname`. Set it explicitly when `api.<hostname>` would be two levels below the zone, which Universal SSL does not cover. It must sit under the frontend hostname's parent domain, so the two can share sign-in cookies. validation rejects anything else, except one case it cannot detect without a public-suffix list: a frontend directly under a public suffix such as `co.uk` (`example.co.uk` with `api.other.co.uk`). Use `api.example.co.uk` there. The kit then gives each side what the other needs, per environment:
+
+- The backend receives `ALLOWED_ORIGINS`, set to exactly that environment's frontend URL and never a wildcard. It also receives `FRONTEND_URL`, and `COOKIE_DOMAIN`, the domain both hosts share. It must refuse any other origin. The example does this in `examples/go-api/cors.go`. When staging and production hosts sit in the same zone, `COOKIE_DOMAIN` is the same for both, so give the session cookie a name unique to the environment, or one would overwrite the other. The example derives it from the environment's signing key.
+- The page reads `/_turbo-vibe/config.json`, which `deploy` writes next to the built files for each environment: `{ "apiUrl": "https://api…" }`. The build stays identical, so promotion still ships the staging files unchanged. The Vercel project also gets `TURBO_VIBE_API_URL`.
+
+```yaml
+environments:
+  staging: { hostname: staging-app.example.com, api_hostname: api-staging-app.example.com }
+  production: { api_hostname: api-app.example.com }
+```
+
+`examples/vercel-static` deploys the example's page to Vercel and its API to Cloudflare.
 
 ## Sign-in
 

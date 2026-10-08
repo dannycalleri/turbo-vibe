@@ -840,3 +840,112 @@ services:
     ]);
   });
 });
+
+describe("a Vercel frontend with a Cloudflare backend", () => {
+  const split = `version: 1
+project: acme
+domain: acme.example.com
+services:
+  api:
+    kind: backend
+    target: cloudflare-container
+    build: { dockerfile: Dockerfile }
+  web:
+    kind: frontend
+    target: vercel-static
+    build: { command: "pnpm build", output: dist }
+`;
+  const splitEnv = {
+    ...env,
+    VERCEL_API_TOKEN: "v",
+    VERCEL_TEAM_ID: "team_123",
+  };
+  const outputs = (environment: string) => ({
+    vercel_project_ids: {
+      value: { [`acme-web-${environment}`]: `prj_${environment}` },
+    },
+  });
+
+  it("gives the backend its exact allowed origin and cookie domain, and the page its backend URL", async () => {
+    const uploaded: unknown[] = [];
+    const calls = runner(async (_command, args) => {
+      const index = args.indexOf("--secrets-file");
+      if (index >= 0)
+        uploaded.push(
+          JSON.parse(await readFile(args[index + 1] as string, "utf8")),
+        );
+      return undefined;
+    });
+    const { code, cwd } = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": split },
+      splitEnv,
+      calls,
+      fakeR2().fetch(),
+      { capture: capturing(outputs("staging")) },
+    );
+    expect(code).toBe(0);
+    expect(uploaded).toEqual([
+      {
+        ALLOWED_ORIGINS: "https://staging.acme.example.com",
+        FRONTEND_URL: "https://staging.acme.example.com",
+        COOKIE_DOMAIN: "staging.acme.example.com",
+      },
+    ]);
+    const config = JSON.parse(
+      await readFile(
+        join(
+          cwd,
+          ".turbo-vibe",
+          "wrangler",
+          "staging",
+          "web-vercel",
+          ".vercel",
+          "output",
+          "static",
+          "_turbo-vibe",
+          "config.json",
+        ),
+        "utf8",
+      ),
+    );
+    expect(config).toEqual({ apiUrl: "https://api.staging.acme.example.com" });
+    expect(
+      await workerConfig(cwd, "staging", "acme-api-staging"),
+    ).not.toHaveProperty("assets");
+  });
+
+  it("points the promoted page at production's backend without rebuilding it", async () => {
+    const r2 = fakeR2({
+      ...seeded(record({})),
+      "acme/builds/abc123/web.tar.gz": "archive",
+    });
+    const { code, cwd } = await run(
+      ["promote", "--env", "production"],
+      { "turbo-vibe.yaml": split },
+      splitEnv,
+      runner(),
+      r2.fetch(),
+      { capture: capturing(outputs("production")) },
+    );
+    expect(code).toBe(0);
+    const config = JSON.parse(
+      await readFile(
+        join(
+          cwd,
+          ".turbo-vibe",
+          "wrangler",
+          "production",
+          "web-vercel",
+          ".vercel",
+          "output",
+          "static",
+          "_turbo-vibe",
+          "config.json",
+        ),
+        "utf8",
+      ),
+    );
+    expect(config).toEqual({ apiUrl: "https://api.acme.example.com" });
+  });
+});

@@ -65,7 +65,12 @@ func main() {
 		if apiBase == "" {
 			apiBase = "https://api.workos.com"
 		}
-		newAuth(clientID, os.Getenv("WORKOS_API_KEY"), os.Getenv("WORKOS_REDIRECT_URI"), apiBase).routes(mux)
+		a := newAuth(clientID, os.Getenv("WORKOS_API_KEY"), os.Getenv("WORKOS_REDIRECT_URI"), apiBase)
+		a.cookieDomain = os.Getenv("COOKIE_DOMAIN")
+		if frontend := os.Getenv("FRONTEND_URL"); frontend != "" {
+			a.afterSignIn = frontend
+		}
+		a.routes(mux)
 	}
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, withAllowedOrigins(splitOrigins(os.Getenv("ALLOWED_ORIGINS")), mux)))
 }

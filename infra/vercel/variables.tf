@@ -4,6 +4,7 @@ variable "team_id" {
 
 variable "projects" {
   type = map(object({
-    domain = string
+    domain      = string
+    environment = map(string)
   }))
 }

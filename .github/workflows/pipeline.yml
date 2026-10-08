@@ -36,3 +36,11 @@ jobs:
       config: examples/go-api/turbo-vibe.yaml
       use-local-cli: true
     secrets: inherit
+
+  vercel-example:
+    needs: check
+    uses: ./.github/workflows/deploy.yml
+    with:
+      config: examples/vercel-static/turbo-vibe.yaml
+      use-local-cli: true
+    secrets: inherit

@@ -136,19 +136,24 @@ describe("parseConfig", () => {
     ]);
   });
 
-  it("does not yet let a Vercel frontend share a project with a backend", () => {
-    expect(
-      problems(
-        valid.replace(
-          "target: cloudflare-static\n    serve_with: api\n",
-          "target: vercel-static\n",
-        ),
-      ),
-    ).toEqual([
+  it("rejects an API hostname that another environment already uses", () => {
+    const source = `${valid.replace("target: cloudflare-static\n    serve_with: api\n", "target: vercel-static\n")}environments:\n  staging: { api_hostname: api.acme.example.com }\n`;
+    expect(problems(source)).toEqual([
       {
-        line: 11,
+        line: 13,
         message:
-          "service `web` runs on vercel-static, which cannot yet share a project with a backend (`api`)",
+          "the staging API and the production API both use hostname api.acme.example.com",
+      },
+    ]);
+  });
+
+  it("keeps the API hostname under the frontend's parent domain, so sign-in cookies can be shared", () => {
+    const source = `${valid.replace("target: cloudflare-static\n    serve_with: api\n", "target: vercel-static\n")}environments:\n  production: { hostname: app.foo.co.uk, api_hostname: api.bar.co.uk }\n`;
+    expect(problems(source)).toEqual([
+      {
+        line: 13,
+        message:
+          "the production API hostname api.bar.co.uk must be under foo.co.uk, like the frontend's app.foo.co.uk, so the two can share sign-in cookies",
       },
     ]);
   });

@@ -1,6 +1,6 @@
-import { callbackUrl } from "./adapters/workos.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import type { Io } from "./io.js";
+import { callbackUrl } from "./origins.js";
 
 export interface RedirectUriPlan {
   manage: string[];

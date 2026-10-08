@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import { adapterFor, adapters } from "./adapters/index.js";
 import type { ServiceContext } from "./adapters/types.js";
-import { callbackUrl } from "./adapters/workos.js";
 import { missingVariables, readOutputs } from "./apply.js";
 import { BuildStore, choosePromotion, type Outputs } from "./builds.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
@@ -12,7 +11,7 @@ import {
 } from "./database.js";
 import { stateSecrets } from "./infrastructure.js";
 import type { Io } from "./io.js";
-import { hostnameFor } from "./plan.js";
+import { callbackUrl, hostOf, layout, originSettings } from "./origins.js";
 
 export interface Project {
   config: Config;
@@ -23,13 +22,14 @@ function contexts(
   config: Config,
   environment: EnvironmentName,
 ): ServiceContext[] {
-  const hostname = hostnameFor(config, environment);
+  const hosts = layout(config, environment);
   return Object.entries(config.services).map(([name, service]) => ({
     config,
     name,
     service,
     environment,
-    hostname,
+    hostname: hostOf(hosts, service),
+    backendHostname: hosts.backendHostname,
   }));
 }
 
@@ -47,10 +47,17 @@ function hasIdentity(config: Config): boolean {
 
 const identitySecrets = ["WORKOS_CLIENT_ID", "WORKOS_API_KEY"] as const;
 
+const originSecrets = [
+  "ALLOWED_ORIGINS",
+  "FRONTEND_URL",
+  "COOKIE_DOMAIN",
+] as const;
+
 export function runtimeSecretNames(config: Config): string[] {
   return [
     ...(database(config) ? ["DATABASE_URL"] : []),
     ...(hasIdentity(config) ? [...identitySecrets, "WORKOS_REDIRECT_URI"] : []),
+    ...(layout(config, "staging").crossOrigin ? originSecrets : []),
   ];
 }
 
@@ -87,6 +94,12 @@ function runtimeSecrets(
   if (redirectUri) {
     for (const name of identitySecrets) secrets[name] = io.env[name] ?? "";
     secrets.WORKOS_REDIRECT_URI = redirectUri;
+  }
+  const origins = originSettings(config, environment);
+  if (origins) {
+    secrets.ALLOWED_ORIGINS = origins.allowedOrigins.join(",");
+    secrets.FRONTEND_URL = origins.frontendUrl;
+    secrets.COOKIE_DOMAIN = origins.cookieDomain ?? "";
   }
   const name = database(config);
   if (!name) return secrets;

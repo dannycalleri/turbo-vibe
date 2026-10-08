@@ -18,18 +18,20 @@ import (
 
 const (
 	stateCookie   = "tv_state"
-	sessionCookie = "tv_session"
 	sessionLength = 7 * 24 * time.Hour
 )
 
 type auth struct {
-	clientID    string
-	apiKey      string
-	redirectURI string
-	apiBase     string
-	signingKey  []byte
-	client      *http.Client
-	now         func() time.Time
+	clientID     string
+	apiKey       string
+	redirectURI  string
+	apiBase      string
+	signingKey   []byte
+	sessionName  string
+	client       *http.Client
+	now          func() time.Time
+	cookieDomain string
+	afterSignIn  string
 }
 
 func newAuth(clientID, apiKey, redirectURI, apiBase string) *auth {
@@ -41,8 +43,10 @@ func newAuth(clientID, apiKey, redirectURI, apiBase string) *auth {
 		redirectURI: redirectURI,
 		apiBase:     strings.TrimSuffix(apiBase, "/"),
 		signingKey:  mac.Sum(nil),
+		sessionName: "tv_session_" + hex.EncodeToString(mac.Sum(nil)[:4]),
 		client:      &http.Client{Timeout: 10 * time.Second},
 		now:         time.Now,
+		afterSignIn: "/",
 	}
 }
 
@@ -83,10 +87,10 @@ func (a *auth) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: "/api/auth", MaxAge: -1})
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: a.sign(email), Path: "/", MaxAge: int(sessionLength.Seconds()),
+		Name: a.sessionName, Value: a.sign(email), Path: "/", Domain: a.cookieDomain, MaxAge: int(sessionLength.Seconds()),
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, "/", http.StatusFound)
+	http.Redirect(w, r, a.afterSignIn, http.StatusFound)
 }
 
 func (a *auth) authenticate(code string) (string, error) {
@@ -121,7 +125,7 @@ func (a *auth) authenticate(code string) (string, error) {
 func (a *auth) me(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	cookie, err := r.Cookie(sessionCookie)
+	cookie, err := r.Cookie(a.sessionName)
 	email, ok := "", false
 	if err == nil {
 		email, ok = a.verify(cookie.Value)

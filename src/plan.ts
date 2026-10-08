@@ -4,6 +4,7 @@ import {
   environmentNames,
   type ServiceKind,
 } from "./config/schema.js";
+import { hostOf, layout } from "./origins.js";
 
 export interface PlannedService {
   name: string;
@@ -19,17 +20,6 @@ export interface EnvironmentPlan {
   services: PlannedService[];
 }
 
-export function hostnameFor(
-  config: Config,
-  environment: EnvironmentName,
-): string {
-  const configured = config.environments?.[environment]?.hostname;
-  if (configured) return configured;
-  return environment === "production"
-    ? config.domain
-    : `${environment}.${config.domain}`;
-}
-
 export function pathFor(kind: ServiceKind): string | undefined {
   if (kind === "backend") return "/api/";
   if (kind === "frontend") return "/";
@@ -38,7 +28,7 @@ export function pathFor(kind: ServiceKind): string | undefined {
 
 export function derivePlan(config: Config): EnvironmentPlan[] {
   return environmentNames.map((environment) => {
-    const hostname = hostnameFor(config, environment);
+    const hosts = layout(config, environment);
     const services = Object.entries(config.services).map(
       ([name, service]): PlannedService => {
         const planned: PlannedService = {
@@ -47,14 +37,14 @@ export function derivePlan(config: Config): EnvironmentPlan[] {
           target: service.target,
         };
         const path = pathFor(service.kind);
-        if (path) planned.url = `https://${hostname}${path}`;
+        if (path) planned.url = `https://${hostOf(hosts, service)}${path}`;
         if (service.kind === "frontend" && service.serve_with) {
           planned.servedWith = service.serve_with;
         }
         return planned;
       },
     );
-    return { environment, hostname, services };
+    return { environment, hostname: hosts.hostname, services };
   });
 }
 

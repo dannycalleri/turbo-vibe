@@ -14,7 +14,10 @@ const hostname = z
     "must be a lowercase hostname such as example.com",
   );
 
-const environment = z.strictObject({ hostname: hostname.optional() });
+const environment = z.strictObject({
+  hostname: hostname.optional(),
+  api_hostname: hostname.optional(),
+});
 
 const backend = z.strictObject({
   kind: z.literal("backend"),
@@ -77,7 +80,7 @@ const identity = z.strictObject({
       /^\/api\/[A-Za-z0-9/_-]*$/,
       "must be a path under /api/, where the backend answers",
     )
-    .optional(),
+    .default("/api/auth/callback"),
 });
 
 export const serviceKinds = [

@@ -14,6 +14,7 @@ export interface ServiceContext {
   service: Service;
   environment: EnvironmentName;
   hostname: string;
+  backendHostname: string;
   managedRedirectUris?: readonly string[];
 }
 
@@ -50,7 +51,10 @@ export interface CloudflareInputs {
 }
 
 export interface VercelInputs {
-  projects: Record<string, { domain: string }>;
+  projects: Record<
+    string,
+    { domain: string; environment: Record<string, string> }
+  >;
 }
 
 export interface SupabaseInputs {
@@ -76,6 +80,7 @@ export interface Adapter {
   kind: ServiceKind;
   hostsStaticAssets: boolean;
   readsOutputs?: boolean;
+  crossOrigin?: boolean;
   secrets: readonly string[];
   outputs: readonly string[];
   plan(context: ServiceContext): Infrastructure;

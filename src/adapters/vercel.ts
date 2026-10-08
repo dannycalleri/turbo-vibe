@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { checkBuildId } from "../smoke.js";
 import { frontendAssets } from "./assets.js";
 import type { Adapter, DeployContext, ServiceContext } from "./types.js";
-import { buildIdPath } from "./wrangler.js";
+import { buildIdPath, runtimeConfigPath } from "./wrangler.js";
 
 const require = createRequire(import.meta.url);
 const vercelBin = join(
@@ -13,6 +13,10 @@ const vercelBin = join(
   "vc.js",
 );
 const cnameTarget = "cname.vercel-dns.com";
+
+function apiUrl({ hostname, backendHostname }: ServiceContext): string {
+  return backendHostname === hostname ? "" : `https://${backendHostname}`;
+}
 
 export function vercelProject({
   config,
@@ -32,6 +36,13 @@ async function prebuiltOutput(
   await mkdir(output, { recursive: true });
   await cp(assets, join(output, "static"), { recursive: true });
   await writeFile(join(output, "config.json"), JSON.stringify({ version: 3 }));
+  await mkdir(dirname(join(output, "static", runtimeConfigPath)), {
+    recursive: true,
+  });
+  await writeFile(
+    join(output, "static", runtimeConfigPath),
+    JSON.stringify({ apiUrl: apiUrl(context) }),
+  );
   return root;
 }
 
@@ -40,6 +51,7 @@ export const vercelStatic: Adapter = {
   kind: "frontend",
   hostsStaticAssets: false,
   readsOutputs: true,
+  crossOrigin: true,
   secrets: [
     "VERCEL_API_TOKEN",
     "VERCEL_TEAM_ID",
@@ -50,7 +62,14 @@ export const vercelStatic: Adapter = {
   plan(context) {
     return {
       vercel: {
-        projects: { [vercelProject(context)]: { domain: context.hostname } },
+        projects: {
+          [vercelProject(context)]: {
+            domain: context.hostname,
+            environment: apiUrl(context)
+              ? { TURBO_VIBE_API_URL: apiUrl(context) }
+              : {},
+          },
+        },
       },
       cloudflare: {
         workers: {},

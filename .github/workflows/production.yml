@@ -13,3 +13,10 @@ jobs:
       config: examples/go-api/turbo-vibe.yaml
       use-local-cli: true
     secrets: inherit
+
+  vercel-example:
+    uses: ./.github/workflows/promote.yml
+    with:
+      config: examples/vercel-static/turbo-vibe.yaml
+      use-local-cli: true
+    secrets: inherit
