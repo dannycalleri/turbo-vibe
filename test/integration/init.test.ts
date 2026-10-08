@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { chmod, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,8 @@ import { postgresSession } from "../../src/sql.js";
 describe("the workflows init writes", () => {
   it("pass actionlint", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "turbo-vibe-init-"));
+    // mkdtemp makes the directory owner-only, and actionlint's image runs as another user.
+    await chmod(cwd, 0o755);
     const code = await main(
       [
         "init",
