@@ -13,6 +13,7 @@ async function run(
   files: Record<string, string> = {},
   env: Record<string, string> = {},
   runner: Runner = vi.fn(async () => 0),
+  fetch: typeof globalThis.fetch = vi.fn(async () => new Response("unused")),
 ) {
   const cwd = await mkdtemp(join(tmpdir(), "turbo-vibe-"));
   for (const [name, content] of Object.entries(files)) {
@@ -24,6 +25,8 @@ async function run(
     cwd,
     env,
     run: runner,
+    fetch,
+    sleep: async () => {},
     stdout: (text) => {
       stdout += text;
     },
@@ -149,5 +152,251 @@ describe("turbo-vibe apply", () => {
     expect(code).not.toBe(0);
     expect(stderr).toContain("staging, production");
     expect(runner).not.toHaveBeenCalled();
+  });
+});
+
+const project = `version: 1
+project: acme
+domain: acme.example.com
+services:
+  api:
+    kind: backend
+    target: cloudflare-container
+    build: { dockerfile: Dockerfile, test: "go test ./..." }
+  web:
+    kind: frontend
+    target: cloudflare-static
+    serve_with: api
+    build: { command: "pnpm build", output: dist, test: "pnpm test" }
+`;
+
+describe("turbo-vibe deploy", () => {
+  const cloudflare = {
+    CLOUDFLARE_API_TOKEN: "s3cr3t-token",
+    CLOUDFLARE_ACCOUNT_ID: "acc123",
+    CLOUDFLARE_ZONE_ID: "zone456",
+  };
+
+  it("builds the frontend with the build ID, then ships both in the backend's Worker", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code, cwd } = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": project },
+      cloudflare,
+      runner,
+    );
+    expect(code).toBe(0);
+    const workerDir = join(
+      cwd,
+      ".turbo-vibe",
+      "wrangler",
+      "staging",
+      "acme-api-staging",
+    );
+    expect(runner.mock.calls).toEqual([
+      [
+        "sh",
+        ["-c", "pnpm build"],
+        { cwd, env: { ...cloudflare, BUILD_ID: "abc123" } },
+      ],
+      [
+        process.execPath,
+        [
+          expect.stringMatching(/wrangler\.js$/),
+          "deploy",
+          "--config",
+          join(workerDir, "wrangler.json"),
+        ],
+        { cwd: workerDir, env: cloudflare },
+      ],
+    ]);
+    expect(
+      await readFile(join(cwd, "dist", "_turbo-vibe", "build-id"), "utf8"),
+    ).toBe("abc123");
+    const wrangler = JSON.parse(
+      await readFile(join(workerDir, "wrangler.json"), "utf8"),
+    );
+    expect(wrangler.assets.directory).toBe(join(cwd, "dist"));
+    expect(wrangler.containers[0].image_vars).toEqual({ BUILD_ID: "abc123" });
+  });
+
+  it("ships a frontend without serve_with as its own assets-only Worker", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const frontendOnly = `version: 1
+project: acme
+domain: acme.example.com
+services:
+  web:
+    kind: frontend
+    target: cloudflare-static
+    build: { command: "pnpm build", output: dist }
+`;
+    const { code, cwd } = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": frontendOnly },
+      cloudflare,
+      runner,
+    );
+    expect(code).toBe(0);
+    const workerDir = join(
+      cwd,
+      ".turbo-vibe",
+      "wrangler",
+      "staging",
+      "acme-web-staging",
+    );
+    expect(runner.mock.calls[1]).toEqual([
+      process.execPath,
+      [
+        expect.stringMatching(/wrangler\.js$/),
+        "deploy",
+        "--config",
+        join(workerDir, "wrangler.json"),
+      ],
+      { cwd: workerDir, env: cloudflare },
+    ]);
+    const wrangler = JSON.parse(
+      await readFile(join(workerDir, "wrangler.json"), "utf8"),
+    );
+    expect(wrangler.name).toBe("acme-web-staging");
+    expect(wrangler.assets).toEqual({
+      directory: join(cwd, "dist"),
+      not_found_handling: "single-page-application",
+    });
+    expect(wrangler).not.toHaveProperty("containers");
+  });
+
+  it("needs no credentials for a dry run", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code } = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123", "--dry-run"],
+      { "turbo-vibe.yaml": project },
+      {},
+      runner,
+    );
+    expect(code).toBe(0);
+    expect(runner.mock.calls[1]?.[1]).toContain("--dry-run");
+  });
+
+  it("names missing credentials and runs nothing", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code, stderr } = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": project },
+      { CLOUDFLARE_API_TOKEN: "t" },
+      runner,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "missing environment variables: CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID\n",
+    );
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("stops before shipping when the frontend build fails", async () => {
+    const runner = vi.fn<Runner>(async () => 2);
+    const { code, stderr } = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": project },
+      cloudflare,
+      runner,
+    );
+    expect(code).toBe(2);
+    expect(stderr).toContain("deploy web failed with exit code 2");
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("turbo-vibe smoke", () => {
+  function serving(
+    apiBuild: string,
+    pageBuild: string,
+  ): typeof globalThis.fetch {
+    return vi.fn(async (input: string | URL | Request) =>
+      String(input).endsWith("/api/health")
+        ? Response.json({ build_id: apiBuild })
+        : new Response(pageBuild),
+    );
+  }
+
+  it("passes when the API and the page report the build", async () => {
+    const fetch = serving("abc123", "abc123");
+    const { code, stdout } = await run(
+      ["smoke", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": project },
+      {},
+      undefined,
+      fetch,
+    );
+    expect(code).toBe(0);
+    expect(stdout).toBe(
+      "ok api: https://staging.acme.example.com/api/health reports build abc123\n" +
+        "ok web: https://staging.acme.example.com/_turbo-vibe/build-id reports build abc123\n",
+    );
+  });
+
+  it("fails and names both build IDs when an old build still answers", async () => {
+    const { code, stderr } = await run(
+      ["smoke", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": project },
+      {},
+      undefined,
+      serving("old999", "abc123"),
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "FAIL api: https://staging.acme.example.com/api/health reports build old999, expected abc123\n",
+    );
+  });
+});
+
+describe("turbo-vibe smoke with a malformed health body", () => {
+  it("reports no build rather than an unreachable service", async () => {
+    const fetch = vi.fn(async (input: string | URL | Request) =>
+      String(input).endsWith("/api/health")
+        ? new Response("OK", { headers: { "content-type": "text/plain" } })
+        : new Response("abc123"),
+    );
+    const { code, stderr } = await run(
+      ["smoke", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": project },
+      {},
+      undefined,
+      fetch,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "FAIL api: https://staging.acme.example.com/api/health reports build (none), expected abc123\n",
+    );
+  });
+});
+
+describe("turbo-vibe test", () => {
+  it("runs each service's test command in the config's directory", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code, cwd } = await run(
+      ["test"],
+      { "turbo-vibe.yaml": project },
+      {},
+      runner,
+    );
+    expect(code).toBe(0);
+    expect(runner.mock.calls).toEqual([
+      ["sh", ["-c", "go test ./..."], { cwd, env: {} }],
+      ["sh", ["-c", "pnpm test"], { cwd, env: {} }],
+    ]);
+  });
+
+  it("stops at the first failing test command", async () => {
+    const runner = vi.fn<Runner>(async () => 1);
+    const { code, stderr } = await run(
+      ["test"],
+      { "turbo-vibe.yaml": project },
+      {},
+      runner,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe("test api failed with exit code 1\n");
+    expect(runner).toHaveBeenCalledTimes(1);
   });
 });

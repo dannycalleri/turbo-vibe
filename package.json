@@ -21,7 +21,9 @@
     "validate:infra": "make validate-infra"
   },
   "dependencies": {
+    "@cloudflare/containers": "0.3.7",
     "commander": "15.0.0",
+    "wrangler": "4.148.0",
     "yaml": "2.9.1",
     "zod": "4.6.5"
   },
@@ -35,6 +37,9 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
+    ],
+    "ignoredBuiltDependencies": [
+      "workerd"
     ]
   },
   "packageManager": "pnpm@10.26.2"

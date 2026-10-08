@@ -4,6 +4,8 @@ import type {
   Service,
   ServiceKind,
 } from "../config/schema.js";
+import type { Io } from "../io.js";
+import type { SmokeResult } from "../smoke.js";
 
 export interface ServiceContext {
   config: Config;
@@ -11,6 +13,19 @@ export interface ServiceContext {
   service: Service;
   environment: EnvironmentName;
   hostname: string;
+}
+
+export interface DeployContext extends ServiceContext {
+  buildId: string;
+  dryRun: boolean;
+  configDir: string;
+  workDir: string;
+  io: Io;
+}
+
+export interface SmokeContext extends ServiceContext {
+  buildId: string;
+  io: Io;
 }
 
 export interface CloudflareInputs {
@@ -29,4 +44,6 @@ export interface Adapter {
   secrets: readonly string[];
   outputs: readonly string[];
   plan(context: ServiceContext): Infrastructure;
+  deploy(context: DeployContext): Promise<number>;
+  smoke(context: SmokeContext): Promise<SmokeResult>;
 }

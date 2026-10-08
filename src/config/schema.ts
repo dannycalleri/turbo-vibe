@@ -24,6 +24,27 @@ const backend = z.strictObject({
     context: z.string().min(1).optional(),
     test: z.string().min(1).optional(),
   }),
+  container: z
+    .strictObject({
+      instance_type: z
+        .enum([
+          "lite",
+          "basic",
+          "standard-1",
+          "standard-2",
+          "standard-3",
+          "standard-4",
+        ])
+        .optional(),
+      sleep_after: z
+        .string()
+        .regex(
+          /^[1-9][0-9]*(s|m|h)$/,
+          "must be a duration such as 30s, 5m, or 1h",
+        )
+        .optional(),
+    })
+    .optional(),
 });
 
 const frontend = z.strictObject({

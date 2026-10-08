@@ -108,6 +108,23 @@ describe("parseConfig", () => {
     ]);
   });
 
+  it("accepts container settings and rejects an invalid idle time", () => {
+    const withContainer = valid.replace(
+      '    build: { dockerfile: Dockerfile, test: "make check" }\n',
+      '    build: { dockerfile: Dockerfile, test: "make check" }\n    container: { instance_type: basic, sleep_after: 10m }\n',
+    );
+    expect(parseConfig(withContainer).ok).toBe(true);
+    expect(
+      problems(withContainer.replace("sleep_after: 10m", "sleep_after: soon")),
+    ).toEqual([
+      {
+        line: 9,
+        message:
+          "`services.api.container.sleep_after` must be a duration such as 30s, 5m, or 1h",
+      },
+    ]);
+  });
+
   it("names the service, the target, and the available targets for an unknown target", () => {
     expect(
       problems(valid.replace("target: cloudflare-container", "target: heroku")),

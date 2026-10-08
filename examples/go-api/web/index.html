@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>turbo-vibe example</title>
+  </head>
+  <body>
+    <h1>turbo-vibe example</h1>
+    <p>Page build: <code id="page">__BUILD_ID__</code></p>
+    <p>API build: <code id="api">loading…</code></p>
+    <script>
+      fetch("/api/health", { cache: "no-store" })
+        .then((response) => response.json())
+        .then((body) => { document.getElementById("api").textContent = body.build_id; })
+        .catch((error) => { document.getElementById("api").textContent = `unavailable (${error.message})`; });
+    </script>
+  </body>
+</html>

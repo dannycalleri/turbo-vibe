@@ -26,3 +26,11 @@ validate-infra:
 		else tofu="docker run --rm -v $$tmp/$$module:/module -w /module $(TOFU_IMAGE)"; fi; \
 		(cd "$$tmp/$$module" && $$tofu init -backend=false -input=false >/dev/null && $$tofu validate) || exit 1; \
 	done
+
+.PHONY: integration dry-run-example
+integration: validate-infra dry-run-example
+
+dry-run-example: build
+	@tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/turbo-vibe-dry-run.XXXXXX"); trap 'rm -rf "$$tmp"' EXIT; \
+	cd "$$tmp" && node $(CURDIR)/dist/cli.js --config $(CURDIR)/examples/go-api/turbo-vibe.yaml \
+		deploy --env staging --build-id dry-run --dry-run

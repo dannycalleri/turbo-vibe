@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import { requiredSecrets, rootModule } from "./infrastructure.js";
-import type { Io } from "./main.js";
+import type { Io } from "./io.js";
 
 export async function apply(
   config: Config,
