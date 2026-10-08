@@ -1,11 +1,14 @@
 import { cloudflareContainer, cloudflareStatic } from "./cloudflare.js";
 import { supabase } from "./supabase.js";
 import type { Adapter } from "./types.js";
-import { vercelStatic } from "./vercel.js";
+import { vercelNextjs, vercelStatic } from "./vercel.js";
 import { workos } from "./workos.js";
 
 export type TargetCatalog = Readonly<
-  Record<string, Pick<Adapter, "kind" | "hostsStaticAssets">>
+  Record<
+    string,
+    Pick<Adapter, "kind" | "hostsStaticAssets" | "buildsOwnOutput">
+  >
 >;
 
 export const adapters: Readonly<Record<string, Adapter>> = {
@@ -14,6 +17,7 @@ export const adapters: Readonly<Record<string, Adapter>> = {
   [supabase.target]: supabase,
   [workos.target]: workos,
   [vercelStatic.target]: vercelStatic,
+  [vercelNextjs.target]: vercelNextjs,
 };
 
 export function adapterFor(target: string): Adapter {

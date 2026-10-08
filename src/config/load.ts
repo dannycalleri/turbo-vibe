@@ -167,6 +167,30 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
     }
   }
 
+  for (const [name, service] of Object.entries(config.services)) {
+    const target = catalog[service.target];
+    if (service.kind !== "frontend" || !target) continue;
+    const field = (key: string) => `\`services.${name}.build.${key}\``;
+    if (!target.buildsOwnOutput && !service.build.output) {
+      problems.push({
+        path: ["services", name, "build"],
+        message: `missing required field ${field("output")} for target ${service.target}`,
+      });
+    }
+    if (!target.buildsOwnOutput && service.build.root) {
+      problems.push({
+        path: ["services", name, "build", "root"],
+        message: `${field("root")} applies only to targets that build their own output, not ${service.target}`,
+      });
+    }
+    if (target.buildsOwnOutput && service.build.output) {
+      problems.push({
+        path: ["services", name, "build", "output"],
+        message: `${field("output")} does not apply to ${service.target}, which builds its own output`,
+      });
+    }
+  }
+
   for (const kind of ["database", "identity"] as const) {
     const services = Object.entries(config.services).filter(
       ([, service]) => service.kind === kind,

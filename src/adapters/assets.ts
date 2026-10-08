@@ -4,20 +4,15 @@ import type { Outputs } from "../builds.js";
 import type { DeployContext } from "./types.js";
 import { buildIdPath } from "./wrangler.js";
 
-type FrontendBuild = Extract<
-  DeployContext["service"],
-  { kind: "frontend" }
->["build"];
-
-export async function frontendAssets(
+export async function recordedOrBuilt(
   context: DeployContext,
-  build: FrontendBuild,
+  build: () => Promise<string | number>,
 ): Promise<{ dir: string; outputs?: Outputs } | number> {
   if (context.recorded) {
     const dir = await restoreAssets(context, context.recorded);
     return typeof dir === "number" ? dir : { dir };
   }
-  const dir = await buildAssets(context, build);
+  const dir = await build();
   if (typeof dir === "number" || !context.store)
     return typeof dir === "number" ? dir : { dir };
   const archived = await archiveAssets(context, dir, context.store);
@@ -26,18 +21,36 @@ export async function frontendAssets(
     : { dir, outputs: { assets: archived } };
 }
 
-async function buildAssets(
+export function runBuildCommand(
   context: DeployContext,
-  build: FrontendBuild,
-): Promise<string | number> {
-  const built = await context.io.run("sh", ["-c", build.command], {
-    cwd: context.configDir,
+  command: string,
+  cwd: string,
+): Promise<number> {
+  return context.io.run("sh", ["-c", command], {
+    cwd,
     env: { ...context.buildEnv, BUILD_ID: context.buildId },
   });
-  if (built !== 0) return built;
-  const output = resolve(context.configDir, build.output);
-  await mkdir(join(output, dirname(buildIdPath)), { recursive: true });
-  await writeFile(join(output, buildIdPath), context.buildId);
+}
+
+export async function stampBuildId(
+  dir: string,
+  buildId: string,
+): Promise<void> {
+  await mkdir(join(dir, dirname(buildIdPath)), { recursive: true });
+  await writeFile(join(dir, buildIdPath), buildId);
+}
+
+export async function staticBuild(
+  context: DeployContext,
+): Promise<string | number> {
+  const { service, configDir } = context;
+  if (service.kind !== "frontend" || !service.build.output) {
+    throw new Error(`${context.name} has no build output`);
+  }
+  const code = await runBuildCommand(context, service.build.command, configDir);
+  if (code !== 0) return code;
+  const output = resolve(configDir, service.build.output);
+  await stampBuildId(output, context.buildId);
   return output;
 }
 

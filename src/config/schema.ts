@@ -56,7 +56,8 @@ const frontend = z.strictObject({
   serve_with: name.optional(),
   build: z.strictObject({
     command: z.string().min(1),
-    output: z.string().min(1),
+    output: z.string().min(1).optional(),
+    root: z.string().min(1).optional(),
     test: z.string().min(1).optional(),
   }),
 });

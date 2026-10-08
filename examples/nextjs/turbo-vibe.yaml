@@ -1,0 +1,11 @@
+version: 1
+project: tv-next
+domain: next-example.turbovibe.ai
+environments:
+  staging: { hostname: staging-next-example.turbovibe.ai }
+services:
+  web:
+    kind: frontend
+    target: vercel-nextjs
+    build:
+      command: npm ci

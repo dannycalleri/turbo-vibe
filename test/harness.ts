@@ -1,6 +1,6 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { vi } from "vitest";
 import type { Io } from "../src/io.js";
 import { main } from "../src/main.js";
@@ -13,9 +13,11 @@ export async function run(
   runner: Runner = vi.fn(async () => 0),
   fetch: typeof globalThis.fetch = vi.fn(async () => new Response("unused")),
   overrides: Partial<Io> = {},
+  nested: Record<string, string> = {},
 ) {
   const cwd = await mkdtemp(join(tmpdir(), "turbo-vibe-"));
-  for (const [name, content] of Object.entries(files)) {
+  for (const [name, content] of Object.entries({ ...files, ...nested })) {
+    await mkdir(dirname(join(cwd, name)), { recursive: true });
     await writeFile(join(cwd, name), content);
   }
   let stdout = "";
@@ -131,11 +133,12 @@ export function runner(
   overrides: (
     command: string,
     args: readonly string[],
+    options: Parameters<Runner>[2],
   ) => number | undefined | Promise<number | undefined> = () => undefined,
 ) {
-  return vi.fn<Runner>(async (command, args) => {
+  return vi.fn<Runner>(async (command, args, options) => {
     if (command === "tar" && args[0] === "-czf")
       await writeFile(args[1] as string, "archive");
-    return (await overrides(command, args)) ?? 0;
+    return (await overrides(command, args, options)) ?? 0;
   });
 }

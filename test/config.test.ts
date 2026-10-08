@@ -158,6 +158,42 @@ describe("parseConfig", () => {
     ]);
   });
 
+  it("needs a static frontend's output directory, but not a Next.js app's", () => {
+    const frontend = (target: string) =>
+      `version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  web:\n    kind: frontend\n    target: ${target}\n    build: { command: "npm ci" }\n`;
+    expect(problems(frontend("vercel-static"))).toEqual([
+      {
+        line: 8,
+        message:
+          "missing required field `services.web.build.output` for target vercel-static",
+      },
+    ]);
+    expect(parseConfig(frontend("vercel-nextjs")).ok).toBe(true);
+  });
+
+  it("rejects build settings a target would ignore", () => {
+    const frontend = (target: string, build: string) =>
+      `version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  web:\n    kind: frontend\n    target: ${target}\n    build:\n      command: npm ci\n${build}`;
+    expect(
+      problems(
+        frontend("vercel-static", "      output: dist\n      root: web\n"),
+      ),
+    ).toEqual([
+      {
+        line: 11,
+        message:
+          "`services.web.build.root` applies only to targets that build their own output, not vercel-static",
+      },
+    ]);
+    expect(problems(frontend("vercel-nextjs", "      output: out\n"))).toEqual([
+      {
+        line: 10,
+        message:
+          "`services.web.build.output` does not apply to vercel-nextjs, which builds its own output",
+      },
+    ]);
+  });
+
   it("allows at most one identity service", () => {
     const identity = (name: string) =>
       `  ${name}:\n    kind: identity\n    target: workos\n`;
@@ -215,7 +251,7 @@ describe("parseConfig", () => {
       {
         line: 7,
         message:
-          "service `api` names unknown target `heroku`; available targets: cloudflare-container, cloudflare-static, supabase, workos, vercel-static",
+          "service `api` names unknown target `heroku`; available targets: cloudflare-container, cloudflare-static, supabase, workos, vercel-static, vercel-nextjs",
       },
     ]);
   });

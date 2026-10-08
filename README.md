@@ -98,6 +98,21 @@ environments:
 
 `examples/vercel-static` deploys the example's page to Vercel and its API to Cloudflare.
 
+## Next.js on Vercel
+
+A `vercel-nextjs` frontend is built in CI with `vercel build --prod`, which uses Vercel's build output format. Server-rendered pages and route handlers become Vercel functions. The kit ships that output prebuilt, records it, and promotes the same output to production without building again.
+
+```yaml
+  web:
+    kind: frontend
+    target: vercel-nextjs
+    build:
+      command: npm ci      # runs in root before `vercel build`
+      root: web            # the Next.js app; defaults to the config's directory
+```
+
+The build receives `BUILD_ID` and no kit credentials. To show it on a page, inline it at build time, as `examples/nextjs/next.config.mjs` does. A value read at request time would describe the environment, not the build. The kit adds `/_turbo-vibe/build-id` to the output for `smoke`. During the build it puts a temporary `.vercel/project.json` in `root`, and restores yours afterwards if you have run `vercel link` there. With a backend in the project, the app gets `TURBO_VIBE_API_URL` as a Vercel environment variable at runtime, as `vercel-static` does.
+
 ## Sign-in
 
 A `workos` identity service registers each environment's callback as a WorkOS redirect URI, in the WorkOS environment whose key the run uses: the staging key for staging, the production key for production.

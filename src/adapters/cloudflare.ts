@@ -1,7 +1,7 @@
 import { rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { checkBuildId } from "../smoke.js";
-import { frontendAssets } from "./assets.js";
+import { recordedOrBuilt, staticBuild } from "./assets.js";
 import type { Adapter, DeployContext, ServiceContext } from "./types.js";
 import {
   buildIdPath,
@@ -189,7 +189,7 @@ export const cloudflareStatic: Adapter = {
     const { service } = context;
     if (service.kind !== "frontend")
       throw new Error(`${context.name} is not a frontend`);
-    const assets = await frontendAssets(context, service.build);
+    const assets = await recordedOrBuilt(context, () => staticBuild(context));
     if (typeof assets === "number") return { code: assets };
     const result = {
       assetsDir: assets.dir,

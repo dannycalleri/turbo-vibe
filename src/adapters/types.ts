@@ -80,6 +80,7 @@ export interface Adapter {
   kind: ServiceKind;
   hostsStaticAssets: boolean;
   readsOutputs?: boolean;
+  buildsOwnOutput?: boolean;
   crossOrigin?: boolean;
   secrets: readonly string[];
   outputs: readonly string[];
