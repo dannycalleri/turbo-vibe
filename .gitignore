@@ -1,0 +1,24 @@
+# Specs live in the private OpenSpec store `turbo-vibe`
+openspec/
+.claude/skills/openspec-*/
+.claude/commands/opsx/
+CLAUDE.local.md
+
+# Node
+node_modules/
+dist/
+coverage/
+
+# Platform CLIs and OpenTofu
+.wrangler/
+.vercel/
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+.DS_Store
