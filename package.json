@@ -1,0 +1,39 @@
+{
+  "name": "@turbo-vibe/cli",
+  "version": "0.0.0",
+  "description": "Deploy any project from one config file.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "turbo-vibe": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "check": "make check"
+  },
+  "dependencies": {
+    "commander": "15.0.0",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "26.6.4",
+    "tsup": "8.5.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "packageManager": "pnpm@10.26.2"
+}
