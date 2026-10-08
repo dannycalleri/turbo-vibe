@@ -30,6 +30,19 @@ describe("the reusable workflow", () => {
   });
 });
 
+describe("the staging job", () => {
+  it("migrates after apply and before deploy, so a failed migration ships nothing", async () => {
+    const { steps } = (await workflow("deploy.yml")).jobs.staging;
+    const commands = steps
+      .map(
+        (step: { run?: string }) =>
+          step.run?.match(/turbo-vibe .* (\w+) --env/)?.[1],
+      )
+      .filter(Boolean);
+    expect(commands).toEqual(["apply", "migrate", "deploy", "smoke"]);
+  });
+});
+
 describe("workflows", () => {
   it("never run pull-request code with secrets through pull_request_target", async () => {
     const dir = new URL(".github/workflows/", root);

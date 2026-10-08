@@ -89,6 +89,13 @@ describe("workerEntry", () => {
     expect(entry).not.toContain("containerFetch");
   });
 
+  it("passes the named secrets from the Worker to the container", () => {
+    expect(workerEntry(backend, ["DATABASE_URL"])).toContain(
+      'this.envVars = { PORT: "8080", DATABASE_URL: env.DATABASE_URL };',
+    );
+    expect(workerEntry(backend)).toContain('this.envVars = { PORT: "8080" };');
+  });
+
   it("sleeps after the configured idle time, five minutes by default", () => {
     expect(workerEntry(backend)).toContain('sleepAfter = "5m"');
     expect(

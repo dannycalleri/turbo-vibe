@@ -122,3 +122,24 @@ export function readiness(
     message: `Supabase project ${ref} is not ready (status ${status ?? "unknown"})`,
   };
 }
+
+export function runtimeUrl(connection: Connection): string | undefined {
+  const endpoint = sessionEndpoint(connection);
+  return (
+    endpoint &&
+    connectionUrl(endpoint, runtimeRole, connection.runtime_password)
+  );
+}
+
+const transactionPort = 6543;
+
+export function transactionPoolerProblem(url: string): string | undefined {
+  const parsed = new URL(url);
+  if (
+    Number(parsed.port) === transactionPort ||
+    parsed.searchParams.get("pgbouncer") === "true"
+  ) {
+    return `the runtime connection to ${parsed.hostname} uses the transaction pooler; backends must use the session pooler (port ${sessionPort})`;
+  }
+  return undefined;
+}

@@ -136,6 +136,18 @@ describe("parseConfig", () => {
     ]);
   });
 
+  it("allows at most one database", () => {
+    const db = (name: string) =>
+      `  ${name}:\n    kind: database\n    target: supabase\n    organization: acme\n    region: eu-central-1\n`;
+    expect(problems(valid + db("db") + db("analytics"))).toEqual([
+      {
+        line: 19,
+        message:
+          "service `analytics` is a second database; a project has at most one (`db`)",
+      },
+    ]);
+  });
+
   it("rejects staging as a branch on a free Supabase plan", () => {
     const db = `  db:\n    kind: database\n    target: supabase\n    organization: acme\n    region: eu-central-1\n    staging: branch\n`;
     expect(problems(valid + db)).toEqual([

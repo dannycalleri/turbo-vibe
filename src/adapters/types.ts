@@ -17,6 +17,8 @@ export interface ServiceContext {
 
 export interface DeployContext extends ServiceContext {
   buildId: string;
+  secretNames: readonly string[];
+  secrets: Readonly<Record<string, string>>;
   dryRun: boolean;
   configDir: string;
   workDir: string;

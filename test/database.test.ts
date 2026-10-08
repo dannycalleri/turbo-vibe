@@ -5,8 +5,10 @@ import {
   type Endpoint,
   readiness,
   roleStatements,
+  runtimeUrl,
   scramVerifier,
   sessionEndpoint,
+  transactionPoolerProblem,
 } from "../src/database.js";
 
 const connection = {
@@ -136,5 +138,28 @@ describe("scramVerifier", () => {
     expect(scramVerifier("secret", salt)).toBe(
       `SCRAM-SHA-256$4096:${salt.toString("base64")}$${storedKey}:${serverKey}`,
     );
+  });
+});
+
+describe("runtime connection", () => {
+  it("connects the runtime role through the session pooler", () => {
+    expect(runtimeUrl(connection)).toBe(
+      "postgresql://turbo_vibe_runtime.abcdefghij:r@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require",
+    );
+  });
+
+  it.each([
+    "postgresql://u:p@aws-0-eu-central-1.pooler.supabase.com:6543/postgres",
+    "postgresql://u:p@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?pgbouncer=true",
+  ])("rejects a transaction-pooler URL: %s", (url) => {
+    expect(transactionPoolerProblem(url)).toBe(
+      "the runtime connection to aws-0-eu-central-1.pooler.supabase.com uses the transaction pooler; backends must use the session pooler (port 5432)",
+    );
+  });
+
+  it("accepts a session-pooler URL", () => {
+    expect(
+      transactionPoolerProblem(runtimeUrl(connection) as string),
+    ).toBeUndefined();
   });
 });

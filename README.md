@@ -15,7 +15,7 @@ npx @turbo-vibe/cli smoke --env staging --build-id "$(git rev-parse --short HEAD
 
 ## What a backend must do
 
-A `cloudflare-container` backend listens on port 8080 (also given as `PORT`) and answers `GET /api/health` with JSON containing `build_id`. The kit passes the build ID to `docker build` as the build argument `BUILD_ID`; the Dockerfile's final stage turns it into the environment variable the app reports:
+A `cloudflare-container` backend listens on port 8080 (also given as `PORT`), reads its database, if the project has one, from `DATABASE_URL`, and answers `GET /api/health` with JSON containing `build_id`. The kit passes the build ID to `docker build` as the build argument `BUILD_ID`; the Dockerfile's final stage turns it into the environment variable the app reports:
 
 ```dockerfile
 ARG BUILD_ID
@@ -39,11 +39,11 @@ A `supabase` database gets its own Supabase project per environment, with the Da
     workdir: .                    # the directory holding supabase/migrations
 ```
 
-`migrate` creates two roles in each database: `turbo_vibe_migrator`, which owns the schema and runs `supabase db push`, and `turbo_vibe_runtime`, which can read and write rows but cannot change the schema. Both connect through the Supabase session pooler (IPv4). A paused free-plan project is reported as paused. A failed migration stops the run before anything deploys. Write migrations forward-only, expand then contract, so the previous backend keeps working while the new one deploys.
+`migrate` creates two roles in each database: `turbo_vibe_migrator`, which owns the schema and runs `supabase db push`, and `turbo_vibe_runtime`, which can read and write rows but cannot change the schema. Both connect through the Supabase session pooler (IPv4). A paused free-plan project is reported as paused. A failed migration stops the run before anything deploys. `deploy` gives every backend the runtime role's connection as the secret environment variable `DATABASE_URL` (session pooler, never the transaction pooler); it reads it from the environment's OpenTofu state, so a project with a database needs the state variables for `deploy` too. Write migrations forward-only, expand then contract, so the previous backend keeps working while the new one deploys.
 
 ## Credentials
 
-`apply` and `deploy` read these environment variables and stop, naming any that are missing, before they run anything (`deploy` needs only the `CLOUDFLARE_*` ones):
+`apply` and `deploy` read these environment variables and stop, naming any that are missing, before they run anything (`deploy` needs the `CLOUDFLARE_*` ones, plus the state ones when the project has a database):
 
 | Variable | What it is |
 |---|---|

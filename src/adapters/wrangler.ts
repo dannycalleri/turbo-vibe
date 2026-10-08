@@ -19,15 +19,24 @@ const containersModule = fileURLToPath(
 export const compatibilityDate = "2026-10-01";
 export const buildIdPath = "/_turbo-vibe/build-id";
 
-export function workerEntry(backend: Backend): string {
+export function workerEntry(
+  backend: Backend,
+  secretNames: readonly string[] = [],
+): string {
   const sleepAfter = backend.container?.sleep_after ?? "5m";
+  const forwarded = secretNames
+    .map((name) => `, ${name}: env.${name}`)
+    .join("");
   return `import { Container, getContainer } from ${JSON.stringify(containersModule)};
 
 export class Backend extends Container {
   defaultPort = 8080;
   sleepAfter = ${JSON.stringify(sleepAfter)};
 
-  envVars = { PORT: "8080" };
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.envVars = { PORT: "8080"${forwarded} };
+  }
 }
 
 export default {
@@ -40,6 +49,7 @@ export default {
 
 export interface WorkerSpec {
   name: string;
+  secretNames?: readonly string[];
   buildId: string;
   configDir: string;
   backend?: Backend;
@@ -92,7 +102,10 @@ export async function writeWorker(
 ): Promise<string> {
   await mkdir(dir, { recursive: true });
   if (spec.backend)
-    await writeFile(join(dir, "worker.js"), workerEntry(spec.backend));
+    await writeFile(
+      join(dir, "worker.js"),
+      workerEntry(spec.backend, spec.secretNames),
+    );
   const file = join(dir, "wrangler.json");
   await writeFile(file, `${JSON.stringify(wranglerConfig(spec), null, 2)}\n`);
   return file;
@@ -101,6 +114,7 @@ export async function writeWorker(
 export function wranglerDeployArgs(
   configFile: string,
   dryRun: boolean,
+  secretsFile?: string,
 ): string[] {
   return [
     wranglerBin,
@@ -108,5 +122,6 @@ export function wranglerDeployArgs(
     "--config",
     configFile,
     ...(dryRun ? ["--dry-run"] : []),
+    ...(secretsFile ? ["--secrets-file", secretsFile] : []),
   ];
 }

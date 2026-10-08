@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { checkBuildId } from "../smoke.js";
 import type { Adapter, DeployContext, ServiceContext } from "./types.js";
@@ -27,15 +27,24 @@ function servedFrontend({ config, name }: ServiceContext) {
 async function wranglerDeploy(
   context: DeployContext,
   file: string,
+  secrets: Readonly<Record<string, string>> = {},
 ): Promise<number> {
-  return context.io.run(
-    process.execPath,
-    wranglerDeployArgs(file, context.dryRun),
-    {
-      cwd: dirname(file),
-      env: context.io.env,
-    },
-  );
+  const secretsFile =
+    !context.dryRun && Object.keys(secrets).length > 0
+      ? join(dirname(file), "secrets.json")
+      : undefined;
+  if (secretsFile) {
+    await writeFile(secretsFile, JSON.stringify(secrets), { mode: 0o600 });
+  }
+  try {
+    return await context.io.run(
+      process.execPath,
+      wranglerDeployArgs(file, context.dryRun, secretsFile),
+      { cwd: dirname(file), env: context.io.env },
+    );
+  } finally {
+    if (secretsFile) await rm(secretsFile, { force: true });
+  }
 }
 
 export const cloudflareContainer: Adapter = {
@@ -65,11 +74,12 @@ export const cloudflareContainer: Adapter = {
       buildId: context.buildId,
       configDir: context.configDir,
       backend: context.service,
+      secretNames: context.secretNames,
       ...(frontend?.kind === "frontend"
         ? { assets: resolve(context.configDir, frontend.build.output) }
         : {}),
     });
-    return wranglerDeploy(context, file);
+    return wranglerDeploy(context, file, context.secrets);
   },
   smoke(context) {
     return checkBuildId(

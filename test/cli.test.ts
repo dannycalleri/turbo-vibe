@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -362,23 +362,87 @@ describe("a project with a database", () => {
     organization: acme-org
     region: eu-central-1
 `;
+  const env = {
+    CLOUDFLARE_API_TOKEN: "t",
+    CLOUDFLARE_ACCOUNT_ID: "acc123",
+    CLOUDFLARE_ZONE_ID: "z",
+    TURBO_VIBE_STATE_BUCKET: "tv-state",
+    AWS_ACCESS_KEY_ID: "key-id",
+    AWS_SECRET_ACCESS_KEY: "s3cr3t-key",
+  };
+  const connection = (poolerUrl: string) =>
+    JSON.stringify({
+      supabase_db_connection: {
+        value: {
+          project_ref: "abcdefghij",
+          pooler_urls: { transaction: poolerUrl },
+          postgres_password: "pgpw",
+          migrator_password: "migpw",
+          runtime_password: "runpw",
+        },
+        sensitive: true,
+      },
+    });
+  const pooler =
+    "postgresql://postgres.abcdefghij:[YOUR-PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:6543/postgres";
 
-  it("deploys and smoke-checks only the services that ship builds", async () => {
-    const runner = vi.fn<Runner>(async () => 0);
-    const deployed = await run(
+  it("gives backends the runtime role's session-pooler connection as a secret, then removes the file", async () => {
+    const uploaded: unknown[] = [];
+    const runner = vi.fn<Runner>(async (_command, args) => {
+      const index = args.indexOf("--secrets-file");
+      if (index >= 0) {
+        const file = args[index + 1] as string;
+        uploaded.push(JSON.parse(await readFile(file, "utf8")));
+        expect((await stat(file)).mode & 0o777).toBe(0o600);
+      }
+      return 0;
+    });
+    const { code, cwd, stdout, stderr } = await run(
       ["deploy", "--env", "staging", "--build-id", "abc123"],
       { "turbo-vibe.yaml": withDb },
+      env,
+      runner,
+      undefined,
+      { capture: async () => ({ code: 0, stdout: connection(pooler) }) },
+    );
+    expect(code).toBe(0);
+    expect(stdout).not.toContain("deploy db");
+    expect(stderr).not.toContain("SUPABASE_ACCESS_TOKEN");
+    expect(uploaded).toEqual([
       {
-        CLOUDFLARE_API_TOKEN: "t",
-        CLOUDFLARE_ACCOUNT_ID: "a",
-        CLOUDFLARE_ZONE_ID: "z",
+        DATABASE_URL:
+          "postgresql://turbo_vibe_runtime.abcdefghij:runpw@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require",
       },
+    ]);
+    const workerDir = join(
+      cwd,
+      ".turbo-vibe",
+      "wrangler",
+      "staging",
+      "acme-api-staging",
+    );
+    await expect(stat(join(workerDir, "secrets.json"))).rejects.toThrow();
+    expect(await readFile(join(workerDir, "worker.js"), "utf8")).toContain(
+      "DATABASE_URL: env.DATABASE_URL",
+    );
+    expect(stdout + stderr).not.toContain("runpw");
+  });
+
+  it("needs no state credentials or outputs for a dry run", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code } = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123", "--dry-run"],
+      { "turbo-vibe.yaml": withDb },
+      {},
       runner,
     );
-    expect(deployed.code).toBe(0);
-    expect(deployed.stdout).not.toContain("deploy db");
-    expect(deployed.stderr).not.toContain("SUPABASE_ACCESS_TOKEN");
+    expect(code).toBe(0);
+    expect(runner.mock.calls.some(([command]) => command === "tofu")).toBe(
+      false,
+    );
+  });
 
+  it("smoke-checks only the services that ship builds", async () => {
     const fetch = vi.fn(async (input: string | URL | Request) =>
       String(input).endsWith("/api/health")
         ? Response.json({ build_id: "abc123" })

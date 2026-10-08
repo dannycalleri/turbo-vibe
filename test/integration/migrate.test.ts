@@ -143,6 +143,33 @@ describe("migrate against Postgres", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("applies the example app's migration, whose row the runtime role can read", async () => {
+    const example = new URL("../../examples/go-api", import.meta.url).pathname;
+    const fresh = `example_${Date.now()}`;
+    await as(
+      "postgres",
+      passwords.postgres_password,
+      `CREATE DATABASE ${fresh} OWNER ${admin.role}`,
+    );
+    const original = endpoint;
+    endpoint = { ...endpoint, database: fresh };
+    try {
+      expect(await migrateAsAdmin(example)).toBe(0);
+      const session = postgresSession(
+        connectionUrl(endpoint, runtimeRole, passwords.runtime_password),
+      );
+      try {
+        await session.execute(
+          "DO $$ BEGIN IF NOT EXISTS (SELECT FROM greeting WHERE id = 1 AND message = 'hello from postgres') THEN RAISE EXCEPTION 'greeting row missing'; END IF; END $$",
+        );
+      } finally {
+        await session.end();
+      }
+    } finally {
+      endpoint = original;
+    }
+  });
+
   it("is safe to run again with nothing new", async () => {
     const dir = await workdir({
       "20261008000000_greeting.sql":
