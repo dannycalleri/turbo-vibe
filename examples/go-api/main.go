@@ -60,5 +60,12 @@ func main() {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /api/health", healthHandler(os.Getenv("BUILD_ID"), readGreeting))
+	if clientID := os.Getenv("WORKOS_CLIENT_ID"); clientID != "" {
+		apiBase := os.Getenv("WORKOS_API_BASE")
+		if apiBase == "" {
+			apiBase = "https://api.workos.com"
+		}
+		newAuth(clientID, os.Getenv("WORKOS_API_KEY"), os.Getenv("WORKOS_REDIRECT_URI"), apiBase).routes(mux)
+	}
 	log.Fatal(http.ListenAndServe(":"+port, mux))
 }

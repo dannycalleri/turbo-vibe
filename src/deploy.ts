@@ -1,6 +1,7 @@
 import { join } from "node:path";
-import { adapterFor } from "./adapters/index.js";
+import { adapterFor, adapters } from "./adapters/index.js";
 import type { ServiceContext } from "./adapters/types.js";
+import { callbackUrl } from "./adapters/workos.js";
 import { readOutputs } from "./apply.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import {
@@ -37,8 +38,19 @@ function database(config: Config): string | undefined {
   )?.[0];
 }
 
+function hasIdentity(config: Config): boolean {
+  return Object.values(config.services).some(
+    (service) => service.kind === "identity",
+  );
+}
+
+const identitySecrets = ["WORKOS_CLIENT_ID", "WORKOS_API_KEY"] as const;
+
 export function runtimeSecretNames(config: Config): string[] {
-  return database(config) ? ["DATABASE_URL"] : [];
+  return [
+    ...(database(config) ? ["DATABASE_URL"] : []),
+    ...(hasIdentity(config) ? [...identitySecrets, "WORKOS_REDIRECT_URI"] : []),
+  ];
 }
 
 async function runtimeSecrets(
@@ -46,8 +58,14 @@ async function runtimeSecrets(
   environment: EnvironmentName,
   io: Io,
 ): Promise<Record<string, string> | undefined> {
+  const secrets: Record<string, string> = {};
+  const redirectUri = callbackUrl(config, environment);
+  if (redirectUri) {
+    for (const name of identitySecrets) secrets[name] = io.env[name] ?? "";
+    secrets.WORKOS_REDIRECT_URI = redirectUri;
+  }
   const name = database(config);
-  if (!name) return {};
+  if (!name) return secrets;
   const outputs = await readOutputs(config, environment, io);
   const connection = outputs?.[`supabase_${name}_connection`] as
     | Connection
@@ -64,11 +82,28 @@ async function runtimeSecrets(
     io.stderr(`${problem}\n`);
     return undefined;
   }
-  return { DATABASE_URL: url };
+  secrets.DATABASE_URL = url;
+  return secrets;
+}
+
+// A frontend build bakes whatever it reads into public files, so it never sees a credential.
+function withoutCredentials(
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string | undefined> {
+  const credentials = new Set<string>([
+    ...stateSecrets,
+    ...Object.values(adapters).flatMap((adapter) => adapter.secrets),
+  ]);
+  return Object.fromEntries(
+    Object.entries(env).filter(([name]) => !credentials.has(name)),
+  );
 }
 
 function missingSecrets(config: Config, io: Io): string[] {
-  const names = new Set<string>(database(config) ? stateSecrets : []);
+  const names = new Set<string>([
+    ...(database(config) ? stateSecrets : []),
+    ...(hasIdentity(config) ? identitySecrets : []),
+  ]);
   for (const service of Object.values(config.services)) {
     const adapter = adapterFor(service.target);
     if (!adapter.deploy) continue;
@@ -108,6 +143,7 @@ export async function deploy(
       buildId,
       secretNames: runtimeSecretNames(config),
       secrets,
+      buildEnv: withoutCredentials(io.env),
       dryRun,
       configDir,
       workDir,

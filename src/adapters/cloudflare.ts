@@ -123,7 +123,7 @@ export const cloudflareStatic: Adapter = {
       throw new Error(`${context.name} is not a frontend`);
     const built = await io.run("sh", ["-c", service.build.command], {
       cwd: configDir,
-      env: { ...io.env, BUILD_ID: context.buildId },
+      env: { ...context.buildEnv, BUILD_ID: context.buildId },
     });
     if (built !== 0) return built;
 

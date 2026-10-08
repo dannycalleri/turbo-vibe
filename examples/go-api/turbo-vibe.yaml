@@ -26,3 +26,6 @@ services:
     organization: your-supabase-org-slug
     region: eu-central-1
     plan: free
+  auth:
+    kind: identity
+    target: workos

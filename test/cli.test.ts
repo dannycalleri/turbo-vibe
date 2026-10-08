@@ -182,7 +182,7 @@ describe("turbo-vibe deploy", () => {
     CLOUDFLARE_ZONE_ID: "zone456",
   };
 
-  it("builds the frontend with the build ID, then ships both in the backend's Worker", async () => {
+  it("builds the frontend with the build ID and no credentials, then ships both in the backend's Worker", async () => {
     const runner = vi.fn<Runner>(async () => 0);
     const { code, cwd } = await run(
       ["deploy", "--env", "staging", "--build-id", "abc123"],
@@ -199,11 +199,7 @@ describe("turbo-vibe deploy", () => {
       "acme-api-staging",
     );
     expect(runner.mock.calls).toEqual([
-      [
-        "sh",
-        ["-c", "pnpm build"],
-        { cwd, env: { ...cloudflare, BUILD_ID: "abc123" } },
-      ],
+      ["sh", ["-c", "pnpm build"], { cwd, env: { BUILD_ID: "abc123" } }],
       [
         process.execPath,
         [
@@ -866,5 +862,75 @@ describe("turbo-vibe apply with identity", () => {
     expect(stderr).toBe("WorkOS answered HTTP 401 listing redirect URIs\n");
     expect(runner.mock.calls.map(([, args]) => args[0])).toEqual(["init"]);
     expect(stderr).not.toContain("s3cr3t");
+  });
+});
+
+describe("turbo-vibe deploy with identity", () => {
+  const withAuth = `${project}  auth:
+    kind: identity
+    target: workos
+`;
+  const env = {
+    CLOUDFLARE_API_TOKEN: "t",
+    CLOUDFLARE_ACCOUNT_ID: "acc123",
+    CLOUDFLARE_ZONE_ID: "z",
+    WORKOS_API_KEY: "sk_test_s3cr3t",
+    WORKOS_CLIENT_ID: "client_123",
+  };
+
+  it("gives the backend the WorkOS client ID, key and callback as secrets, and the frontend build none of them", async () => {
+    const uploaded: unknown[] = [];
+    const runner = vi.fn<Runner>(async (_command, args) => {
+      const index = args.indexOf("--secrets-file");
+      if (index >= 0)
+        uploaded.push(
+          JSON.parse(await readFile(args[index + 1] as string, "utf8")),
+        );
+      return 0;
+    });
+    const { code, cwd, stdout, stderr } = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": withAuth },
+      env,
+      runner,
+    );
+    expect(code).toBe(0);
+    expect(uploaded).toEqual([
+      {
+        WORKOS_CLIENT_ID: "client_123",
+        WORKOS_API_KEY: "sk_test_s3cr3t",
+        WORKOS_REDIRECT_URI:
+          "https://staging.acme.example.com/api/auth/callback",
+      },
+    ]);
+    const [, , frontendBuild] = runner.mock.calls[0] ?? [];
+    expect(frontendBuild?.env).toEqual({ BUILD_ID: "abc123" });
+    const worker = await readFile(
+      join(
+        cwd,
+        ".turbo-vibe",
+        "wrangler",
+        "staging",
+        "acme-api-staging",
+        "worker.js",
+      ),
+      "utf8",
+    );
+    expect(worker).toContain("WORKOS_API_KEY: env.WORKOS_API_KEY");
+    expect(worker).not.toContain("sk_test");
+    expect(stdout + stderr).not.toContain("sk_test");
+  });
+
+  it("names the missing WorkOS credentials before building anything", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code, stderr } = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": withAuth },
+      { ...env, WORKOS_API_KEY: "" },
+      runner,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe("missing environment variables: WORKOS_API_KEY\n");
+    expect(runner).not.toHaveBeenCalled();
   });
 });
