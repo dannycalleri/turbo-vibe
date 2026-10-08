@@ -1,0 +1,24 @@
+name: Previews
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  python-example:
+    uses: ./.github/workflows/preview.yml
+    with:
+      config: examples/python-api/turbo-vibe.yaml
+      use-local-cli: true
+    secrets: inherit
+
+  vercel-example:
+    uses: ./.github/workflows/preview.yml
+    with:
+      config: examples/vercel-static/turbo-vibe.yaml
+      use-local-cli: true
+    secrets: inherit

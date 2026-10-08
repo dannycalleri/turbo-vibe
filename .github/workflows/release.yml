@@ -36,6 +36,7 @@ jobs:
           test "$TAG" = "v$version" || { echo "tag $TAG does not match package.json $version"; exit 1; }
           grep -q "@turbo-vibe/cli@$version\"" .github/workflows/deploy.yml
           grep -q "@turbo-vibe/cli@$version\"" .github/workflows/promote.yml
+          grep -q "@turbo-vibe/cli@$version\"" .github/workflows/preview.yml
       - run: pnpm install --frozen-lockfile
       - run: make check validate-infra lint-workflows
       - run: make build

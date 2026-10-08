@@ -140,7 +140,7 @@ describe("the release workflow", () => {
 });
 
 describe("secrets", () => {
-  it("lets both reusable workflows receive every credential an adapter or the state bucket reads", async () => {
+  it("lets every reusable workflow job that deploys receive every credential an adapter or the state bucket reads", async () => {
     const { adapters } = await import("../src/adapters/index.js");
     const { stateSecrets } = await import("../src/infrastructure.js");
     const names = new Set([
@@ -150,6 +150,8 @@ describe("secrets", () => {
     for (const [file, job] of [
       ["deploy.yml", "staging"],
       ["promote.yml", "production"],
+      ["preview.yml", "deploy"],
+      ["preview.yml", "remove"],
     ] as const) {
       const definition = await workflow(file);
       for (const name of names) {
@@ -162,6 +164,74 @@ describe("secrets", () => {
         );
       }
     }
+  });
+});
+
+describe("the preview workflow", () => {
+  const sameRepository =
+    "github.event.pull_request.head.repo.full_name == github.repository";
+
+  it("gives a fork's pull request no preview, says why, and touches no secret", async () => {
+    const { fork } = (await workflow("preview.yml")).jobs;
+    expect(fork.if).toBe(
+      "github.event.pull_request.head.repo.full_name != github.repository",
+    );
+    expect(fork.steps[0].run).toContain(
+      "Previews are only created for pull requests from branches of this repository",
+    );
+    expect(JSON.stringify(fork)).not.toContain("${{ secrets.");
+    expect(fork).not.toHaveProperty("environment");
+  });
+
+  it("deploys a branch's preview while the pull request is open, and removes it when it closes", async () => {
+    const { deploy, remove } = (await workflow("preview.yml")).jobs;
+    expect(deploy.if).toBe(
+      `${sameRepository} && github.event.action != 'closed'`,
+    );
+    expect(remove.if).toBe(
+      `${sameRepository} && github.event.action == 'closed'`,
+    );
+    const runs = (job: { steps: { run?: string }[] }) =>
+      job.steps.map((step) => step.run ?? "").join("\n");
+    expect(runs(deploy)).toContain(
+      'preview deploy --branch "$BRANCH" --build-id "$BUILD_ID"',
+    );
+    expect(runs(deploy)).toContain(
+      'marker="<!-- turbo-vibe-preview:$CONFIG -->"',
+    );
+    expect(runs(deploy)).toContain("select(.body | startswith(env.MARKER))");
+    expect(runs(deploy)).toContain("grep -E '^(preview|no preview):'");
+    expect(runs(deploy)).not.toContain("--edit-last");
+    expect(deploy.concurrency["cancel-in-progress"]).toBe(false);
+    expect(runs(remove)).toContain('preview remove --branch "$BRANCH"');
+    expect(deploy.permissions).toEqual({
+      contents: "read",
+      "pull-requests": "write",
+    });
+  });
+
+  it("runs the same CLI release as the other reusable workflows", async () => {
+    expect((await workflow("preview.yml")).env.TURBO_VIBE_CLI).toBe(
+      (await workflow("deploy.yml")).env.TURBO_VIBE_CLI,
+    );
+  });
+
+  it("is called by the kit for the examples without a database, on every pull request event that matters", async () => {
+    const previews = await workflow("previews.yml");
+    expect(previews.on.pull_request.types).toEqual([
+      "opened",
+      "synchronize",
+      "reopened",
+      "closed",
+    ]);
+    expect(
+      Object.values(previews.jobs).map(
+        (job) => (job as { with: { config: string } }).with.config,
+      ),
+    ).toEqual([
+      "examples/python-api/turbo-vibe.yaml",
+      "examples/vercel-static/turbo-vibe.yaml",
+    ]);
   });
 });
 

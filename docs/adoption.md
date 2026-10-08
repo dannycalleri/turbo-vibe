@@ -97,6 +97,24 @@ Pass `with: { config: path/to/turbo-vibe.yaml }` if the file is not at the root.
 
 Pull requests, including from forks, run the test-and-build job with no secrets. Only pushes to `main` deploy.
 
+To give each pull request its own preview, set `previews: true` in `turbo-vibe.yaml` and add `.github/workflows/previews.yml`:
+
+```yaml
+name: Previews
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  preview:
+    uses: dannycalleri/turbo-vibe/.github/workflows/preview.yml@v1
+    secrets: inherit
+```
+
+A project with a database needs Supabase's paid plan for previews, because each preview gets its own database branch.
+
 ## 4. Create the accounts, tokens, and GitHub environments
 
 Do this once per project. The [bootstrap checklist](bootstrap.md) walks through every step and its cost; this is the short version. The README's [Credentials](../README.md#credentials) table says which command reads each one. When you are done, `npx @turbo-vibe/cli@1 check --env staging` names anything still missing.

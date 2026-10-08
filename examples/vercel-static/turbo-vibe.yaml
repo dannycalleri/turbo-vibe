@@ -1,5 +1,6 @@
 version: 1
 project: tv-vercel
+previews: true
 domain: vercel-example.turbovibe.ai
 environments:
   staging:

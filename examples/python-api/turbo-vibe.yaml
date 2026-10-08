@@ -1,5 +1,6 @@
 version: 1
 project: tv-python
+previews: true
 domain: python-example.turbovibe.ai
 environments:
   staging: { hostname: staging-python-example.turbovibe.ai }

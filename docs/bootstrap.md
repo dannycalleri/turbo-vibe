@@ -8,6 +8,7 @@ The one-time steps a machine cannot do for you. Do only the sections for the tar
    - **Cost:** public repositories run Actions at no cost. Private ones spend minutes from the account's allowance; see the README's [Actions minutes per run](../README.md#actions-minutes-per-run).
 2. In Settings → Environments, create `staging` and `production`.
 3. On `production`, add **required reviewers**. This is the approval that "Deploy to production" waits for.
+   If the project uses previews, leave `staging`'s deployment branches unrestricted. Previews run in `staging` from pull request branches.
 4. Each later step names secrets. Add them to the GitHub environment they belong to (Settings → Environments → *name* → Environment secrets). The names are the same in both environments; the values are each environment's own.
 
 ## 2. Domain and Cloudflare (every project)
