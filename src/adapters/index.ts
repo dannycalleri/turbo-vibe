@@ -1,4 +1,5 @@
 import { cloudflareContainer, cloudflareStatic } from "./cloudflare.js";
+import { supabase } from "./supabase.js";
 import type { Adapter } from "./types.js";
 
 export type TargetCatalog = Readonly<
@@ -8,6 +9,7 @@ export type TargetCatalog = Readonly<
 export const adapters: Readonly<Record<string, Adapter>> = {
   [cloudflareContainer.target]: cloudflareContainer,
   [cloudflareStatic.target]: cloudflareStatic,
+  [supabase.target]: supabase,
 };
 
 export function adapterFor(target: string): Adapter {

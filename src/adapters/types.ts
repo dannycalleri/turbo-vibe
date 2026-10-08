@@ -33,8 +33,16 @@ export interface CloudflareInputs {
   hostnames: string[];
 }
 
+export interface SupabaseInputs {
+  organization_id: string;
+  name: string;
+  region: string;
+  branch_of_production: boolean;
+}
+
 export interface Infrastructure {
   cloudflare?: CloudflareInputs;
+  supabase?: Record<string, SupabaseInputs>;
 }
 
 export interface Adapter {
@@ -44,6 +52,6 @@ export interface Adapter {
   secrets: readonly string[];
   outputs: readonly string[];
   plan(context: ServiceContext): Infrastructure;
-  deploy(context: DeployContext): Promise<number>;
-  smoke(context: SmokeContext): Promise<SmokeResult>;
+  deploy?(context: DeployContext): Promise<number>;
+  smoke?(context: SmokeContext): Promise<SmokeResult>;
 }

@@ -25,7 +25,7 @@ Specs live outside this repo, in the OpenSpec store `turbo-vibe`; see `CLAUDE.lo
 - `src/smoke.ts` — the build-ID check every adapter's smoke uses.
 - `.github/workflows/deploy.yml` — the reusable workflow projects call; its `TURBO_VIBE_CLI` pin must equal `package.json`'s version (a test enforces it). `pipeline.yml` is the kit's own pipeline: its gate, then the example through `deploy.yml`, which deploys only after the gate passes.
 - `examples/go-api/` — the example the kit deploys: a Go API and a static page served from one Worker.
-- `infra/` — OpenTofu modules, shipped in the npm package. OpenTofu owns long-lived resources (Worker entity, routes, DNS); `wrangler` ships Worker code, so modules never manage a script's content.
+- `infra/` — OpenTofu modules (`cloudflare`, `supabase`), shipped in the npm package; the generated root calls one `supabase_<service>` module per database. OpenTofu owns long-lived resources (Worker entity, routes, DNS); `wrangler` ships Worker code, so modules never manage a script's content.
 - `src/plan.ts` — derives what each environment runs from a validated config.
 - `test/` — `vitest` tests, one file per module.
 

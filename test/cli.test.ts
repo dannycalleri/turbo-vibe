@@ -350,6 +350,47 @@ describe("turbo-vibe smoke", () => {
   });
 });
 
+describe("a project with a database", () => {
+  const withDb = `${project}  db:
+    kind: database
+    target: supabase
+    organization: acme-org
+    region: eu-central-1
+`;
+
+  it("deploys and smoke-checks only the services that ship builds", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const deployed = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": withDb },
+      {
+        CLOUDFLARE_API_TOKEN: "t",
+        CLOUDFLARE_ACCOUNT_ID: "a",
+        CLOUDFLARE_ZONE_ID: "z",
+      },
+      runner,
+    );
+    expect(deployed.code).toBe(0);
+    expect(deployed.stdout).not.toContain("deploy db");
+    expect(deployed.stderr).not.toContain("SUPABASE_ACCESS_TOKEN");
+
+    const fetch = vi.fn(async (input: string | URL | Request) =>
+      String(input).endsWith("/api/health")
+        ? Response.json({ build_id: "abc123" })
+        : new Response("abc123"),
+    );
+    const smoked = await run(
+      ["smoke", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": withDb },
+      {},
+      undefined,
+      fetch,
+    );
+    expect(smoked.code).toBe(0);
+    expect(smoked.stdout).not.toContain("db:");
+  });
+});
+
 describe("turbo-vibe smoke with a malformed health body", () => {
   it("reports no build rather than an unreachable service", async () => {
     const fetch = vi.fn(async (input: string | URL | Request) =>

@@ -27,7 +27,9 @@ function contexts(
 function missingSecrets(config: Config, io: Io): string[] {
   const names = new Set<string>();
   for (const service of Object.values(config.services)) {
-    for (const name of adapterFor(service.target).secrets) names.add(name);
+    const adapter = adapterFor(service.target);
+    if (!adapter.deploy) continue;
+    for (const name of adapter.secrets) names.add(name);
   }
   return [...names].filter((name) => !io.env[name]).sort();
 }
@@ -51,10 +53,12 @@ export async function deploy(
       Number(b.service.kind !== "frontend"),
   );
   for (const context of ordered) {
+    const adapter = adapterFor(context.service.target);
+    if (!adapter.deploy) continue;
     io.stdout(
       `deploy ${context.name} (${context.service.target}) to ${environment}\n`,
     );
-    const code = await adapterFor(context.service.target).deploy({
+    const code = await adapter.deploy({
       ...context,
       buildId,
       dryRun,
@@ -78,7 +82,9 @@ export async function smoke(
 ): Promise<number> {
   let failed = false;
   for (const context of contexts(config, environment)) {
-    const result = await adapterFor(context.service.target).smoke({
+    const adapter = adapterFor(context.service.target);
+    if (!adapter.smoke) continue;
+    const result = await adapter.smoke({
       ...context,
       buildId,
       io,

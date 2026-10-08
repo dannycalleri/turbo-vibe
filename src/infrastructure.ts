@@ -1,6 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { adapterFor } from "./adapters/index.js";
-import type { CloudflareInputs, Infrastructure } from "./adapters/types.js";
+import type {
+  CloudflareInputs,
+  Infrastructure,
+  SupabaseInputs,
+} from "./adapters/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import { hostnameFor } from "./plan.js";
 
@@ -13,6 +17,9 @@ export const stateSecrets = [
 
 const cloudflareModule = fileURLToPath(
   new URL("../infra/cloudflare", import.meta.url),
+);
+const supabaseModule = fileURLToPath(
+  new URL("../infra/supabase", import.meta.url),
 );
 
 export function stateKey(
@@ -36,6 +43,7 @@ export function composeInfrastructure(
 ): Infrastructure {
   const hostname = hostnameFor(config, environment);
   let cloudflare: CloudflareInputs | undefined;
+  let supabase: Record<string, SupabaseInputs> | undefined;
   for (const [name, service] of Object.entries(config.services)) {
     const contribution = adapterFor(service.target).plan({
       config,
@@ -54,18 +62,27 @@ export function composeInfrastructure(
         ]),
       ];
     }
+    if (contribution.supabase) {
+      supabase = { ...supabase, ...contribution.supabase };
+    }
   }
-  return cloudflare ? { cloudflare } : {};
+  return {
+    ...(cloudflare ? { cloudflare } : {}),
+    ...(supabase ? { supabase } : {}),
+  };
 }
 
+type S3Backend = Record<string, unknown> & { key: string };
+
 export interface RootModule {
-  terraform: { backend: { s3: Record<string, unknown> & { key: string } } };
-  module: {
-    cloudflare?: CloudflareInputs & {
-      source: string;
-      account_id: string | undefined;
-      zone_id: string | undefined;
-    };
+  terraform: { backend: { s3: S3Backend } };
+  module: Record<string, { source: string } & Record<string, unknown>>;
+  output?: Record<string, { value: string }>;
+  data?: {
+    terraform_remote_state: Record<
+      string,
+      { backend: "s3"; config: S3Backend }
+    >;
   };
 }
 
@@ -75,35 +92,53 @@ export function rootModule(
   env: Readonly<Record<string, string | undefined>>,
 ): RootModule {
   const infrastructure = composeInfrastructure(config, environment);
-  const module: RootModule["module"] = {};
+  const backend = (stateOf: EnvironmentName): S3Backend => ({
+    bucket: env.TURBO_VIBE_STATE_BUCKET,
+    key: stateKey(config.project, stateOf),
+    region: "auto",
+    endpoints: {
+      s3: `https://${env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    },
+    use_lockfile: true,
+    use_path_style: true,
+    skip_credentials_validation: true,
+    skip_region_validation: true,
+    skip_requesting_account_id: true,
+    skip_metadata_api_check: true,
+    skip_s3_checksum: true,
+  });
+  const root: RootModule = {
+    terraform: { backend: { s3: backend(environment) } },
+    module: {},
+  };
   if (infrastructure.cloudflare) {
-    module.cloudflare = {
+    root.module.cloudflare = {
       source: cloudflareModule,
       account_id: env.CLOUDFLARE_ACCOUNT_ID,
       zone_id: env.CLOUDFLARE_ZONE_ID,
       ...infrastructure.cloudflare,
     };
   }
-  return {
-    terraform: {
-      backend: {
-        s3: {
-          bucket: env.TURBO_VIBE_STATE_BUCKET,
-          key: stateKey(config.project, environment),
-          region: "auto",
-          endpoints: {
-            s3: `https://${env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-          },
-          use_lockfile: true,
-          use_path_style: true,
-          skip_credentials_validation: true,
-          skip_region_validation: true,
-          skip_requesting_account_id: true,
-          skip_metadata_api_check: true,
-          skip_s3_checksum: true,
+  for (const [name, inputs] of Object.entries(infrastructure.supabase ?? {})) {
+    const { branch_of_production, ...variables } = inputs;
+    const module = `supabase_${name}`;
+    root.module[module] = { source: supabaseModule, ...variables };
+    if (branch_of_production) {
+      root.data = {
+        terraform_remote_state: {
+          production: { backend: "s3", config: backend("production") },
         },
-      },
-    },
-    module,
-  };
+      };
+      root.module[module].parent_project_ref =
+        `\${data.terraform_remote_state.production.outputs.${module}_project_ref}`;
+    } else {
+      root.output = {
+        ...root.output,
+        [`${module}_project_ref`]: {
+          value: `\${module.${module}.project_ref}`,
+        },
+      };
+    }
+  }
+  return root;
 }

@@ -125,6 +125,29 @@ describe("parseConfig", () => {
     ]);
   });
 
+  it("requires a database's Supabase organization and region", () => {
+    const source = `${valid}  db:\n    kind: database\n    target: supabase\n`;
+    expect(problems(source)).toEqual([
+      {
+        line: 14,
+        message: "missing required field `services.db.organization`",
+      },
+      { line: 14, message: "missing required field `services.db.region`" },
+    ]);
+  });
+
+  it("rejects staging as a branch on a free Supabase plan", () => {
+    const db = `  db:\n    kind: database\n    target: supabase\n    organization: acme\n    region: eu-central-1\n    staging: branch\n`;
+    expect(problems(valid + db)).toEqual([
+      {
+        line: 19,
+        message:
+          "service `db` sets staging: branch, which needs a paid Supabase plan (plan: paid)",
+      },
+    ]);
+    expect(parseConfig(`${valid + db}    plan: paid\n`).ok).toBe(true);
+  });
+
   it("names the service, the target, and the available targets for an unknown target", () => {
     expect(
       problems(valid.replace("target: cloudflare-container", "target: heroku")),
@@ -132,7 +155,7 @@ describe("parseConfig", () => {
       {
         line: 7,
         message:
-          "service `api` names unknown target `heroku`; available targets: cloudflare-container, cloudflare-static",
+          "service `api` names unknown target `heroku`; available targets: cloudflare-container, cloudflare-static, supabase",
       },
     ]);
   });

@@ -166,6 +166,19 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
     }
   }
 
+  for (const [name, service] of Object.entries(config.services)) {
+    if (
+      service.kind === "database" &&
+      service.staging === "branch" &&
+      service.plan !== "paid"
+    ) {
+      problems.push({
+        path: ["services", name, "staging"],
+        message: `service \`${name}\` sets staging: branch, which needs a paid Supabase plan (plan: paid)`,
+      });
+    }
+  }
+
   const [staging, production] = environmentNames.map((environment) =>
     hostnameFor(config, environment),
   );

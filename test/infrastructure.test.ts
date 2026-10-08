@@ -80,6 +80,66 @@ describe("composeInfrastructure", () => {
   });
 });
 
+const db = (extra = "") => `  db:
+    kind: database
+    target: supabase
+    organization: acme-org
+    region: eu-central-1
+${extra}`;
+
+describe("databases", () => {
+  it("plans a Supabase project only when the config has a database", () => {
+    expect(
+      composeInfrastructure(config(api), "staging").supabase,
+    ).toBeUndefined();
+    expect(
+      composeInfrastructure(config(api + db()), "production").supabase,
+    ).toEqual({
+      db: {
+        organization_id: "acme-org",
+        name: "acme-db-production",
+        region: "eu-central-1",
+        branch_of_production: false,
+      },
+    });
+  });
+
+  it("gives each environment its own project and exports its ref", () => {
+    const root = rootModule(config(api + db()), "staging", {});
+    expect(root.module.supabase_db).toMatchObject({ name: "acme-db-staging" });
+    expect(root.module.supabase_db).not.toHaveProperty("parent_project_ref");
+    expect(root.output).toEqual({
+      supabase_db_project_ref: { value: "${module.supabase_db.project_ref}" },
+    });
+    expect(root.data).toBeUndefined();
+  });
+
+  it("runs staging as a branch of the production project read from production's state", () => {
+    const branched = config(api + db("    plan: paid\n    staging: branch\n"));
+    const staging = rootModule(branched, "staging", {
+      TURBO_VIBE_STATE_BUCKET: "tv-state",
+    });
+    expect(staging.module.supabase_db?.parent_project_ref).toBe(
+      "${data.terraform_remote_state.production.outputs.supabase_db_project_ref}",
+    );
+    expect(
+      staging.data?.terraform_remote_state.production?.config,
+    ).toMatchObject({
+      bucket: "tv-state",
+      key: "acme/production/terraform.tfstate",
+    });
+    expect(rootModule(branched, "production", {}).output).toHaveProperty(
+      "supabase_db_project_ref",
+    );
+  });
+
+  it("needs the Supabase token to apply", () => {
+    expect(requiredSecrets(config(api + db()))).toContain(
+      "SUPABASE_ACCESS_TOKEN",
+    );
+  });
+});
+
 describe("state", () => {
   it("keeps one state per project and environment", () => {
     expect(stateKey("acme", "staging")).toBe("acme/staging/terraform.tfstate");
