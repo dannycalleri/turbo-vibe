@@ -4,6 +4,7 @@ import { localTools } from "./checks/local.js";
 import { stateBucket } from "./checks/state.js";
 import type { Check, CheckContext, Finding } from "./checks/types.js";
 import { fail } from "./checks/types.js";
+import { github, supabase, vercel, workos } from "./checks/vendors.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import type { Io } from "./io.js";
 
@@ -17,6 +18,10 @@ export function checksFor(config: Config): Check[] {
     localTools,
     stateBucket,
     ...(secrets.has("CLOUDFLARE_API_TOKEN") ? [cloudflare] : []),
+    ...(secrets.has("SUPABASE_ACCESS_TOKEN") ? [supabase] : []),
+    ...(secrets.has("WORKOS_API_KEY") ? [workos] : []),
+    ...(secrets.has("VERCEL_API_TOKEN") ? [vercel] : []),
+    github,
   ];
 }
 

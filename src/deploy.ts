@@ -135,7 +135,7 @@ function withoutCredentials(
   );
 }
 
-function deploySecrets(config: Config): string[] {
+export function deploySecrets(config: Config): string[] {
   const names = new Set<string>([
     ...stateSecrets,
     ...(hasIdentity(config) ? identitySecrets : []),

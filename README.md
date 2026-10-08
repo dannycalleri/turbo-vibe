@@ -1,6 +1,6 @@
 # turbo-vibe
 
-Deploy a project's services from one `turbo-vibe.yaml`. To add it to an existing repository, follow the [adoption guide](docs/adoption.md).
+Deploy a project's services from one `turbo-vibe.yaml`. To add it to an existing repository, follow the [adoption guide](docs/adoption.md). For the accounts, plans and tokens it needs, follow the [bootstrap checklist](docs/bootstrap.md).
 
 ```sh
 npx @turbo-vibe/cli plan

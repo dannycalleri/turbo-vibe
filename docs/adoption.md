@@ -97,7 +97,7 @@ Pull requests, including from forks, run the test-and-build job with no secrets.
 
 ## 4. Create the accounts, tokens, and GitHub environments
 
-Do this once per project. These are the minimum; the README's [Credentials](../README.md#credentials) table says which command reads each one.
+Do this once per project. The [bootstrap checklist](bootstrap.md) walks through every step and its cost; this is the short version. The README's [Credentials](../README.md#credentials) table says which command reads each one. When you are done, `npx @turbo-vibe/cli@1 check --env staging` names anything still missing.
 
 1. **Cloudflare:** the domain's zone on Cloudflare, and the Workers Paid plan ($5/month, required for Containers).
    - An API token with *Workers Scripts: Edit*, *Containers: Edit*, *Workers Routes: Edit* and *DNS: Edit* on the zone.

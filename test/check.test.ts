@@ -15,6 +15,7 @@ import { localTools } from "../src/checks/local.js";
 import { stateBucket } from "../src/checks/state.js";
 import type { CheckContext, Finding } from "../src/checks/types.js";
 import { fail, ok, warn } from "../src/checks/types.js";
+import { github, supabase, vercel, workos } from "../src/checks/vendors.js";
 import { parseConfig } from "../src/config/load.js";
 import type { Config } from "../src/config/schema.js";
 import type { Io } from "../src/io.js";
@@ -28,7 +29,7 @@ function config(services: string): Config {
 }
 const container =
   "  api:\n    kind: backend\n    target: cloudflare-container\n    build: { dockerfile: Dockerfile }\n";
-const vercel =
+const vercelSite =
   "  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n";
 const db =
   "  db:\n    kind: database\n    target: supabase\n    organization: acme\n    region: eu-central-1\n";
@@ -120,17 +121,19 @@ describe("checks are limited to what the project uses", () => {
     expect(checksFor(config(db)).map((check) => check.name)).toEqual([
       "localTools",
       "stateBucket",
+      "supabase",
+      "github",
     ]);
     expect(checksFor(config(container)).map((check) => check.name)).toContain(
       "cloudflare",
     );
-    expect(checksFor(config(vercel)).map((check) => check.name)).toContain(
+    expect(checksFor(config(vercelSite)).map((check) => check.name)).toContain(
       "cloudflare",
     );
   });
 
   it("asks a Vercel-only project's token for DNS alone, and a container project's for Workers and Containers too", () => {
-    expect(requiredPermissions(context(vercel))).toEqual(["DNS Write"]);
+    expect(requiredPermissions(context(vercelSite))).toEqual(["DNS Write"]);
     expect(requiredPermissions(context(container))).toEqual([
       "DNS Write",
       "Workers Scripts Write",
@@ -340,7 +343,7 @@ describe("against recorded fakes", () => {
 
   it("tells the owner to move the nameservers when the zone is still pending", async () => {
     cloudflareApi({ permissions: ["DNS Write"], zoneStatus: "pending" });
-    const findings = await cloudflare(context(vercel, cloudflareEnv));
+    const findings = await cloudflare(context(vercelSite, cloudflareEnv));
     expect(findings).toContainEqual({
       check: "cloudflare",
       severity: "fail",
@@ -452,6 +455,288 @@ describe("against recorded fakes", () => {
       severity: "fail",
       message:
         "bucket tv-state accepted a second conditional create (HTTP 200), so two runs could hold the state lock at once",
+    });
+  });
+
+  describe("supabase", () => {
+    const token = { SUPABASE_ACCESS_TOKEN: "sbp_token" };
+    function supabaseApi(
+      plan: string,
+      projects: { name: string; status: string }[],
+    ) {
+      server.use(
+        http.get("https://api.supabase.com/v1/organizations/acme", () =>
+          HttpResponse.json({ id: "acme", plan }),
+        ),
+        http.get("https://api.supabase.com/v1/projects", () =>
+          HttpResponse.json(
+            projects.map((project, index) => ({
+              id: `ref${index}`,
+              organization_id: "acme",
+              ...project,
+            })),
+          ),
+        ),
+      );
+    }
+
+    it("reports a paused project as paused, with how to restore it", async () => {
+      supabaseApi("free", [{ name: "acme-db-staging", status: "INACTIVE" }]);
+      expect(await supabase(context(db, token))).toContainEqual(
+        expect.objectContaining({
+          severity: "fail",
+          message: "project acme-db-staging is paused",
+        }),
+      );
+    });
+
+    it("stops a free organization from needing a third active project", async () => {
+      supabaseApi("free", [
+        { name: "blog-db-staging", status: "ACTIVE_HEALTHY" },
+        { name: "blog-db-production", status: "ACTIVE_HEALTHY" },
+      ]);
+      expect(await supabase(context(db, token))).toContainEqual(
+        expect.objectContaining({
+          severity: "fail",
+          message:
+            "organization acme already has 2 active projects, and the free plan allows two",
+        }),
+      );
+    });
+
+    it("refuses staging as a branch when the organization is really on the free plan", async () => {
+      supabaseApi("free", []);
+      const branched = `${db}    plan: paid\n    staging: branch\n`;
+      expect((await supabase(context(branched, token)))[0]).toMatchObject({
+        severity: "fail",
+        message:
+          "organization acme is on the free plan, but the config says plan: paid and staging: branch",
+      });
+    });
+
+    it("warns, instead of passing, when it cannot list the projects", async () => {
+      server.use(
+        http.get("https://api.supabase.com/v1/organizations/acme", () =>
+          HttpResponse.json({ id: "acme", plan: "free" }),
+        ),
+        http.get("https://api.supabase.com/v1/projects", () =>
+          HttpResponse.json({ message: "rate limited" }, { status: 429 }),
+        ),
+      );
+      expect(await supabase(context(db, token))).toContainEqual(
+        expect.objectContaining({
+          severity: "warn",
+          message:
+            "cannot list projects to check for paused ones or the free plan's limit (HTTP 429)",
+        }),
+      );
+    });
+
+    it("is satisfied by a healthy project within the plan", async () => {
+      supabaseApi("pro", [
+        { name: "acme-db-staging", status: "ACTIVE_HEALTHY" },
+      ]);
+      expect(
+        (await supabase(context(db, token))).every(
+          (finding) => finding.severity === "ok",
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe("workos", () => {
+    const auth = "  auth:\n    kind: identity\n    target: workos\n";
+    const accepting = () =>
+      server.use(
+        http.get(
+          "https://api.workos.com/user_management/redirect_uris",
+          ({ request }) =>
+            request.headers.get("authorization")?.endsWith("_good")
+              ? HttpResponse.json({ data: [], list_metadata: {} })
+              : new HttpResponse(null, { status: 401 }),
+        ),
+      );
+
+    it("refuses a production key on staging", async () => {
+      accepting();
+      const findings = await workos(
+        context(container + auth, {
+          WORKOS_API_KEY: "sk_live_good",
+          WORKOS_CLIENT_ID: "client_1",
+        }),
+      );
+      expect(findings[0]).toMatchObject({
+        severity: "fail",
+        message:
+          "WORKOS_API_KEY is not a staging key (it should start with sk_test_)",
+      });
+    });
+
+    it("reports a key WorkOS rejects", async () => {
+      accepting();
+      const findings = await workos(
+        context(container + auth, {
+          WORKOS_API_KEY: "sk_test_revoked",
+          WORKOS_CLIENT_ID: "client_1",
+        }),
+      );
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "fail",
+          message: "WorkOS rejects WORKOS_API_KEY (HTTP 401)",
+        }),
+      );
+    });
+
+    it("accepts the staging environment's valid key", async () => {
+      accepting();
+      const findings = await workos(
+        context(container + auth, {
+          WORKOS_API_KEY: "sk_test_good",
+          WORKOS_CLIENT_ID: "client_1",
+        }),
+      );
+      expect(findings).toEqual([ok("workos", "WORKOS_API_KEY is valid")]);
+    });
+  });
+
+  describe("vercel", () => {
+    const vercelEnv = { VERCEL_API_TOKEN: "v", VERCEL_TEAM_ID: "team_1" };
+    const team = (status: number, plan?: string) =>
+      server.use(
+        http.get("https://api.vercel.com/v2/teams/team_1", () =>
+          status === 200
+            ? HttpResponse.json({ id: "team_1", billing: { plan } })
+            : new HttpResponse(null, { status }),
+        ),
+      );
+
+    it("warns that Hobby forbids commercial use, without failing", async () => {
+      team(200, "hobby");
+      expect(await vercel(context(vercelSite, vercelEnv))).toEqual([
+        warn(
+          "vercel",
+          "the team is on Hobby, which forbids commercial use",
+          "upgrade to Pro ($20 per user per month) for a commercial project",
+        ),
+      ]);
+    });
+
+    it("warns when the team's plan cannot be read, rather than calling it fine", async () => {
+      server.use(
+        http.get("https://api.vercel.com/v2/teams/team_1", () =>
+          HttpResponse.json({ id: "team_1" }),
+        ),
+      );
+      expect((await vercel(context(vercelSite, vercelEnv)))[0]).toMatchObject({
+        severity: "warn",
+        message: "could not read the team's plan",
+      });
+    });
+
+    it("fails when the token cannot read the team", async () => {
+      team(403);
+      expect((await vercel(context(vercelSite, vercelEnv)))[0]?.severity).toBe(
+        "fail",
+      );
+    });
+  });
+
+  describe("github", () => {
+    const githubEnv = { GITHUB_TOKEN: "ghp", GITHUB_REPOSITORY: "acme/app" };
+    function repo(environment: string, rules: string[], secrets: string[]) {
+      server.use(
+        http.get(
+          `https://api.github.com/repos/acme/app/environments/${environment}`,
+          () =>
+            HttpResponse.json({
+              name: environment,
+              protection_rules: rules.map((type) => ({ type })),
+            }),
+        ),
+        http.get(
+          `https://api.github.com/repos/acme/app/environments/${environment}/secrets`,
+          () =>
+            HttpResponse.json({ secrets: secrets.map((name) => ({ name })) }),
+        ),
+      );
+    }
+
+    it("only warns when it has no token to look with", async () => {
+      expect((await github(context(container)))[0]?.severity).toBe("warn");
+    });
+
+    it("names a missing environment", async () => {
+      server.use(
+        http.get(
+          "https://api.github.com/repos/acme/app/environments/staging",
+          () => new HttpResponse(null, { status: 404 }),
+        ),
+      );
+      expect(await github(context(container, githubEnv))).toEqual([
+        fail(
+          "github",
+          "acme/app has no staging environment",
+          "create it in Settings → Environments → New environment",
+        ),
+      ]);
+    });
+
+    it("warns, rather than blaming the reviewers, when the token cannot read the environment", async () => {
+      server.use(
+        http.get(
+          "https://api.github.com/repos/acme/app/environments/production",
+          () => new HttpResponse(null, { status: 403 }),
+        ),
+      );
+      const production = {
+        ...context(container, githubEnv),
+        environment: "production" as const,
+      };
+      expect(await github(production)).toEqual([
+        warn(
+          "github",
+          "cannot read the production environment (HTTP 403)",
+          "use a GITHUB_TOKEN that can read the repository's environments",
+        ),
+      ]);
+    });
+
+    it("is satisfied by a reviewed production environment with every secret", async () => {
+      repo(
+        "production",
+        ["required_reviewers"],
+        [
+          "AWS_ACCESS_KEY_ID",
+          "AWS_SECRET_ACCESS_KEY",
+          "CLOUDFLARE_ACCOUNT_ID",
+          "CLOUDFLARE_API_TOKEN",
+          "CLOUDFLARE_ZONE_ID",
+          "TURBO_VIBE_STATE_BUCKET",
+        ],
+      );
+      const production = {
+        ...context(container, githubEnv),
+        environment: "production" as const,
+      };
+      expect(
+        (await github(production)).every(
+          (finding) => finding.severity === "ok",
+        ),
+      ).toBe(true);
+    });
+
+    it("requires reviewers on production and names the secrets it lacks", async () => {
+      repo("production", [], ["CLOUDFLARE_API_TOKEN"]);
+      const production = {
+        ...context(container, githubEnv),
+        environment: "production" as const,
+      };
+      const findings = await github(production);
+      expect(findings.map((finding) => finding.message)).toEqual([
+        "production has no required reviewers, so promotion would not wait for approval",
+        "the production environment is missing AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, TURBO_VIBE_STATE_BUCKET",
+      ]);
     });
   });
 });
