@@ -71,6 +71,13 @@ const database = z.strictObject({
 const identity = z.strictObject({
   kind: z.literal("identity"),
   target: z.string(),
+  callback_path: z
+    .string()
+    .regex(
+      /^\/api\/[A-Za-z0-9/_-]*$/,
+      "must be a path under /api/, where the backend answers",
+    )
+    .optional(),
 });
 
 export const serviceKinds = [

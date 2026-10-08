@@ -144,6 +144,36 @@ describe("databases", () => {
   });
 });
 
+describe("identity", () => {
+  const auth = "  auth:\n    kind: identity\n    target: workos\n";
+
+  it("registers the environment's callback through the workos module", () => {
+    const root = rootModule(config(api + auth), "staging", {});
+    expect(root.module.workos_auth).toEqual({
+      source: expect.stringMatching(/infra\/workos$/),
+      redirect_uris: ["https://staging.acme.example.com/api/auth/callback"],
+    });
+    expect(root.output?.workos_auth_redirect_uris).toEqual({
+      value: "${module.workos_auth.redirect_uris}",
+    });
+  });
+
+  it("hands OpenTofu only the URIs discovery says the kit manages", () => {
+    expect(
+      rootModule(config(api + auth), "staging", {}, { auth: [] }).module
+        .workos_auth,
+    ).toMatchObject({
+      redirect_uris: [],
+    });
+  });
+
+  it("needs the environment's WorkOS key and client ID to apply", () => {
+    expect(requiredSecrets(config(api + auth))).toEqual(
+      expect.arrayContaining(["WORKOS_API_KEY", "WORKOS_CLIENT_ID"]),
+    );
+  });
+});
+
 describe("state", () => {
   it("keeps one state per project and environment", () => {
     expect(stateKey("acme", "staging")).toBe("acme/staging/terraform.tfstate");

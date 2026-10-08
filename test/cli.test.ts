@@ -754,3 +754,117 @@ services:
     expect(runner).not.toHaveBeenCalled();
   });
 });
+
+describe("turbo-vibe apply with identity", () => {
+  const withAuth = `${project}  auth:
+    kind: identity
+    target: workos
+`;
+  const env = {
+    TURBO_VIBE_STATE_BUCKET: "tv-state",
+    AWS_ACCESS_KEY_ID: "key-id",
+    AWS_SECRET_ACCESS_KEY: "s3cr3t-key",
+    CLOUDFLARE_ACCOUNT_ID: "acc123",
+    CLOUDFLARE_ZONE_ID: "zone456",
+    CLOUDFLARE_API_TOKEN: "s3cr3t-token",
+    WORKOS_API_KEY: "sk_test_s3cr3t",
+    WORKOS_CLIENT_ID: "client_123",
+  };
+  const callback = "https://staging.acme.example.com/api/auth/callback";
+  const workos = (uris: string[]) =>
+    vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json({
+        object: "list",
+        data: uris.map((uri) => ({ uri })),
+        list_metadata: { after: null },
+      }),
+    );
+
+  async function appliedRoot(cwd: string) {
+    return JSON.parse(
+      await readFile(
+        join(cwd, ".turbo-vibe", "tofu", "staging", "main.tf.json"),
+        "utf8",
+      ),
+    );
+  }
+
+  it("creates the staging callback when WorkOS does not have it", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code, cwd } = await run(
+      ["apply", "--env", "staging"],
+      { "turbo-vibe.yaml": withAuth },
+      env,
+      runner,
+      workos([]),
+      {
+        capture: async () => ({ code: 0, stdout: "{}" }),
+      },
+    );
+    expect(code).toBe(0);
+    expect(runner.mock.calls.map(([, args]) => args[0])).toEqual([
+      "init",
+      "apply",
+    ]);
+    expect((await appliedRoot(cwd)).module.workos_auth.redirect_uris).toEqual([
+      callback,
+    ]);
+  });
+
+  it("leaves a callback someone registered by hand out of OpenTofu and says so", async () => {
+    const { code, cwd, stdout } = await run(
+      ["apply", "--env", "staging"],
+      { "turbo-vibe.yaml": withAuth },
+      env,
+      vi.fn<Runner>(async () => 0),
+      workos(["https://localhost:3000/callback", callback]),
+      { capture: async () => ({ code: 0, stdout: "{}" }) },
+    );
+    expect(code).toBe(0);
+    expect(stdout).toContain(
+      `redirect URI ${callback} is already registered in WorkOS; leaving it as it is`,
+    );
+    expect((await appliedRoot(cwd)).module.workos_auth.redirect_uris).toEqual(
+      [],
+    );
+  });
+
+  it("keeps managing the callback it created on an earlier apply", async () => {
+    const { cwd } = await run(
+      ["apply", "--env", "staging"],
+      { "turbo-vibe.yaml": withAuth },
+      env,
+      vi.fn<Runner>(async () => 0),
+      workos([callback]),
+      {
+        capture: async () => ({
+          code: 0,
+          stdout: JSON.stringify({
+            workos_auth_redirect_uris: { value: [callback] },
+          }),
+        }),
+      },
+    );
+    expect((await appliedRoot(cwd)).module.workos_auth.redirect_uris).toEqual([
+      callback,
+    ]);
+  });
+
+  it("stops before applying when WorkOS rejects the key", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code, stderr } = await run(
+      ["apply", "--env", "staging"],
+      { "turbo-vibe.yaml": withAuth },
+      env,
+      runner,
+      vi.fn<typeof globalThis.fetch>(
+        async () => new Response("no", { status: 401 }),
+      ),
+      { capture: async () => ({ code: 0, stdout: "{}" }) },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe("WorkOS answered HTTP 401 listing redirect URIs\n");
+    expect(runner.mock.calls.map(([, args]) => args[0])).toEqual(["init"]);
+    expect(stderr).not.toContain("s3cr3t");
+  });
+});

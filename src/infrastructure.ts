@@ -4,6 +4,7 @@ import type {
   CloudflareInputs,
   Infrastructure,
   SupabaseInputs,
+  WorkosInputs,
 } from "./adapters/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import { hostnameFor } from "./plan.js";
@@ -21,6 +22,7 @@ const cloudflareModule = fileURLToPath(
 const supabaseModule = fileURLToPath(
   new URL("../infra/supabase", import.meta.url),
 );
+const workosModule = fileURLToPath(new URL("../infra/workos", import.meta.url));
 
 export function stateKey(
   project: string,
@@ -40,10 +42,12 @@ export function requiredSecrets(config: Config): string[] {
 export function composeInfrastructure(
   config: Config,
   environment: EnvironmentName,
+  managedRedirectUris: Readonly<Record<string, string[]>> = {},
 ): Infrastructure {
   const hostname = hostnameFor(config, environment);
   let cloudflare: CloudflareInputs | undefined;
   let supabase: Record<string, SupabaseInputs> | undefined;
+  let workos: Record<string, WorkosInputs> | undefined;
   for (const [name, service] of Object.entries(config.services)) {
     const contribution = adapterFor(service.target).plan({
       config,
@@ -51,6 +55,9 @@ export function composeInfrastructure(
       service,
       environment,
       hostname,
+      ...(managedRedirectUris[name]
+        ? { managedRedirectUris: managedRedirectUris[name] }
+        : {}),
     });
     if (contribution.cloudflare) {
       cloudflare ??= { workers: {}, hostnames: [] };
@@ -65,10 +72,14 @@ export function composeInfrastructure(
     if (contribution.supabase) {
       supabase = { ...supabase, ...contribution.supabase };
     }
+    if (contribution.workos) {
+      workos = { ...workos, ...contribution.workos };
+    }
   }
   return {
     ...(cloudflare ? { cloudflare } : {}),
     ...(supabase ? { supabase } : {}),
+    ...(workos ? { workos } : {}),
   };
 }
 
@@ -90,8 +101,13 @@ export function rootModule(
   config: Config,
   environment: EnvironmentName,
   env: Readonly<Record<string, string | undefined>>,
+  managedRedirectUris: Readonly<Record<string, string[]>> = {},
 ): RootModule {
-  const infrastructure = composeInfrastructure(config, environment);
+  const infrastructure = composeInfrastructure(
+    config,
+    environment,
+    managedRedirectUris,
+  );
   const backend = (stateOf: EnvironmentName): S3Backend => ({
     bucket: env.TURBO_VIBE_STATE_BUCKET,
     key: stateKey(config.project, stateOf),
@@ -144,6 +160,16 @@ export function rootModule(
       [`${module}_connection`]: {
         value: `\${module.${module}.connection}`,
         sensitive: true,
+      },
+    };
+  }
+  for (const [name, inputs] of Object.entries(infrastructure.workos ?? {})) {
+    const module = `workos_${name}`;
+    root.module[module] = { source: workosModule, ...inputs };
+    root.output = {
+      ...root.output,
+      [`${module}_redirect_uris`]: {
+        value: `\${module.${module}.redirect_uris}`,
       },
     };
   }

@@ -136,6 +136,32 @@ describe("parseConfig", () => {
     ]);
   });
 
+  it("allows at most one identity service", () => {
+    const identity = (name: string) =>
+      `  ${name}:\n    kind: identity\n    target: workos\n`;
+    expect(problems(valid + identity("auth") + identity("sso"))).toEqual([
+      {
+        line: 17,
+        message:
+          "service `sso` is a second identity; a project has at most one (`auth`)",
+      },
+    ]);
+  });
+
+  it("keeps the sign-in callback under /api/, where the backend answers", () => {
+    expect(
+      problems(
+        `${valid}  auth:\n    kind: identity\n    target: workos\n    callback_path: /callback\n`,
+      ),
+    ).toEqual([
+      {
+        line: 17,
+        message:
+          "`services.auth.callback_path` must be a path under /api/, where the backend answers",
+      },
+    ]);
+  });
+
   it("allows at most one database", () => {
     const db = (name: string) =>
       `  ${name}:\n    kind: database\n    target: supabase\n    organization: acme\n    region: eu-central-1\n`;
@@ -167,7 +193,7 @@ describe("parseConfig", () => {
       {
         line: 7,
         message:
-          "service `api` names unknown target `heroku`; available targets: cloudflare-container, cloudflare-static, supabase",
+          "service `api` names unknown target `heroku`; available targets: cloudflare-container, cloudflare-static, supabase, workos",
       },
     ]);
   });

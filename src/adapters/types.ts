@@ -13,6 +13,7 @@ export interface ServiceContext {
   service: Service;
   environment: EnvironmentName;
   hostname: string;
+  managedRedirectUris?: readonly string[];
 }
 
 export interface DeployContext extends ServiceContext {
@@ -42,9 +43,14 @@ export interface SupabaseInputs {
   branch_of_production: boolean;
 }
 
+export interface WorkosInputs {
+  redirect_uris: string[];
+}
+
 export interface Infrastructure {
   cloudflare?: CloudflareInputs;
   supabase?: Record<string, SupabaseInputs>;
+  workos?: Record<string, WorkosInputs>;
 }
 
 export interface Adapter {

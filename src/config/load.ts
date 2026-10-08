@@ -166,14 +166,16 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
     }
   }
 
-  const databases = Object.entries(config.services).filter(
-    ([, service]) => service.kind === "database",
-  );
-  for (const [name] of databases.slice(1)) {
-    problems.push({
-      path: ["services", name],
-      message: `service \`${name}\` is a second database; a project has at most one (\`${databases[0]?.[0]}\`)`,
-    });
+  for (const kind of ["database", "identity"] as const) {
+    const services = Object.entries(config.services).filter(
+      ([, service]) => service.kind === kind,
+    );
+    for (const [name] of services.slice(1)) {
+      problems.push({
+        path: ["services", name],
+        message: `service \`${name}\` is a second ${kind}; a project has at most one (\`${services[0]?.[0]}\`)`,
+      });
+    }
   }
 
   for (const [name, service] of Object.entries(config.services)) {

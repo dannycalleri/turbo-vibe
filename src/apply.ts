@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Config, EnvironmentName } from "./config/schema.js";
+import { discoverRedirectUris } from "./identity.js";
 import { requiredSecrets, rootModule } from "./infrastructure.js";
 import type { Io } from "./io.js";
 
@@ -11,17 +12,27 @@ export function missingVariables(names: Iterable<string>, io: Io): boolean {
   return true;
 }
 
+async function writeRoot(
+  config: Config,
+  environment: EnvironmentName,
+  io: Io,
+  managedRedirectUris: Readonly<Record<string, string[]>> = {},
+): Promise<string> {
+  const dir = join(io.cwd, ".turbo-vibe", "tofu", environment);
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, "main.tf.json"),
+    `${JSON.stringify(rootModule(config, environment, io.env, managedRedirectUris), null, 2)}\n`,
+  );
+  return dir;
+}
+
 async function initRoot(
   config: Config,
   environment: EnvironmentName,
   io: Io,
 ): Promise<{ dir: string; code: number }> {
-  const dir = join(io.cwd, ".turbo-vibe", "tofu", environment);
-  await mkdir(dir, { recursive: true });
-  await writeFile(
-    join(dir, "main.tf.json"),
-    `${JSON.stringify(rootModule(config, environment, io.env), null, 2)}\n`,
-  );
+  const dir = await writeRoot(config, environment, io);
   const code = await io.run("tofu", ["init", "-input=false"], {
     cwd: dir,
     env: io.env,
@@ -37,6 +48,25 @@ export async function apply(
   if (missingVariables(requiredSecrets(config), io)) return 1;
   const { dir, code } = await initRoot(config, environment, io);
   if (code !== 0) return code;
+  if (
+    Object.values(config.services).some(
+      (service) => service.kind === "identity",
+    )
+  ) {
+    const outputs = await currentOutputs(dir, io);
+    if (!outputs) {
+      io.stderr(`cannot read the current ${environment} outputs\n`);
+      return 1;
+    }
+    let managed: Record<string, string[]>;
+    try {
+      managed = await discoverRedirectUris(config, environment, outputs, io);
+    } catch (error) {
+      io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
+      return 1;
+    }
+    await writeRoot(config, environment, io, managed);
+  }
   return io.run("tofu", ["apply", "-input=false", "-auto-approve"], {
     cwd: dir,
     env: io.env,
@@ -50,6 +80,13 @@ export async function readOutputs(
 ): Promise<Record<string, unknown> | undefined> {
   const { dir, code } = await initRoot(config, environment, io);
   if (code !== 0) return undefined;
+  return currentOutputs(dir, io);
+}
+
+async function currentOutputs(
+  dir: string,
+  io: Io,
+): Promise<Record<string, unknown> | undefined> {
   const result = await io.capture("tofu", ["output", "-json"], {
     cwd: dir,
     env: io.env,
