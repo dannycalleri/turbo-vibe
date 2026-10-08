@@ -77,7 +77,7 @@ type S3Backend = Record<string, unknown> & { key: string };
 export interface RootModule {
   terraform: { backend: { s3: S3Backend } };
   module: Record<string, { source: string } & Record<string, unknown>>;
-  output?: Record<string, { value: string }>;
+  output?: Record<string, { value: string; sensitive?: boolean }>;
   data?: {
     terraform_remote_state: Record<
       string,
@@ -139,6 +139,13 @@ export function rootModule(
         },
       };
     }
+    root.output = {
+      ...root.output,
+      [`${module}_connection`]: {
+        value: `\${module.${module}.connection}`,
+        sensitive: true,
+      },
+    };
   }
   return root;
 }

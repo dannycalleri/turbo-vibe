@@ -65,6 +65,7 @@ const database = z.strictObject({
   region: z.string().min(1),
   plan: z.enum(["free", "paid"]).optional(),
   staging: z.enum(["project", "branch"]).optional(),
+  workdir: z.string().min(1).optional(),
 });
 
 const identity = z.strictObject({

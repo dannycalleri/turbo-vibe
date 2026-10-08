@@ -27,7 +27,7 @@ jobs:
           tofu_wrapper: false
       - run: pnpm install --frozen-lockfile
       - run: make check
-      - run: make validate-infra lint-workflows
+      - run: make validate-infra lint-workflows integration-tests
 
   example:
     needs: check

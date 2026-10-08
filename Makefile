@@ -29,8 +29,11 @@ validate-infra:
 
 ACTIONLINT_IMAGE := rhysd/actionlint:1.7.12
 
-.PHONY: integration dry-run-example lint-workflows
-integration: validate-infra dry-run-example lint-workflows
+.PHONY: integration dry-run-example lint-workflows integration-tests
+integration: validate-infra lint-workflows integration-tests dry-run-example
+
+integration-tests:
+	pnpm exec vitest run --config vitest.integration.config.ts
 
 lint-workflows:
 	@if command -v actionlint >/dev/null; then actionlint; \

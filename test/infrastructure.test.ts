@@ -110,6 +110,10 @@ describe("databases", () => {
     expect(root.module.supabase_db).not.toHaveProperty("parent_project_ref");
     expect(root.output).toEqual({
       supabase_db_project_ref: { value: "${module.supabase_db.project_ref}" },
+      supabase_db_connection: {
+        value: "${module.supabase_db.connection}",
+        sensitive: true,
+      },
     });
     expect(root.data).toBeUndefined();
   });

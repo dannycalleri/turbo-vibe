@@ -6,6 +6,7 @@ Deploy a project's services from one `turbo-vibe.yaml`.
 npx @turbo-vibe/cli plan
 npx @turbo-vibe/cli test
 npx @turbo-vibe/cli apply --env staging
+npx @turbo-vibe/cli migrate --env staging
 npx @turbo-vibe/cli deploy --env staging --build-id "$(git rev-parse --short HEAD)"
 npx @turbo-vibe/cli smoke --env staging --build-id "$(git rev-parse --short HEAD)"
 ```
@@ -35,7 +36,10 @@ A `supabase` database gets its own Supabase project per environment, with the Da
     region: eu-central-1
     plan: free                    # or paid
     staging: project              # or branch: staging as a persistent branch of production (paid plans only; apply production first)
+    workdir: .                    # the directory holding supabase/migrations
 ```
+
+`migrate` creates two roles in each database: `turbo_vibe_migrator`, which owns the schema and runs `supabase db push`, and `turbo_vibe_runtime`, which can read and write rows but cannot change the schema. Both connect through the Supabase session pooler (IPv4). A paused free-plan project is reported as paused. A failed migration stops the run before anything deploys. Write migrations forward-only, expand then contract, so the previous backend keeps working while the new one deploys.
 
 ## Credentials
 
@@ -48,6 +52,6 @@ A `supabase` database gets its own Supabase project per environment, with the Da
 | `CLOUDFLARE_ZONE_ID` | the zone of the project's `domain` |
 | `TURBO_VIBE_STATE_BUCKET` | an R2 bucket for OpenTofu state, created once by hand |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | an R2 API token with Object Read & Write on that bucket |
-| `SUPABASE_ACCESS_TOKEN` | a Supabase personal access token, for projects with a `supabase` database (`apply` only) |
+| `SUPABASE_ACCESS_TOKEN` | a Supabase personal access token, for projects with a `supabase` database (`apply` and `migrate`) |
 
 OpenTofu 1.10 or later must be on `PATH` as `tofu`. Docker must be available to `deploy`, which builds container images. Add `.turbo-vibe/` to the project's `.gitignore`; `apply` and `deploy` write their working files there.

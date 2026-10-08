@@ -2,6 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Io } from "../src/io.js";
 import { main } from "../src/main.js";
 import type { Runner } from "../src/run.js";
 
@@ -14,6 +15,7 @@ async function run(
   env: Record<string, string> = {},
   runner: Runner = vi.fn(async () => 0),
   fetch: typeof globalThis.fetch = vi.fn(async () => new Response("unused")),
+  overrides: Partial<Io> = {},
 ) {
   const cwd = await mkdtemp(join(tmpdir(), "turbo-vibe-"));
   for (const [name, content] of Object.entries(files)) {
@@ -27,6 +29,9 @@ async function run(
     run: runner,
     fetch,
     sleep: async () => {},
+    capture: vi.fn(async () => ({ code: 0, stdout: "{}" })),
+    sql: () => ({ execute: async () => {}, end: async () => {} }),
+    ...overrides,
     stdout: (text) => {
       stdout += text;
     },
@@ -439,5 +444,249 @@ describe("turbo-vibe test", () => {
     expect(code).toBe(1);
     expect(stderr).toBe("test api failed with exit code 1\n");
     expect(runner).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("turbo-vibe migrate", () => {
+  const withDb = `version: 1
+project: acme
+domain: acme.example.com
+services:
+  db:
+    kind: database
+    target: supabase
+    organization: acme-org
+    region: eu-central-1
+    workdir: backend
+`;
+  const env = {
+    TURBO_VIBE_STATE_BUCKET: "tv-state",
+    AWS_ACCESS_KEY_ID: "key-id",
+    AWS_SECRET_ACCESS_KEY: "s3cr3t-key",
+    CLOUDFLARE_ACCOUNT_ID: "acc123",
+    SUPABASE_ACCESS_TOKEN: "s3cr3t-supabase",
+  };
+  const connection = {
+    project_ref: "abcdefghij",
+    pooler_urls: {
+      transaction:
+        "postgresql://postgres.abcdefghij:[YOUR-PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:6543/postgres",
+    },
+    postgres_password: "pgpw",
+    migrator_password: "migpw",
+    runtime_password: "runpw",
+  };
+  const outputs = JSON.stringify({
+    supabase_db_connection: { value: connection, sensitive: true },
+  });
+  const status = (value: string) =>
+    vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json({ status: value }),
+    );
+
+  function sqlRecorder() {
+    const sessions: { url: string; statements: string[]; ended: boolean }[] =
+      [];
+    const sql = (url: string) => {
+      const session = { url, statements: [] as string[], ended: false };
+      sessions.push(session);
+      return {
+        execute: async (statement: string) => {
+          session.statements.push(statement);
+        },
+        end: async () => {
+          session.ended = true;
+        },
+      };
+    };
+    return { sessions, sql };
+  }
+
+  it("does nothing for a project without a database", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code, stdout } = await run(
+      ["migrate", "--env", "staging"],
+      { "turbo-vibe.yaml": project },
+      {},
+      runner,
+    );
+    expect(code).toBe(0);
+    expect(stdout).toBe("no database to migrate\n");
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("creates the roles as postgres, then pushes migrations as the migration role over the session pooler", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const capture = vi.fn(async () => ({ code: 0, stdout: outputs }));
+    const fetch = status("ACTIVE_HEALTHY");
+    const { sessions, sql } = sqlRecorder();
+    const { code, cwd, stdout, stderr } = await run(
+      ["migrate", "--env", "staging"],
+      { "turbo-vibe.yaml": withDb },
+      env,
+      runner,
+      fetch,
+      { capture, sql },
+    );
+    expect(code).toBe(0);
+    const tofuDir = join(cwd, ".turbo-vibe", "tofu", "staging");
+    expect(runner.mock.calls[0]).toEqual([
+      "tofu",
+      ["init", "-input=false"],
+      { cwd: tofuDir, env },
+    ]);
+    expect(capture).toHaveBeenCalledWith("tofu", ["output", "-json"], {
+      cwd: tofuDir,
+      env,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.supabase.com/v1/projects/abcdefghij",
+      {
+        headers: { authorization: "Bearer s3cr3t-supabase" },
+      },
+    );
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.url).toBe(
+      "postgresql://postgres.abcdefghij:pgpw@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require",
+    );
+    expect(sessions[0]?.statements).toContainEqual(
+      expect.stringMatching(
+        /^ALTER ROLE turbo_vibe_runtime WITH LOGIN PASSWORD 'SCRAM-SHA-256\$4096:/,
+      ),
+    );
+    expect(sessions[0]?.statements.join("\n")).not.toMatch(/migpw|runpw/);
+    expect(sessions[0]?.ended).toBe(true);
+
+    expect(runner.mock.calls[1]).toEqual([
+      process.execPath,
+      [
+        expect.stringMatching(/supabase\.js$/),
+        "db",
+        "push",
+        "--include-all",
+        "--workdir",
+        join(cwd, "backend"),
+        "--db-url",
+        "postgresql://turbo_vibe_migrator.abcdefghij:migpw@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require",
+      ],
+      { cwd: join(cwd, "backend"), env },
+    ]);
+    expect(stdout + stderr).not.toMatch(/pgpw|migpw|runpw|s3cr3t/);
+  });
+
+  it("reports a paused project as paused and touches nothing", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { sessions, sql } = sqlRecorder();
+    const { code, stderr } = await run(
+      ["migrate", "--env", "staging"],
+      { "turbo-vibe.yaml": withDb },
+      env,
+      runner,
+      status("INACTIVE"),
+      { capture: async () => ({ code: 0, stdout: outputs }), sql },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "Supabase project abcdefghij is paused; restore it in the Supabase dashboard, then rerun\n",
+    );
+    expect(sessions).toHaveLength(0);
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops with the migration's exit code when a migration fails", async () => {
+    const runner = vi.fn<Runner>(async (_command, args) =>
+      args.includes("push") ? 1 : 0,
+    );
+    const { code, stderr } = await run(
+      ["migrate", "--env", "staging"],
+      { "turbo-vibe.yaml": withDb },
+      env,
+      runner,
+      status("ACTIVE_HEALTHY"),
+      {
+        capture: async () => ({ code: 0, stdout: outputs }),
+        sql: sqlRecorder().sql,
+      },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "migrations for db failed with exit code 1; nothing was deployed\n",
+    );
+  });
+
+  it("stops with a one-line error when role setup fails", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code, stderr } = await run(
+      ["migrate", "--env", "staging"],
+      { "turbo-vibe.yaml": withDb },
+      env,
+      runner,
+      status("ACTIVE_HEALTHY"),
+      {
+        capture: async () => ({ code: 0, stdout: outputs }),
+        sql: () => ({
+          execute: async () => {
+            throw new Error('no privileges were granted for "postgres"');
+          },
+          end: async () => {},
+        }),
+      },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      'role setup failed: no privileges were granted for "postgres"\n' +
+        "migrations for db failed with exit code 1; nothing was deployed\n",
+    );
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a project without a pooler instead of crashing", async () => {
+    const noPooler = JSON.stringify({
+      supabase_db_connection: {
+        value: { ...connection, pooler_urls: {} },
+        sensitive: true,
+      },
+    });
+    const { code, stderr } = await run(
+      ["migrate", "--env", "staging"],
+      { "turbo-vibe.yaml": withDb },
+      env,
+      vi.fn<Runner>(async () => 0),
+      status("ACTIVE_HEALTHY"),
+      { capture: async () => ({ code: 0, stdout: noPooler }) },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe("Supabase project abcdefghij reports no pooler\n");
+  });
+
+  it("asks for apply when the environment has no outputs yet", async () => {
+    const { code, stderr } = await run(
+      ["migrate", "--env", "staging"],
+      { "turbo-vibe.yaml": withDb },
+      env,
+      vi.fn<Runner>(async () => 0),
+      status("ACTIVE_HEALTHY"),
+      { capture: async () => ({ code: 0, stdout: "{}" }) },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "no connection for database db in staging; run apply first\n",
+    );
+  });
+
+  it("names missing credentials before running anything", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code, stderr } = await run(
+      ["migrate", "--env", "staging"],
+      { "turbo-vibe.yaml": withDb },
+      { ...env, SUPABASE_ACCESS_TOKEN: "" },
+      runner,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "missing environment variables: SUPABASE_ACCESS_TOKEN\n",
+    );
+    expect(runner).not.toHaveBeenCalled();
   });
 });

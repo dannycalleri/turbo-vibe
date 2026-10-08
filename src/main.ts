@@ -5,6 +5,7 @@ import { loadConfigFile } from "./config/load.js";
 import { type EnvironmentName, environmentNames } from "./config/schema.js";
 import { deploy, type Project, smoke, test } from "./deploy.js";
 import type { Io } from "./io.js";
+import { migrate } from "./migrate.js";
 import { derivePlan, formatPlan } from "./plan.js";
 
 export type { Io } from "./io.js";
@@ -59,6 +60,15 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     .action(async (options: { env: EnvironmentName }) => {
       const project = await loadProject();
       if (project) exitCode = await apply(project.config, options.env, io);
+    });
+
+  program
+    .command("migrate")
+    .description("create the database roles and apply pending migrations")
+    .addOption(environmentOption())
+    .action(async (options: { env: EnvironmentName }) => {
+      const project = await loadProject();
+      if (project) exitCode = await migrate(project, options.env, io);
     });
 
   program

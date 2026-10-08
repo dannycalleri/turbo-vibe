@@ -35,3 +35,14 @@ resource "supabase_branch" "this" {
   persistent         = true
   region             = var.region
 }
+
+resource "random_password" "role" {
+  for_each = toset(["migrator", "runtime"])
+
+  length  = 40
+  special = false
+}
+
+data "supabase_pooler" "this" {
+  project_ref = local.project_ref
+}
