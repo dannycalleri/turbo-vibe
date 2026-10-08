@@ -244,6 +244,32 @@ describe("parseConfig", () => {
     expect(parseConfig(`${valid + db}    plan: paid\n`).ok).toBe(true);
   });
 
+  it("refuses an instance rule it cannot route by, and extra instances nothing routes to", () => {
+    const withContainer = (container: string) =>
+      valid.replace(
+        '    build: { dockerfile: Dockerfile, test: "make check" }\n',
+        `    build: { dockerfile: Dockerfile, test: "make check" }\n    container: ${container}\n`,
+      );
+    expect(
+      parseConfig(
+        withContainer("{ instance_from: query:session, max_instances: 5 }"),
+      ).ok,
+    ).toBe(true);
+    expect(
+      problems(withContainer("{ instance_from: cookie:session }"))[0]?.message,
+    ).toBe(
+      "`services.api.container.instance_from` must be query:<parameter> or header:<name>",
+    );
+    expect(
+      problems(withContainer("{ instance_from: query:session }"))[0]?.message,
+    ).toBe(
+      "service `api` routes requests by query:session, so it needs max_instances of 2 or more: sessions and the default instance share them",
+    );
+    expect(problems(withContainer("{ max_instances: 5 }"))[0]?.message).toBe(
+      "service `api` allows 5 instances but sets no instance_from, so every request still goes to one instance",
+    );
+  });
+
   it("names the service, the target, and the available targets for an unknown target", () => {
     expect(
       problems(valid.replace("target: cloudflare-container", "target: heroku")),

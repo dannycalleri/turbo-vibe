@@ -52,3 +52,11 @@ jobs:
       config: examples/nextjs/turbo-vibe.yaml
       use-local-cli: true
     secrets: inherit
+
+  python-example:
+    needs: check
+    uses: ./.github/workflows/deploy.yml
+    with:
+      config: examples/python-api/turbo-vibe.yaml
+      use-local-cli: true
+    secrets: inherit

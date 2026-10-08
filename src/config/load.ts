@@ -191,6 +191,27 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
     }
   }
 
+  for (const [name, service] of Object.entries(config.services)) {
+    const container =
+      service.kind === "backend" ? service.container : undefined;
+    if (container?.instance_from && (container.max_instances ?? 0) < 2) {
+      problems.push({
+        path: ["services", name, "container"],
+        message: `service \`${name}\` routes requests by ${container.instance_from}, so it needs max_instances of 2 or more: sessions and the default instance share them`,
+      });
+    }
+    if (
+      container?.max_instances &&
+      container.max_instances > 1 &&
+      !container.instance_from
+    ) {
+      problems.push({
+        path: ["services", name, "container", "max_instances"],
+        message: `service \`${name}\` allows ${container.max_instances} instances but sets no instance_from, so every request still goes to one instance`,
+      });
+    }
+  }
+
   for (const kind of ["database", "identity"] as const) {
     const services = Object.entries(config.services).filter(
       ([, service]) => service.kind === kind,

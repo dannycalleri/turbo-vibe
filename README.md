@@ -52,6 +52,18 @@ Public repositories run GitHub's standard runners at no cost. In a private repos
 
 The image build dominates staging. Promotion skips it, which is why it costs less.
 
+## Sessions on their own container
+
+By default every request reaches one container instance, named `default`. A backend that keeps per-session state, such as WebSocket rooms, can route each request to the instance its query parameter or header names. Requests without one still go to `default`:
+
+```yaml
+    container:
+      instance_from: query:session   # or header:x-session
+      max_instances: 3               # required with instance_from, at least 2
+```
+
+WebSocket upgrades are forwarded with `fetch`, so a connection stays on the instance it reached. Sessions and `default` share `max_instances`: once that many are running, a request for any other name fails, the smoke test's `/api/health` included. Size it for the sessions you expect at once, plus one. `examples/python-api` routes by `?session=`.
+
 ## What a backend must do
 
 A `cloudflare-container` backend listens on port 8080 (also given as `PORT`), reads its database, if the project has one, from `DATABASE_URL`, and answers `GET /api/health` with JSON containing `build_id`. The kit passes the build ID to `docker build` as the build argument `BUILD_ID`; the Dockerfile's final stage turns it into the environment variable the app reports:

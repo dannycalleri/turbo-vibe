@@ -20,6 +20,21 @@ export const compatibilityDate = "2026-10-01";
 export const buildIdPath = "/_turbo-vibe/build-id";
 export const runtimeConfigPath = "/_turbo-vibe/config.json";
 
+export function routingModule(backend: Backend): string {
+  const rule = backend.container?.instance_from;
+  const [source, name] = rule ? rule.split(":") : [];
+  const read =
+    source === "query"
+      ? `new URL(request.url).searchParams.get(${JSON.stringify(name)})`
+      : source === "header"
+        ? `request.headers.get(${JSON.stringify(name)})`
+        : "undefined";
+  return `export function instanceName(request) {
+  return ${read} || "default";
+}
+`;
+}
+
 export function workerEntry(
   backend: Backend,
   secretNames: readonly string[] = [],
@@ -29,6 +44,7 @@ export function workerEntry(
     .map((name) => `, ${name}: env.${name}`)
     .join("");
   return `import { Container, getContainer } from ${JSON.stringify(containersModule)};
+import { instanceName } from "./routing.js";
 
 export class Backend extends Container {
   defaultPort = 8080;
@@ -42,7 +58,7 @@ export class Backend extends Container {
 
 export default {
   fetch(request, env) {
-    return getContainer(env.BACKEND, "default").fetch(request);
+    return getContainer(env.BACKEND, instanceName(request)).fetch(request);
   },
 };
 `;
@@ -84,7 +100,7 @@ export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
         {
           ...container,
           instance_type: spec.backend.container?.instance_type ?? "lite",
-          max_instances: 1,
+          max_instances: spec.backend.container?.max_instances ?? 1,
         },
       ],
       durable_objects: {
@@ -108,11 +124,13 @@ export async function writeWorker(
   spec: WorkerSpec,
 ): Promise<string> {
   await mkdir(dir, { recursive: true });
-  if (spec.backend)
+  if (spec.backend) {
     await writeFile(
       join(dir, "worker.js"),
       workerEntry(spec.backend, spec.secretNames),
     );
+    await writeFile(join(dir, "routing.js"), routingModule(spec.backend));
+  }
   const file = join(dir, "wrangler.json");
   await writeFile(file, `${JSON.stringify(wranglerConfig(spec), null, 2)}\n`);
   return file;

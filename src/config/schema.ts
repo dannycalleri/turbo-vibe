@@ -46,6 +46,14 @@ const backend = z.strictObject({
           "must be a duration such as 30s, 5m, or 1h",
         )
         .optional(),
+      max_instances: z.number().int().min(1).optional(),
+      instance_from: z
+        .string()
+        .regex(
+          /^(query|header):[A-Za-z0-9_-]+$/,
+          "must be query:<parameter> or header:<name>",
+        )
+        .optional(),
     })
     .optional(),
 });

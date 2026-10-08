@@ -40,7 +40,7 @@ lint-workflows:
 	else docker run --rm -v "$(CURDIR)":/repo -w /repo $(ACTIONLINT_IMAGE) -no-color; fi
 
 dry-run-example: build
-	@for config in examples/go-api/turbo-vibe.yaml examples/vercel-static/turbo-vibe.yaml; do \
+	@for config in examples/go-api/turbo-vibe.yaml examples/vercel-static/turbo-vibe.yaml examples/python-api/turbo-vibe.yaml; do \
 		tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/turbo-vibe-dry-run.XXXXXX"); \
 		(cd "$$tmp" && node $(CURDIR)/dist/cli.js --config $(CURDIR)/$$config deploy --env staging --build-id dry-run --dry-run) || exit 1; \
 		rm -rf "$$tmp"; \

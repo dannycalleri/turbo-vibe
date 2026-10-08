@@ -610,6 +610,9 @@ describe("runtime secrets", () => {
     expect(await readFile(join(workerDir, "worker.js"), "utf8")).toContain(
       "DATABASE_URL: env.DATABASE_URL",
     );
+    expect(await readFile(join(workerDir, "routing.js"), "utf8")).toContain(
+      "export function instanceName(request)",
+    );
     expect(stdout + stderr).not.toContain("runpw");
   });
 

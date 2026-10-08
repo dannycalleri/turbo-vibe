@@ -27,3 +27,10 @@ jobs:
       config: examples/nextjs/turbo-vibe.yaml
       use-local-cli: true
     secrets: inherit
+
+  python-example:
+    uses: ./.github/workflows/promote.yml
+    with:
+      config: examples/python-api/turbo-vibe.yaml
+      use-local-cli: true
+    secrets: inherit
