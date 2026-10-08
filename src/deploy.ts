@@ -230,7 +230,10 @@ export async function deploy(
   if (!infra) return 1;
   const secrets = dryRun ? {} : runtimeSecrets(config, environment, infra, io);
   if (!secrets) return 1;
-  const store = dryRun ? undefined : new BuildStore(io, config.project);
+  const store =
+    dryRun || environment !== "staging"
+      ? undefined
+      : new BuildStore(io, config.project);
   const outputs = await deployServices(
     project,
     environment,

@@ -152,17 +152,17 @@ export function rootModule(
     };
   }
   for (const [name, inputs] of Object.entries(infrastructure.supabase ?? {})) {
-    const { branch_of_production, ...variables } = inputs;
+    const { branch_of, ...variables } = inputs;
     const module = `supabase_${name}`;
     root.module[module] = { source: supabaseModule, ...variables };
-    if (branch_of_production) {
+    if (branch_of) {
       root.data = {
         terraform_remote_state: {
-          production: { backend: "s3", config: backend("production") },
+          [branch_of]: { backend: "s3", config: backend(branch_of) },
         },
       };
       root.module[module].parent_project_ref =
-        `\${data.terraform_remote_state.production.outputs.${module}_project_ref}`;
+        `\${data.terraform_remote_state.${branch_of}.outputs.${module}_project_ref}`;
     } else {
       root.output = {
         ...root.output,

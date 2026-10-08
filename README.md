@@ -64,6 +64,21 @@ By default every request reaches one container instance, named `default`. A back
 
 WebSocket upgrades are forwarded with `fetch`, so a connection stays on the instance it reached. Sessions and `default` share `max_instances`: once that many are running, a request for any other name fails, the smoke test's `/api/health` included. Size it for the sessions you expect at once, plus one. `examples/python-api` routes by `?session=`.
 
+## Previews
+
+With `previews: true`, each pull request from a branch of the repository can get its own environment:
+
+```sh
+npx @turbo-vibe/cli preview deploy --branch "$BRANCH" --build-id "$SHA"
+npx @turbo-vibe/cli preview remove --branch "$BRANCH"
+```
+
+- **Naming:** the preview is named after the branch, and its hostnames sit next to staging's. A branch that is already hostname-safe keeps its name: `feature-login` on `staging-shop.example.com` becomes `feature-login-staging-shop.example.com`. Any other name, or a long one, is normalized and given a short hash, so two branches never share a preview: `feature/login` becomes `feature-login-<6 hex>-staging-shop.example.com`.
+- **Resources:** it has its own OpenTofu state, Workers, Vercel projects, and sign-in callback. The callback is registered in WorkOS's staging environment, because previews run with staging's credentials.
+- **Database:** a project with a database gets a Supabase branch, which needs a paid plan. On the free plan, `preview deploy` makes no preview and says why.
+- **Removal:** `preview remove` deletes the preview's container application and destroys the preview's own state. It refuses to destroy anything that is not a preview.
+- **Promotion:** preview builds are never recorded, so they cannot be promoted.
+
 ## What a backend must do
 
 A `cloudflare-container` backend listens on port 8080 (also given as `PORT`), reads its database, if the project has one, from `DATABASE_URL`, and answers `GET /api/health` with JSON containing `build_id`. The kit passes the build ID to `docker build` as the build argument `BUILD_ID`; the Dockerfile's final stage turns it into the environment variable the app reports:

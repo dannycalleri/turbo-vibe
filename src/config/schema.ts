@@ -101,12 +101,21 @@ export const serviceKinds = [
 export type ServiceKind = (typeof serviceKinds)[number];
 
 export const environmentNames = ["staging", "production"] as const;
-export type EnvironmentName = (typeof environmentNames)[number];
+export type StableEnvironment = (typeof environmentNames)[number];
+export type PreviewEnvironment = `preview-${string}`;
+export type EnvironmentName = StableEnvironment | PreviewEnvironment;
+
+export function isPreview(
+  environment: EnvironmentName,
+): environment is PreviewEnvironment {
+  return environment.startsWith("preview-");
+}
 
 export const configSchema = z.strictObject({
   version: z.literal(1),
   project: name,
   domain: hostname,
+  previews: z.boolean().optional(),
   environments: z
     .strictObject({
       staging: environment.optional(),

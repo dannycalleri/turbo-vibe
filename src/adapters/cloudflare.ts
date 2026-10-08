@@ -149,6 +149,37 @@ export const cloudflareContainer: Adapter = {
     const code = await wranglerDeploy(context, file, context.secrets);
     return { code, ...(image ? { outputs: { image } } : {}) };
   },
+  async remove(context) {
+    const { io } = context;
+    const api = `https://api.cloudflare.com/client/v4/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}/containers/applications`;
+    const headers = { authorization: `Bearer ${io.env.CLOUDFLARE_API_TOKEN}` };
+    const listed = await io.fetch(api, { headers });
+    if (!listed.ok) {
+      io.stderr(
+        `cannot list Cloudflare container applications (HTTP ${listed.status})\n`,
+      );
+      return 1;
+    }
+    const body = (await listed.json()) as
+      | { result?: { id: string; name: string }[] }
+      | { id: string; name: string }[];
+    const applications = Array.isArray(body) ? body : (body.result ?? []);
+    for (const application of applications.filter(
+      (app) => app.name === `${workerName(context)}-backend`,
+    )) {
+      const deleted = await io.fetch(`${api}/${application.id}`, {
+        method: "DELETE",
+        headers,
+      });
+      if (!deleted.ok && deleted.status !== 404) {
+        io.stderr(
+          `cannot delete container application ${application.name} (HTTP ${deleted.status})\n`,
+        );
+        return 1;
+      }
+    }
+    return 0;
+  },
   smoke(context) {
     return checkBuildId(
       {

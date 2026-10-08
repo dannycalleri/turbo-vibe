@@ -1,6 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Config, EnvironmentName } from "./config/schema.js";
+import {
+  type Config,
+  type EnvironmentName,
+  isPreview,
+} from "./config/schema.js";
 import { discoverRedirectUris } from "./identity.js";
 import { requiredSecrets, rootModule } from "./infrastructure.js";
 import type { Io } from "./io.js";
@@ -68,6 +72,26 @@ export async function apply(
     await writeRoot(config, environment, io, managed);
   }
   return io.run("tofu", ["apply", "-input=false", "-auto-approve"], {
+    cwd: dir,
+    env: io.env,
+  });
+}
+
+export async function destroy(
+  config: Config,
+  environment: EnvironmentName,
+  io: Io,
+): Promise<number> {
+  if (!isPreview(environment)) {
+    io.stderr(
+      `refusing to destroy ${environment}: only previews are ever removed\n`,
+    );
+    return 1;
+  }
+  if (missingVariables(requiredSecrets(config), io)) return 1;
+  const { dir, code } = await initRoot(config, environment, io);
+  if (code !== 0) return code;
+  return io.run("tofu", ["destroy", "-input=false", "-auto-approve"], {
     cwd: dir,
     env: io.env,
   });

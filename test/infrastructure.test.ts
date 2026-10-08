@@ -99,7 +99,6 @@ describe("databases", () => {
         organization_id: "acme-org",
         name: "acme-db-production",
         region: "eu-central-1",
-        branch_of_production: false,
       },
     });
   });

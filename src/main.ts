@@ -10,6 +10,7 @@ import { init } from "./init.js";
 import type { Io } from "./io.js";
 import { migrate } from "./migrate.js";
 import { derivePlan, formatPlan } from "./plan.js";
+import { deployPreview, removePreview } from "./preview.js";
 
 export type { Io } from "./io.js";
 
@@ -183,6 +184,37 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
         }
       },
     );
+
+  const preview = program
+    .command("preview")
+    .description(
+      "deploy or remove the preview environment of a pull request's branch",
+    );
+  preview
+    .command("deploy")
+    .description("apply, migrate, deploy, and smoke-test the branch's preview")
+    .requiredOption("--branch <name>", "the pull request's branch")
+    .addOption(buildIdOption())
+    .action(async (options: { branch: string; buildId: string }) => {
+      const project = await loadProject();
+      if (project)
+        exitCode = await deployPreview(
+          project,
+          options.branch,
+          options.buildId,
+          io,
+        );
+    });
+  preview
+    .command("remove")
+    .description(
+      "remove every resource of the branch's preview, and nothing else",
+    )
+    .requiredOption("--branch <name>", "the pull request's branch")
+    .action(async (options: { branch: string }) => {
+      const project = await loadProject();
+      if (project) exitCode = await removePreview(project, options.branch, io);
+    });
 
   program
     .command("smoke")
