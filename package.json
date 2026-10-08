@@ -1,8 +1,13 @@
 {
   "name": "@turbo-vibe/cli",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Deploy any project from one config file.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dannycalleri/turbo-vibe.git"
+  },
+  "homepage": "https://github.com/dannycalleri/turbo-vibe#readme",
   "type": "module",
   "bin": {
     "turbo-vibe": "dist/cli.js"
@@ -13,6 +18,10 @@
   ],
   "engines": {
     "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
     "build": "tsup",

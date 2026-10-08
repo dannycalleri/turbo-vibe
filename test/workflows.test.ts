@@ -111,6 +111,34 @@ describe("the production workflow", () => {
   });
 });
 
+describe("the release workflow", () => {
+  it("publishes from a version tag with provenance, and only that job can mint an identity token", async () => {
+    const release = await workflow("release.yml");
+    expect(release.on.push.tags).toEqual(["v*.*.*"]);
+    expect(release.permissions).toEqual({ contents: "read" });
+    expect(release.jobs.publish.permissions["id-token"]).toBe("write");
+    expect(release.jobs["major-tag"].permissions).toEqual({
+      contents: "write",
+    });
+    const runs = release.jobs.publish.steps
+      .map((step: { run?: string }) => step.run ?? "")
+      .join("\n");
+    expect(runs).toContain("npm publish --provenance --access public");
+    expect(runs).toMatch(/test "\$TAG" = "v\$version"/);
+  });
+
+  it("moves the major tag only for the newest release in that major", async () => {
+    const release = await workflow("release.yml");
+    const move = release.jobs["major-tag"].steps
+      .map((step: { run?: string }) => step.run ?? "")
+      .join("\n");
+    expect(move).toContain('git tag --list "$major.*.*" --sort=-v:refname');
+    expect(move.indexOf('[ "$TAG" != "$newest" ]')).toBeLessThan(
+      move.indexOf("git push --force"),
+    );
+  });
+});
+
 describe("workflows", () => {
   it("never run pull-request code with secrets through pull_request_target", async () => {
     const dir = new URL(".github/workflows/", root);

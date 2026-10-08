@@ -43,6 +43,15 @@ describe("turbo-vibe plan", () => {
     expect(stderr).toMatch(/missing\.yaml: cannot read/);
   });
 
+  it("prints the version it was released as", async () => {
+    const { version } = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    );
+    const { code, stdout } = await run(["--version"]);
+    expect(code).toBe(0);
+    expect(stdout).toBe(`${version}\n`);
+  });
+
   it("exits non-zero on an unknown command", async () => {
     const { code } = await run(["nope"]);
     expect(code).not.toBe(0);

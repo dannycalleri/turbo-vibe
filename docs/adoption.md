@@ -1,0 +1,122 @@
+# Adopting turbo-vibe in an existing project
+
+This guide takes a repository that already has a backend with a Dockerfile, and optionally a single-page app, to "merge deploys staging, one approved click deploys production". Follow it in order: each step names what you should see before moving on.
+
+## 1. Make the backend report its build
+
+The smoke test after every deploy asks the backend which build it is running.
+
+- Listen on port 8080 (the kit also sets `PORT`).
+- Answer `GET /api/health` with JSON containing `build_id`:
+
+  ```json
+  { "build_id": "4f2c9e1…" }
+  ```
+
+- Take the value from the build argument the kit passes to `docker build`. Put this in the Dockerfile's **final** stage:
+
+  ```dockerfile
+  ARG BUILD_ID
+  ENV BUILD_ID=$BUILD_ID
+  ```
+
+- Serve every backend route under `/api/`. When the frontend is served from the same Worker, only `/api/*` reaches the backend.
+
+Check: `docker build --build-arg BUILD_ID=local -t app . && docker run -p 8080:8080 app`, then `curl localhost:8080/api/health` → `{"build_id":"local"}`.
+
+## 2. Add `turbo-vibe.yaml`
+
+At the repository root:
+
+```yaml
+version: 1
+project: myapp                 # lowercase; names Workers, state, and Supabase projects
+domain: myapp.example.com      # production; staging defaults to staging.<domain>
+environments:
+  staging: { hostname: staging-myapp.example.com }   # keep it one level below the zone, see below
+services:
+  api:
+    kind: backend
+    target: cloudflare-container
+    build:
+      dockerfile: Dockerfile
+      test: docker run --rm -v "$PWD":/src -w /src golang:1.27 go test ./...   # any command; runs on the CI runner
+  web:
+    kind: frontend
+    target: cloudflare-static
+    serve_with: api            # one Worker: the app at /, the API at /api/
+    build:
+      command: pnpm --dir web build
+      output: web/dist
+      test: pnpm --dir web test
+```
+
+Leave out `web` if there is no frontend. Add `db` (`target: supabase`) and `auth` (`target: workos`) as described in the [README](../README.md#databases) when you need them.
+
+Cloudflare's free certificate covers the apex and names one level below it. `staging.myapp.example.com` is two levels below `example.com` and would fail TLS. That is why the example sets `staging-myapp.example.com` instead.
+
+Check: `npx @turbo-vibe/cli@1 plan` → staging and production, each listing `api` at `/api/` and `web` at `/`.
+
+Add `.turbo-vibe/` to `.gitignore`.
+
+## 3. Add the two workflows
+
+`.github/workflows/staging.yml`:
+
+```yaml
+name: Staging
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  deploy:
+    uses: dannycalleri/turbo-vibe/.github/workflows/deploy.yml@v1
+    secrets: inherit
+```
+
+`.github/workflows/production.yml`:
+
+```yaml
+name: Deploy to production
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  promote:
+    uses: dannycalleri/turbo-vibe/.github/workflows/promote.yml@v1
+    secrets: inherit
+```
+
+Pass `with: { config: path/to/turbo-vibe.yaml }` if the file is not at the root. The `@v1` tag and the CLI version move together, so a workflow tag always runs the CLI it was released with.
+
+Pull requests, including from forks, run the test-and-build job with no secrets. Only pushes to `main` deploy.
+
+## 4. Create the accounts, tokens, and GitHub environments
+
+Do this once per project. These are the minimum; the README's [Credentials](../README.md#credentials) table says which command reads each one.
+
+1. **Cloudflare:** the domain's zone on Cloudflare, and the Workers Paid plan ($5/month, required for Containers).
+   - An API token with *Workers Scripts: Edit*, *Containers: Edit*, *Workers Routes: Edit* and *DNS: Edit* on the zone.
+   - An R2 bucket for state and build records, plus an R2 API token with *Object Read & Write* on it.
+2. **GitHub → Settings → Environments:** create `staging` and `production`. On `production`, add required reviewers; that is the approval step. Give each environment these secrets, using that environment's values:
+   - `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`
+   - `TURBO_VIBE_STATE_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (the R2 token)
+   - with a database: `SUPABASE_ACCESS_TOKEN`
+   - with sign-in: `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` (the staging environment's keys on `staging`, the production keys on `production`)
+
+## 5. Merge, then promote
+
+1. Merge a change to `main`. The **Staging** run applies infrastructure, migrates, builds and pushes the image, deploys, and smoke-tests.
+   Check: the staging hostname serves the app, and `/api/health` on the **same hostname** reports the merged commit's SHA.
+2. Run **Deploy to production** from the Actions tab and approve it.
+   Check: production's `/api/health` reports the same SHA as staging. Nothing was rebuilt; the run's log has no `docker build`.
+
+If staging's smoke test fails, the run fails and names both build IDs. That build can never be promoted.
+
+## Cost
+
+Public repositories run the workflows at no cost. For private repositories, the README's [Actions minutes per run](../README.md#actions-minutes-per-run) table lists the expected minutes for a pull request, a merge, and a promotion.

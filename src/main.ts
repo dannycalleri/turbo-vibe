@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { Command, CommanderError, Option } from "commander";
 import { apply } from "./apply.js";
@@ -10,10 +11,15 @@ import { derivePlan, formatPlan } from "./plan.js";
 
 export type { Io } from "./io.js";
 
+const { version } = createRequire(import.meta.url)("../package.json") as {
+  version: string;
+};
+
 export async function main(argv: readonly string[], io: Io): Promise<number> {
   let exitCode = 0;
   const program = new Command("turbo-vibe")
     .description("Deploy a project's services from turbo-vibe.yaml.")
+    .version(version)
     .option("-c, --config <file>", "project config file", "turbo-vibe.yaml")
     .exitOverride()
     .configureOutput({ writeOut: io.stdout, writeErr: io.stderr });

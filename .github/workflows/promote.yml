@@ -32,7 +32,7 @@ on:
         required: false
 
 env:
-  TURBO_VIBE_CLI: "@turbo-vibe/cli@0.0.0"
+  TURBO_VIBE_CLI: "@turbo-vibe/cli@1.0.0"
   NODE_VERSION: "24"
   TOFU_VERSION: "1.13.1"
   CONFIG: ${{ inputs.config }}
