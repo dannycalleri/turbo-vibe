@@ -27,8 +27,14 @@ validate-infra:
 		(cd "$$tmp/$$module" && $$tofu init -backend=false -input=false >/dev/null && $$tofu validate) || exit 1; \
 	done
 
-.PHONY: integration dry-run-example
-integration: validate-infra dry-run-example
+ACTIONLINT_IMAGE := rhysd/actionlint:1.7.12
+
+.PHONY: integration dry-run-example lint-workflows
+integration: validate-infra dry-run-example lint-workflows
+
+lint-workflows:
+	@if command -v actionlint >/dev/null; then actionlint; \
+	else docker run --rm -v "$(CURDIR)":/repo -w /repo $(ACTIONLINT_IMAGE) -no-color; fi
 
 dry-run-example: build
 	@tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/turbo-vibe-dry-run.XXXXXX"); trap 'rm -rf "$$tmp"' EXIT; \

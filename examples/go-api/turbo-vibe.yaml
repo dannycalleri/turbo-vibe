@@ -1,6 +1,8 @@
 version: 1
 project: tv-example
-domain: turbo-vibe.example.com
+domain: example.turbovibe.ai
+environments:
+  staging: { hostname: staging-example.turbovibe.ai }
 services:
   api:
     kind: backend
