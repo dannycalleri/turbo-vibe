@@ -11,4 +11,5 @@ export interface Io {
   fetch: typeof fetch;
   sleep: (ms: number) => Promise<void>;
   sql: (url: string) => SqlSession;
+  ask?: (question: string) => Promise<string>;
 }

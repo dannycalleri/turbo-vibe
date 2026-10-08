@@ -26,6 +26,8 @@ Check: `docker build --build-arg BUILD_ID=local -t app . && docker run -p 8080:8
 
 ## 2. Add `turbo-vibe.yaml`
 
+`npx @turbo-vibe/cli@1 init` writes this file and the two workflows in step 3 from a few answers, and never overwrites existing files. Adjust the build commands it leaves as defaults. To write the files by hand instead:
+
 At the repository root:
 
 ```yaml

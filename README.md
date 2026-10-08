@@ -3,6 +3,7 @@
 Deploy a project's services from one `turbo-vibe.yaml`. To add it to an existing repository, follow the [adoption guide](docs/adoption.md). For the accounts, plans and tokens it needs, follow the [bootstrap checklist](docs/bootstrap.md).
 
 ```sh
+npx @turbo-vibe/cli init
 npx @turbo-vibe/cli plan
 npx @turbo-vibe/cli check --env staging
 npx @turbo-vibe/cli test
@@ -12,6 +13,8 @@ npx @turbo-vibe/cli deploy --env staging --build-id "$(git rev-parse --short HEA
 npx @turbo-vibe/cli smoke --env staging --build-id "$(git rev-parse --short HEAD)"
 npx @turbo-vibe/cli promote --env production
 ```
+
+`init` asks for the project's name, domain, and the target of each service, then writes `turbo-vibe.yaml` and the staging and production workflows. It never replaces existing files unless given `--force`. Every answer has a flag (`--name`, `--domain`, `--backend`, `--frontend`, `--database`, `--identity`) for running it non-interactively. It treats a two-label domain (`example.com`) as the zone apex and anything longer as one level below the zone. For a domain on a multi-part suffix, such as `example.co.uk`, edit the hostnames it writes. Build commands, output directories and the Supabase region it fills in are marked as defaults to replace.
 
 `check` verifies an environment's accounts, tokens, and tools for the targets the project uses, and changes nothing. It lists every problem with its fix, and exits non-zero until the environment is ready.
 

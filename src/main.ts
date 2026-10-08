@@ -6,6 +6,7 @@ import { check } from "./check.js";
 import { loadConfigFile } from "./config/load.js";
 import { type EnvironmentName, environmentNames } from "./config/schema.js";
 import { deploy, type Project, promote, smoke, test } from "./deploy.js";
+import { init } from "./init.js";
 import type { Io } from "./io.js";
 import { migrate } from "./migrate.js";
 import { derivePlan, formatPlan } from "./plan.js";
@@ -67,6 +68,30 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     .action(async (options: { env: EnvironmentName }) => {
       const project = await loadProject();
       if (project) exitCode = await apply(project.config, options.env, io);
+    });
+
+  program
+    .command("init")
+    .description(
+      "write turbo-vibe.yaml and the staging and production workflows into this repository",
+    )
+    .option("--name <name>", "project name")
+    .option("--domain <domain>", "production domain")
+    .option("--backend <target>", "cloudflare-container or none")
+    .option(
+      "--frontend <target>",
+      "cloudflare-static, vercel-static, vercel-nextjs, or none",
+    )
+    .option("--database <target>", "supabase or none")
+    .option("--identity <target>", "workos or none")
+    .option("--force", "replace files that already exist")
+    .action(async (options: Record<string, string | boolean | undefined>) => {
+      const { force, ...given } = options;
+      exitCode = await init(
+        given as Record<string, string>,
+        { force: force === true },
+        io,
+      );
     });
 
   program
