@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { TargetCatalog } from "../src/adapters/index.js";
 import { parseConfig } from "../src/config/load.js";
-import type { TargetCatalog } from "../src/targets.js";
 
 const valid = `version: 1
 project: acme

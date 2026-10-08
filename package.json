@@ -8,7 +8,8 @@
     "turbo-vibe": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "infra/**/*.tf"
   ],
   "engines": {
     "node": ">=24"
@@ -16,7 +17,8 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
-    "check": "make check"
+    "check": "make check",
+    "validate:infra": "make validate-infra"
   },
   "dependencies": {
     "commander": "15.0.0",

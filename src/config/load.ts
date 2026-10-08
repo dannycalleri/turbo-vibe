@@ -7,8 +7,11 @@ import {
   parseDocument,
 } from "yaml";
 import type { z } from "zod";
+import {
+  adapters as defaultTargets,
+  type TargetCatalog,
+} from "../adapters/index.js";
 import { hostnameFor, pathFor } from "../plan.js";
-import { targets as defaultTargets, type TargetCatalog } from "../targets.js";
 import { type Config, configSchema, environmentNames } from "./schema.js";
 
 export interface ConfigProblem {
