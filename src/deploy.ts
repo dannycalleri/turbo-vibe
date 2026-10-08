@@ -54,11 +54,34 @@ export function runtimeSecretNames(config: Config): string[] {
   ];
 }
 
-async function runtimeSecrets(
+function needsOutputs(config: Config): boolean {
+  return Object.values(config.services).some(
+    (service) =>
+      service.kind === "database" ||
+      adapterFor(service.target).readsOutputs === true,
+  );
+}
+
+async function environmentOutputs(
   config: Config,
   environment: EnvironmentName,
   io: Io,
-): Promise<Record<string, string> | undefined> {
+): Promise<Record<string, unknown> | undefined> {
+  if (!needsOutputs(config)) return {};
+  const outputs = await readOutputs(config, environment, io);
+  if (!outputs)
+    io.stderr(
+      `cannot read the ${environment} infrastructure outputs; run apply first\n`,
+    );
+  return outputs;
+}
+
+function runtimeSecrets(
+  config: Config,
+  environment: EnvironmentName,
+  outputs: Readonly<Record<string, unknown>>,
+  io: Io,
+): Record<string, string> | undefined {
   const secrets: Record<string, string> = {};
   const redirectUri = callbackUrl(config, environment);
   if (redirectUri) {
@@ -67,8 +90,7 @@ async function runtimeSecrets(
   }
   const name = database(config);
   if (!name) return secrets;
-  const outputs = await readOutputs(config, environment, io);
-  const connection = outputs?.[`supabase_${name}_connection`] as
+  const connection = outputs[`supabase_${name}_connection`] as
     | Connection
     | undefined;
   const url = connection && runtimeUrl(connection);
@@ -114,6 +136,7 @@ function deploySecrets(config: Config): string[] {
 }
 
 interface DeployRun {
+  outputs: Readonly<Record<string, unknown>>;
   buildId: string;
   dryRun: boolean;
   secrets: Readonly<Record<string, string>>;
@@ -155,6 +178,7 @@ async function deployServices(
       secretNames: runtimeSecretNames(config),
       secrets: run.secrets,
       buildEnv: withoutCredentials(io.env),
+      outputs: run.outputs,
       dryRun: run.dryRun,
       configDir,
       workDir,
@@ -189,13 +213,15 @@ export async function deploy(
     return 1;
   }
   if (!dryRun && missingVariables(deploySecrets(config), io)) return 1;
-  const secrets = dryRun ? {} : await runtimeSecrets(config, environment, io);
+  const infra = dryRun ? {} : await environmentOutputs(config, environment, io);
+  if (!infra) return 1;
+  const secrets = dryRun ? {} : runtimeSecrets(config, environment, infra, io);
   if (!secrets) return 1;
   const store = dryRun ? undefined : new BuildStore(io, config.project);
   const outputs = await deployServices(
     project,
     environment,
-    { buildId, dryRun, secrets, ...(store ? { store } : {}) },
+    { buildId, dryRun, secrets, outputs: infra, ...(store ? { store } : {}) },
     io,
   );
   if (typeof outputs === "number") return outputs;
@@ -245,7 +271,9 @@ export async function promote(
     return 0;
   }
   io.stdout(`promote build ${chosen.buildId} to production\n`);
-  const secrets = await runtimeSecrets(config, environment, io);
+  const infra = await environmentOutputs(config, environment, io);
+  if (!infra) return 1;
+  const secrets = runtimeSecrets(config, environment, infra, io);
   if (!secrets) return 1;
   const outputs = await deployServices(
     project,
@@ -254,6 +282,7 @@ export async function promote(
       buildId: chosen.buildId,
       dryRun: false,
       secrets,
+      outputs: infra,
       store,
       recorded: chosen.services,
     },

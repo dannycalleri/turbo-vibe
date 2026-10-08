@@ -4,6 +4,7 @@ import type {
   CloudflareInputs,
   Infrastructure,
   SupabaseInputs,
+  VercelInputs,
   WorkosInputs,
 } from "./adapters/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
@@ -22,6 +23,7 @@ const cloudflareModule = fileURLToPath(
 const supabaseModule = fileURLToPath(
   new URL("../infra/supabase", import.meta.url),
 );
+const vercelModule = fileURLToPath(new URL("../infra/vercel", import.meta.url));
 const workosModule = fileURLToPath(new URL("../infra/workos", import.meta.url));
 
 export function stateKey(
@@ -48,6 +50,7 @@ export function composeInfrastructure(
   let cloudflare: CloudflareInputs | undefined;
   let supabase: Record<string, SupabaseInputs> | undefined;
   let workos: Record<string, WorkosInputs> | undefined;
+  let vercel: VercelInputs | undefined;
   for (const [name, service] of Object.entries(config.services)) {
     const contribution = adapterFor(service.target).plan({
       config,
@@ -68,6 +71,17 @@ export function composeInfrastructure(
           ...contribution.cloudflare.hostnames,
         ]),
       ];
+      if (contribution.cloudflare.cnames) {
+        cloudflare.cnames = {
+          ...cloudflare.cnames,
+          ...contribution.cloudflare.cnames,
+        };
+      }
+    }
+    if (contribution.vercel) {
+      vercel = {
+        projects: { ...vercel?.projects, ...contribution.vercel.projects },
+      };
     }
     if (contribution.supabase) {
       supabase = { ...supabase, ...contribution.supabase };
@@ -80,6 +94,7 @@ export function composeInfrastructure(
     ...(cloudflare ? { cloudflare } : {}),
     ...(supabase ? { supabase } : {}),
     ...(workos ? { workos } : {}),
+    ...(vercel ? { vercel } : {}),
   };
 }
 
@@ -161,6 +176,17 @@ export function rootModule(
         value: `\${module.${module}.connection}`,
         sensitive: true,
       },
+    };
+  }
+  if (infrastructure.vercel) {
+    root.module.vercel = {
+      source: vercelModule,
+      team_id: env.VERCEL_TEAM_ID,
+      ...infrastructure.vercel,
+    };
+    root.output = {
+      ...root.output,
+      vercel_project_ids: { value: "${module.vercel.project_ids}" },
     };
   }
   for (const [name, inputs] of Object.entries(infrastructure.workos ?? {})) {

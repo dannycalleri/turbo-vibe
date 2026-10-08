@@ -1,6 +1,7 @@
 import { cloudflareContainer, cloudflareStatic } from "./cloudflare.js";
 import { supabase } from "./supabase.js";
 import type { Adapter } from "./types.js";
+import { vercelStatic } from "./vercel.js";
 import { workos } from "./workos.js";
 
 export type TargetCatalog = Readonly<
@@ -12,6 +13,7 @@ export const adapters: Readonly<Record<string, Adapter>> = {
   [cloudflareStatic.target]: cloudflareStatic,
   [supabase.target]: supabase,
   [workos.target]: workos,
+  [vercelStatic.target]: vercelStatic,
 };
 
 export function adapterFor(target: string): Adapter {

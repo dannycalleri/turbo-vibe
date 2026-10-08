@@ -695,3 +695,148 @@ describe("a project with a database", () => {
     expect(stdout).not.toContain("db:");
   });
 });
+
+describe("vercel-static", () => {
+  const site = `version: 1
+project: acme
+domain: acme.example.com
+services:
+  web:
+    kind: frontend
+    target: vercel-static
+    build: { command: "pnpm build", output: dist }
+`;
+  const vercelEnv = {
+    ...stateEnv,
+    CLOUDFLARE_API_TOKEN: "t",
+    CLOUDFLARE_ZONE_ID: "z",
+    VERCEL_API_TOKEN: "vercel-s3cr3t",
+    VERCEL_TEAM_ID: "team_123",
+  };
+  const outputs = (environment: string) => ({
+    vercel_project_ids: {
+      value: { [`acme-web-${environment}`]: `prj_${environment}` },
+    },
+  });
+
+  it("ships the CI build as a prebuilt static output to the environment's project, and records the files", async () => {
+    const r2 = fakeR2();
+    const calls = runner();
+    const { code, cwd } = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": site },
+      vercelEnv,
+      calls,
+      r2.fetch(),
+      { capture: capturing(outputs("staging")) },
+    );
+    expect(code).toBe(0);
+    const root = join(cwd, ".turbo-vibe", "wrangler", "staging", "web-vercel");
+    const deployCall = calls.mock.calls.find(([, args]) =>
+      args.includes("--prebuilt"),
+    );
+    expect(deployCall?.[1].slice(1)).toEqual([
+      "deploy",
+      "--prebuilt",
+      "--prod",
+      "--yes",
+    ]);
+    expect(deployCall?.[2].cwd).toBe(root);
+    expect(deployCall?.[2].env).toMatchObject({
+      VERCEL_TOKEN: "vercel-s3cr3t",
+      VERCEL_ORG_ID: "team_123",
+      VERCEL_PROJECT_ID: "prj_staging",
+    });
+    expect(deployCall?.[1].join(" ")).not.toContain("s3cr3t");
+    expect(
+      JSON.parse(
+        await readFile(join(root, ".vercel", "output", "config.json"), "utf8"),
+      ),
+    ).toEqual({ version: 3 });
+    expect(
+      await readFile(
+        join(root, ".vercel", "output", "static", "_turbo-vibe", "build-id"),
+        "utf8",
+      ),
+    ).toBe("abc123");
+    expect(r2.record("acme/builds/abc123.json").services).toEqual({
+      web: { assets: "acme/builds/abc123/web.tar.gz" },
+    });
+  });
+
+  it("prepares the output but uploads nothing in a dry run", async () => {
+    const calls = runner();
+    const { code } = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123", "--dry-run"],
+      { "turbo-vibe.yaml": site },
+      {},
+      calls,
+    );
+    expect(code).toBe(0);
+    expect(calls.mock.calls.map(([command]) => command)).toEqual(["sh"]);
+  });
+
+  it("asks for apply when the environment has no Vercel project yet", async () => {
+    const calls = runner();
+    const { code, stderr } = await run(
+      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": site },
+      vercelEnv,
+      calls,
+      fakeR2().fetch(),
+      { capture: capturing({}) },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain(
+      "no Vercel project for web in staging; run apply first",
+    );
+    expect(
+      calls.mock.calls.some(([, args]) => args.includes("--prebuilt")),
+    ).toBe(false);
+  });
+
+  it("promotes the recorded files to the production project without building", async () => {
+    const calls = runner();
+    const r2 = fakeR2({
+      ...seeded(
+        record({
+          services: { web: { assets: "acme/builds/abc123/web.tar.gz" } },
+        }),
+      ),
+      "acme/builds/abc123/web.tar.gz": "archive",
+    });
+    const { code } = await run(
+      ["promote", "--env", "production"],
+      { "turbo-vibe.yaml": site },
+      vercelEnv,
+      calls,
+      r2.fetch(),
+      { capture: capturing(outputs("production")) },
+    );
+    expect(code).toBe(0);
+    expect(calls.mock.calls.map(([command]) => command)).not.toContain("sh");
+    const deployCall = calls.mock.calls.find(([, args]) =>
+      args.includes("--prebuilt"),
+    );
+    expect(deployCall?.[2].env).toMatchObject({
+      VERCEL_PROJECT_ID: "prj_production",
+    });
+  });
+
+  it("smoke-checks the build ID on the environment's hostname", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () => new Response("abc123"),
+    );
+    const { code } = await run(
+      ["smoke", "--env", "production", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": site },
+      {},
+      undefined,
+      fetch,
+    );
+    expect(code).toBe(0);
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://acme.example.com/_turbo-vibe/build-id",
+    ]);
+  });
+});

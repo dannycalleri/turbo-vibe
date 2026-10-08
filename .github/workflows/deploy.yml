@@ -30,6 +30,10 @@ on:
         required: false
       WORKOS_CLIENT_ID:
         required: false
+      VERCEL_API_TOKEN:
+        required: false
+      VERCEL_TEAM_ID:
+        required: false
 
 env:
   TURBO_VIBE_CLI: "@turbo-vibe/cli@1.0.0"
@@ -93,6 +97,8 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
       WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+      VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -15,3 +15,8 @@ variable "workers" {
 variable "hostnames" {
   type = list(string)
 }
+
+variable "cnames" {
+  type    = map(string)
+  default = {}
+}

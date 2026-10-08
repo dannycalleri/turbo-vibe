@@ -107,6 +107,7 @@ Do this once per project. These are the minimum; the README's [Credentials](../R
    - `TURBO_VIBE_STATE_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (the R2 token)
    - with a database: `SUPABASE_ACCESS_TOKEN`
    - with sign-in: `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` (the staging environment's keys on `staging`, the production keys on `production`)
+   - with a `vercel-static` frontend: `VERCEL_API_TOKEN`, `VERCEL_TEAM_ID`
 
 ## 5. Merge, then promote
 

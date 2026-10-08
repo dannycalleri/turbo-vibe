@@ -136,6 +136,23 @@ describe("parseConfig", () => {
     ]);
   });
 
+  it("does not yet let a Vercel frontend share a project with a backend", () => {
+    expect(
+      problems(
+        valid.replace(
+          "target: cloudflare-static\n    serve_with: api\n",
+          "target: vercel-static\n",
+        ),
+      ),
+    ).toEqual([
+      {
+        line: 11,
+        message:
+          "service `web` runs on vercel-static, which cannot yet share a project with a backend (`api`)",
+      },
+    ]);
+  });
+
   it("allows at most one identity service", () => {
     const identity = (name: string) =>
       `  ${name}:\n    kind: identity\n    target: workos\n`;
@@ -193,7 +210,7 @@ describe("parseConfig", () => {
       {
         line: 7,
         message:
-          "service `api` names unknown target `heroku`; available targets: cloudflare-container, cloudflare-static, supabase, workos",
+          "service `api` names unknown target `heroku`; available targets: cloudflare-container, cloudflare-static, supabase, workos, vercel-static",
       },
     ]);
   });

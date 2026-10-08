@@ -34,3 +34,15 @@ resource "cloudflare_dns_record" "this" {
   proxied = true
   ttl     = 1
 }
+
+# Not proxied: the platform behind the CNAME issues the certificate and must see its own traffic.
+resource "cloudflare_dns_record" "cname" {
+  for_each = var.cnames
+
+  zone_id = var.zone_id
+  name    = each.key
+  type    = "CNAME"
+  content = each.value
+  proxied = false
+  ttl     = 1
+}

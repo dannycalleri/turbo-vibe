@@ -48,6 +48,7 @@ describe("a promoted backend", () => {
       secretNames: [],
       secrets: {},
       buildEnv: {},
+      outputs: {},
       dryRun: true,
       configDir: dirname(example),
       workDir,

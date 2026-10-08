@@ -22,6 +22,7 @@ export interface DeployContext extends ServiceContext {
   secretNames: readonly string[];
   secrets: Readonly<Record<string, string>>;
   buildEnv: Readonly<Record<string, string | undefined>>;
+  outputs: Readonly<Record<string, unknown>>;
   recorded?: Outputs;
   assetsDirs: Readonly<Record<string, string>>;
   store?: BuildStore;
@@ -45,6 +46,11 @@ export interface SmokeContext extends ServiceContext {
 export interface CloudflareInputs {
   workers: Record<string, { routes: string[] }>;
   hostnames: string[];
+  cnames?: Record<string, string>;
+}
+
+export interface VercelInputs {
+  projects: Record<string, { domain: string }>;
 }
 
 export interface SupabaseInputs {
@@ -62,12 +68,14 @@ export interface Infrastructure {
   cloudflare?: CloudflareInputs;
   supabase?: Record<string, SupabaseInputs>;
   workos?: Record<string, WorkosInputs>;
+  vercel?: VercelInputs;
 }
 
 export interface Adapter {
   target: string;
   kind: ServiceKind;
   hostsStaticAssets: boolean;
+  readsOutputs?: boolean;
   secrets: readonly string[];
   outputs: readonly string[];
   plan(context: ServiceContext): Infrastructure;

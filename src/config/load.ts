@@ -166,6 +166,18 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
     }
   }
 
+  const backend = Object.entries(config.services).find(
+    ([, service]) => service.kind === "backend",
+  );
+  for (const [name, service] of Object.entries(config.services)) {
+    if (backend && service.target === "vercel-static") {
+      problems.push({
+        path: ["services", name, "target"],
+        message: `service \`${name}\` runs on vercel-static, which cannot yet share a project with a backend (\`${backend[0]}\`)`,
+      });
+    }
+  }
+
   for (const kind of ["database", "identity"] as const) {
     const services = Object.entries(config.services).filter(
       ([, service]) => service.kind === kind,

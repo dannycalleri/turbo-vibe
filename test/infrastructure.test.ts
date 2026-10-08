@@ -174,6 +174,46 @@ describe("identity", () => {
   });
 });
 
+describe("vercel-static", () => {
+  const site = config(
+    `  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: "pnpm build", output: dist }\n`,
+  );
+
+  it("gives each environment its own Vercel project on the environment's hostname, pointed at Vercel by a DNS-only CNAME", () => {
+    const root = rootModule(site, "staging", {
+      VERCEL_TEAM_ID: "team_123",
+      CLOUDFLARE_ZONE_ID: "zone456",
+    });
+    expect(root.module.vercel).toEqual({
+      source: expect.stringMatching(/infra\/vercel$/),
+      team_id: "team_123",
+      projects: { "acme-web-staging": { domain: "staging.acme.example.com" } },
+    });
+    expect(root.module.cloudflare).toMatchObject({
+      workers: {},
+      hostnames: [],
+      cnames: { "staging.acme.example.com": "cname.vercel-dns.com" },
+    });
+    expect(root.output?.vercel_project_ids).toEqual({
+      value: "${module.vercel.project_ids}",
+    });
+    expect(rootModule(site, "production", {}).module.vercel).toMatchObject({
+      projects: { "acme-web-production": { domain: "acme.example.com" } },
+    });
+  });
+
+  it("needs the Vercel token and team, and the Cloudflare zone for DNS, to apply", () => {
+    expect(requiredSecrets(site)).toEqual(
+      expect.arrayContaining([
+        "VERCEL_API_TOKEN",
+        "VERCEL_TEAM_ID",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_ZONE_ID",
+      ]),
+    );
+  });
+});
+
 describe("production", () => {
   it("gets its own resources from every adapter", () => {
     const auth = "  auth:\n    kind: identity\n    target: workos\n";

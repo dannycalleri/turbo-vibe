@@ -139,6 +139,32 @@ describe("the release workflow", () => {
   });
 });
 
+describe("secrets", () => {
+  it("lets both reusable workflows receive every credential an adapter or the state bucket reads", async () => {
+    const { adapters } = await import("../src/adapters/index.js");
+    const { stateSecrets } = await import("../src/infrastructure.js");
+    const names = new Set([
+      ...stateSecrets,
+      ...Object.values(adapters).flatMap((adapter) => adapter.secrets),
+    ]);
+    for (const [file, job] of [
+      ["deploy.yml", "staging"],
+      ["promote.yml", "production"],
+    ] as const) {
+      const definition = await workflow(file);
+      for (const name of names) {
+        expect(
+          definition.on.workflow_call.secrets,
+          `${file} accepts ${name}`,
+        ).toHaveProperty(name);
+        expect(definition.jobs[job].env[name], `${file} passes ${name}`).toBe(
+          `\${{ secrets.${name} }}`,
+        );
+      }
+    }
+  });
+});
+
 describe("workflows", () => {
   it("never run pull-request code with secrets through pull_request_target", async () => {
     const dir = new URL(".github/workflows/", root);
