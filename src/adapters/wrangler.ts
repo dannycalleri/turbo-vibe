@@ -49,6 +49,7 @@ export default {
 
 export interface WorkerSpec {
   name: string;
+  image?: string;
   secretNames?: readonly string[];
   buildId: string;
   configDir: string;
@@ -66,16 +67,21 @@ export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
   };
   if (spec.backend) {
     const dockerfile = resolve(spec.configDir, spec.backend.build.dockerfile);
-    Object.assign(config, {
-      main: "worker.js",
-      containers: [
-        {
+    const container = spec.image
+      ? { class_name: "Backend", image: spec.image }
+      : {
           class_name: "Backend",
           image: dockerfile,
           image_build_context: spec.backend.build.context
             ? resolve(spec.configDir, spec.backend.build.context)
             : dirname(dockerfile),
           image_vars: { BUILD_ID: spec.buildId },
+        };
+    Object.assign(config, {
+      main: "worker.js",
+      containers: [
+        {
+          ...container,
           instance_type: spec.backend.container?.instance_type ?? "lite",
           max_instances: 1,
         },
@@ -109,6 +115,10 @@ export async function writeWorker(
   const file = join(dir, "wrangler.json");
   await writeFile(file, `${JSON.stringify(wranglerConfig(spec), null, 2)}\n`);
   return file;
+}
+
+export function wranglerPushArgs(tag: string): string[] {
+  return [wranglerBin, "containers", "push", tag];
 }
 
 export function wranglerDeployArgs(

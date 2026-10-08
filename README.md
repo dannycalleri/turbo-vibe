@@ -9,9 +9,20 @@ npx @turbo-vibe/cli apply --env staging
 npx @turbo-vibe/cli migrate --env staging
 npx @turbo-vibe/cli deploy --env staging --build-id "$(git rev-parse --short HEAD)"
 npx @turbo-vibe/cli smoke --env staging --build-id "$(git rev-parse --short HEAD)"
+npx @turbo-vibe/cli promote --env production
 ```
 
 `deploy --dry-run` builds everything and validates the Worker without credentials.
+
+## Build once, promote the same build
+
+A staging `deploy` builds every service once and records what it shipped in the state bucket, at `<project>/builds/<build id>.json`:
+- the container image's registry digest (`docker build`, then `wrangler containers push`);
+- an archive of each static frontend's built files.
+
+`smoke --env staging` marks that record `passed` or `failed`.
+
+`promote --env production` picks the newest staging build that passed. Newer failed or unchecked builds are skipped. It deploys only that build's recorded outputs: the same image digest, and the same files unpacked from the archive. Nothing is built again. With no passing build, it stops before changing anything. `promote --choose` prints the build it would promote and changes nothing. `promote --build-id <id>` promotes exactly that build, and refuses it unless it passed on staging. Use the two together to migrate production from the chosen build's commit before deploying it. `deploy --env production` is refused, so production only ever runs promoted builds.
 
 ## What a backend must do
 

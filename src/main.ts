@@ -3,7 +3,7 @@ import { Command, CommanderError, Option } from "commander";
 import { apply } from "./apply.js";
 import { loadConfigFile } from "./config/load.js";
 import { type EnvironmentName, environmentNames } from "./config/schema.js";
-import { deploy, type Project, smoke, test } from "./deploy.js";
+import { deploy, type Project, promote, smoke, test } from "./deploy.js";
 import type { Io } from "./io.js";
 import { migrate } from "./migrate.js";
 import { derivePlan, formatPlan } from "./plan.js";
@@ -100,6 +100,41 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
             project,
             options.env,
             { buildId: options.buildId, dryRun: options.dryRun ?? false },
+            io,
+          );
+        }
+      },
+    );
+
+  program
+    .command("promote")
+    .description(
+      "deploy the latest staging build that passed its smoke test, without rebuilding it",
+    )
+    .addOption(environmentOption())
+    .option(
+      "--build-id <id>",
+      "promote this build, which must have passed on staging",
+    )
+    .option(
+      "--choose",
+      "print the build that would be promoted, and change nothing",
+    )
+    .action(
+      async (options: {
+        env: EnvironmentName;
+        buildId?: string;
+        choose?: boolean;
+      }) => {
+        const project = await loadProject();
+        if (project) {
+          exitCode = await promote(
+            project,
+            options.env,
+            {
+              ...(options.buildId ? { buildId: options.buildId } : {}),
+              ...(options.choose ? { choose: true } : {}),
+            },
             io,
           );
         }

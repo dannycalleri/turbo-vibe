@@ -1,3 +1,4 @@
+import type { BuildStore, Outputs } from "../builds.js";
 import type {
   Config,
   EnvironmentName,
@@ -21,10 +22,19 @@ export interface DeployContext extends ServiceContext {
   secretNames: readonly string[];
   secrets: Readonly<Record<string, string>>;
   buildEnv: Readonly<Record<string, string | undefined>>;
+  recorded?: Outputs;
+  assetsDirs: Readonly<Record<string, string>>;
+  store?: BuildStore;
   dryRun: boolean;
   configDir: string;
   workDir: string;
   io: Io;
+}
+
+export interface DeployResult {
+  code: number;
+  outputs?: Outputs;
+  assetsDir?: string;
 }
 
 export interface SmokeContext extends ServiceContext {
@@ -61,6 +71,6 @@ export interface Adapter {
   secrets: readonly string[];
   outputs: readonly string[];
   plan(context: ServiceContext): Infrastructure;
-  deploy?(context: DeployContext): Promise<number>;
+  deploy?(context: DeployContext): Promise<DeployResult>;
   smoke?(context: SmokeContext): Promise<SmokeResult>;
 }

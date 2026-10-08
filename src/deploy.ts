@@ -2,7 +2,8 @@ import { join } from "node:path";
 import { adapterFor, adapters } from "./adapters/index.js";
 import type { ServiceContext } from "./adapters/types.js";
 import { callbackUrl } from "./adapters/workos.js";
-import { readOutputs } from "./apply.js";
+import { missingVariables, readOutputs } from "./apply.js";
+import { BuildStore, choosePromotion, type Outputs } from "./builds.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import {
   type Connection,
@@ -99,9 +100,9 @@ function withoutCredentials(
   );
 }
 
-function missingSecrets(config: Config, io: Io): string[] {
+function deploySecrets(config: Config): string[] {
   const names = new Set<string>([
-    ...(database(config) ? stateSecrets : []),
+    ...stateSecrets,
     ...(hasIdentity(config) ? identitySecrets : []),
   ]);
   for (const service of Object.values(config.services)) {
@@ -109,22 +110,23 @@ function missingSecrets(config: Config, io: Io): string[] {
     if (!adapter.deploy) continue;
     for (const name of adapter.secrets) names.add(name);
   }
-  return [...names].filter((name) => !io.env[name]).sort();
+  return [...names];
 }
 
-export async function deploy(
+interface DeployRun {
+  buildId: string;
+  dryRun: boolean;
+  secrets: Readonly<Record<string, string>>;
+  store?: BuildStore;
+  recorded?: Readonly<Record<string, Outputs>>;
+}
+
+async function deployServices(
   { config, configDir }: Project,
   environment: EnvironmentName,
-  { buildId, dryRun }: { buildId: string; dryRun: boolean },
+  run: DeployRun,
   io: Io,
-): Promise<number> {
-  const missing = dryRun ? [] : missingSecrets(config, io);
-  if (missing.length > 0) {
-    io.stderr(`missing environment variables: ${missing.join(", ")}\n`);
-    return 1;
-  }
-  const secrets = dryRun ? {} : await runtimeSecrets(config, environment, io);
-  if (!secrets) return 1;
+): Promise<Record<string, Outputs> | number> {
   const workDir = join(io.cwd, ".turbo-vibe", "wrangler", environment);
   // Frontends build first: a backend's Worker uploads the assets of the frontend served with it.
   const ordered = contexts(config, environment).sort(
@@ -132,29 +134,132 @@ export async function deploy(
       Number(a.service.kind !== "frontend") -
       Number(b.service.kind !== "frontend"),
   );
+  const outputs: Record<string, Outputs> = {};
+  const assetsDirs: Record<string, string> = {};
   for (const context of ordered) {
     const adapter = adapterFor(context.service.target);
     if (!adapter.deploy) continue;
+    const recorded = run.recorded?.[context.name];
+    if (run.recorded && !recorded) {
+      io.stderr(
+        `build ${run.buildId} has no recorded outputs for ${context.name}; nothing is rebuilt during promotion\n`,
+      );
+      return 1;
+    }
     io.stdout(
       `deploy ${context.name} (${context.service.target}) to ${environment}\n`,
     );
-    const code = await adapter.deploy({
+    const result = await adapter.deploy({
       ...context,
-      buildId,
+      buildId: run.buildId,
       secretNames: runtimeSecretNames(config),
-      secrets,
+      secrets: run.secrets,
       buildEnv: withoutCredentials(io.env),
-      dryRun,
+      dryRun: run.dryRun,
       configDir,
       workDir,
       io,
+      assetsDirs,
+      ...(recorded ? { recorded } : {}),
+      ...(run.store ? { store: run.store } : {}),
     });
-    if (code !== 0) {
-      io.stderr(`deploy ${context.name} failed with exit code ${code}\n`);
-      return code;
+    if (result.code !== 0) {
+      io.stderr(
+        `deploy ${context.name} failed with exit code ${result.code}\n`,
+      );
+      return result.code;
     }
+    if (result.outputs) outputs[context.name] = result.outputs;
+    if (result.assetsDir) assetsDirs[context.name] = result.assetsDir;
   }
+  return outputs;
+}
+
+export async function deploy(
+  project: Project,
+  environment: EnvironmentName,
+  { buildId, dryRun }: { buildId: string; dryRun: boolean },
+  io: Io,
+): Promise<number> {
+  const { config } = project;
+  if (environment === "production" && !dryRun) {
+    io.stderr(
+      "production is deployed with `turbo-vibe promote`, from a staging build that passed its smoke test\n",
+    );
+    return 1;
+  }
+  if (!dryRun && missingVariables(deploySecrets(config), io)) return 1;
+  const secrets = dryRun ? {} : await runtimeSecrets(config, environment, io);
+  if (!secrets) return 1;
+  const store = dryRun ? undefined : new BuildStore(io, config.project);
+  const outputs = await deployServices(
+    project,
+    environment,
+    { buildId, dryRun, secrets, ...(store ? { store } : {}) },
+    io,
+  );
+  if (typeof outputs === "number") return outputs;
+  await store?.putRecord({
+    buildId,
+    createdAt: new Date().toISOString(),
+    smoke: "pending",
+    services: outputs,
+  });
   return 0;
+}
+
+export async function promote(
+  project: Project,
+  environment: EnvironmentName,
+  { buildId, choose }: { buildId?: string; choose?: boolean },
+  io: Io,
+): Promise<number> {
+  const { config } = project;
+  if (environment !== "production") {
+    io.stderr(
+      "promote deploys to production; staging is deployed on every merge\n",
+    );
+    return 1;
+  }
+  if (missingVariables(deploySecrets(config), io)) return 1;
+  const store = new BuildStore(io, config.project);
+  const chosen = buildId
+    ? await store.getRecord(buildId)
+    : choosePromotion(await store.listRecords());
+  if (!chosen) {
+    io.stderr(
+      buildId
+        ? `build ${buildId} has no record; production is unchanged\n`
+        : "no staging build has passed its smoke test; production is unchanged\n",
+    );
+    return 1;
+  }
+  if (chosen.smoke !== "passed") {
+    io.stderr(
+      `build ${chosen.buildId} has not passed its smoke test (${chosen.smoke}); production is unchanged\n`,
+    );
+    return 1;
+  }
+  if (choose) {
+    io.stdout(`${chosen.buildId}\n`);
+    return 0;
+  }
+  io.stdout(`promote build ${chosen.buildId} to production\n`);
+  const secrets = await runtimeSecrets(config, environment, io);
+  if (!secrets) return 1;
+  const outputs = await deployServices(
+    project,
+    environment,
+    {
+      buildId: chosen.buildId,
+      dryRun: false,
+      secrets,
+      store,
+      recorded: chosen.services,
+    },
+    io,
+  );
+  return typeof outputs === "number" ? outputs : 0;
 }
 
 export async function smoke(
@@ -163,19 +268,26 @@ export async function smoke(
   buildId: string,
   io: Io,
 ): Promise<number> {
+  const records = environment === "staging";
+  if (records && missingVariables(stateSecrets, io)) return 1;
   let failed = false;
   for (const context of contexts(config, environment)) {
     const adapter = adapterFor(context.service.target);
     if (!adapter.smoke) continue;
-    const result = await adapter.smoke({
-      ...context,
-      buildId,
-      io,
-    });
+    const result = await adapter.smoke({ ...context, buildId, io });
     (result.ok ? io.stdout : io.stderr)(
       `${result.ok ? "ok" : "FAIL"} ${context.name}: ${result.message}\n`,
     );
     failed ||= !result.ok;
+  }
+  if (records) {
+    const store = new BuildStore(io, config.project);
+    const record = await store.getRecord(buildId);
+    if (!record) {
+      io.stderr(`no build record for ${buildId}; it cannot be promoted\n`);
+      return 1;
+    }
+    await store.putRecord({ ...record, smoke: failed ? "failed" : "passed" });
   }
   return failed ? 1 : 0;
 }
