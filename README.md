@@ -4,6 +4,7 @@ Deploy a project's services from one `turbo-vibe.yaml`. To add it to an existing
 
 ```sh
 npx @turbo-vibe/cli plan
+npx @turbo-vibe/cli check --env staging
 npx @turbo-vibe/cli test
 npx @turbo-vibe/cli apply --env staging
 npx @turbo-vibe/cli migrate --env staging
@@ -11,6 +12,8 @@ npx @turbo-vibe/cli deploy --env staging --build-id "$(git rev-parse --short HEA
 npx @turbo-vibe/cli smoke --env staging --build-id "$(git rev-parse --short HEAD)"
 npx @turbo-vibe/cli promote --env production
 ```
+
+`check` verifies an environment's accounts, tokens, and tools for the targets the project uses, and changes nothing. It lists every problem with its fix, and exits non-zero until the environment is ready.
 
 `deploy --dry-run` builds everything and validates the Worker without credentials.
 
@@ -134,7 +137,7 @@ A `workos` identity service registers each environment's callback as a WorkOS re
 
 | Variable | What it is |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | API token with Workers Scripts: Edit and Containers: Edit (account), Workers Routes: Edit and DNS: Edit (zone) |
+| `CLOUDFLARE_API_TOKEN` | API token with Workers Scripts: Edit and Containers: Edit (account), Workers Routes: Edit and DNS: Edit (zone), User → API Tokens: Read so `check` can confirm the token's own permissions, and, with a container backend, Account → Billing: Read so `check` can confirm the Workers Paid plan |
 | `CLOUDFLARE_ACCOUNT_ID` | the Cloudflare account that runs the Workers and holds the state bucket |
 | `CLOUDFLARE_ZONE_ID` | the zone of the project's `domain` |
 | `TURBO_VIBE_STATE_BUCKET` | an R2 bucket for OpenTofu state, created once by hand |

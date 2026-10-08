@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { Command, CommanderError, Option } from "commander";
 import { apply } from "./apply.js";
+import { check } from "./check.js";
 import { loadConfigFile } from "./config/load.js";
 import { type EnvironmentName, environmentNames } from "./config/schema.js";
 import { deploy, type Project, promote, smoke, test } from "./deploy.js";
@@ -66,6 +67,17 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     .action(async (options: { env: EnvironmentName }) => {
       const project = await loadProject();
       if (project) exitCode = await apply(project.config, options.env, io);
+    });
+
+  program
+    .command("check")
+    .description(
+      "check that the accounts, tokens, and tools an environment needs are in place; changes nothing",
+    )
+    .addOption(environmentOption())
+    .action(async (options: { env: EnvironmentName }) => {
+      const project = await loadProject();
+      if (project) exitCode = await check(project.config, options.env, io);
     });
 
   program
