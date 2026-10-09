@@ -2,8 +2,6 @@
 
 An open-source kit that deploys a project's services from one `turbo-vibe.yaml`. This repository holds the `turbo-vibe` CLI (published as `@turbo-vibe/cli`).
 
-Specs live outside this repo, in the OpenSpec store `turbo-vibe`; see `CLAUDE.local.md` if present.
-
 ## Commands
 
 - `make check` — the gate for every commit: `biome ci .`, `tsc --noEmit`, `vitest run`.
