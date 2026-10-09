@@ -27,6 +27,8 @@ describe("the workflows init writes", () => {
         "supabase",
         "--identity",
         "workos",
+        "--assistant",
+        "both",
       ],
       {
         cwd,

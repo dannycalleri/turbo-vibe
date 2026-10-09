@@ -1,10 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { parse } from "yaml";
 import { parseConfig } from "../src/config/load.js";
 import { type Answers, choices, configFor } from "../src/init.js";
 import { derivePlan } from "../src/plan.js";
-import { major } from "../src/version.js";
+import { major, version } from "../src/version.js";
 import { run } from "./harness.js";
 
 const answers = (overrides: Partial<Answers> = {}): Answers => ({
@@ -14,6 +15,7 @@ const answers = (overrides: Partial<Answers> = {}): Answers => ({
   frontend: "cloudflare-static",
   database: "none",
   identity: "none",
+  assistant: "none",
   ...overrides,
 });
 
@@ -110,6 +112,8 @@ describe("turbo-vibe init", () => {
     "supabase",
     "--identity",
     "workos",
+    "--assistant",
+    "none",
   ];
 
   it("writes the config and both workflows", async () => {
@@ -162,6 +166,7 @@ describe("turbo-vibe init", () => {
       "Frontend target": "vercel-nextjs",
       "Database target": "none",
       "Identity target": "none",
+      "Coding assistant guidance": "none",
     };
     const ask = vi.fn(
       async (question: string) =>
@@ -173,7 +178,7 @@ describe("turbo-vibe init", () => {
       ask,
     });
     expect(code).toBe(0);
-    expect(ask).toHaveBeenCalledTimes(6);
+    expect(ask).toHaveBeenCalledTimes(7);
     expect(await readFile(join(cwd, "turbo-vibe.yaml"), "utf8")).toContain(
       "target: vercel-nextjs",
     );
@@ -217,11 +222,80 @@ describe("turbo-vibe init", () => {
       "none",
       "--identity",
       "none",
+      "--assistant",
+      "none",
     ]);
     expect(code).toBe(1);
     expect(stderr).toBe(
       "init needs a backend or a frontend: --backend and --frontend cannot both be none\n",
     );
+  });
+
+  it("writes the chosen assistant guidance, stamped with the CLI's version", async () => {
+    const withAssistant = [...flags];
+    withAssistant[withAssistant.indexOf("--assistant") + 1] = "both";
+    const { code, cwd } = await run(["init", ...withAssistant]);
+    expect(code).toBe(0);
+    const skill = await readFile(
+      join(cwd, ".claude/skills/turbo-vibe/SKILL.md"),
+      "utf8",
+    );
+    const rule = await readFile(
+      join(cwd, ".cursor/rules/turbo-vibe.mdc"),
+      "utf8",
+    );
+    const frontMatter = (file: string) => parse(file.split("---\n")[1] ?? "");
+    expect(frontMatter(skill)).toEqual({
+      name: "turbo-vibe",
+      description: expect.stringContaining("turbo-vibe.yaml"),
+    });
+    expect(frontMatter(rule)).toEqual({
+      description: expect.stringContaining("turbo-vibe.yaml"),
+      globs: "turbo-vibe.yaml",
+      alwaysApply: false,
+    });
+    for (const file of [skill, rule]) {
+      expect(file).toContain(`deployed by turbo-vibe ${version}.`);
+      expect(file).toContain("Do not run `promote`");
+    }
+  });
+
+  it("writes no guidance for none, and leaves existing guidance unchanged", async () => {
+    const { cwd } = await run(["init", ...flags]);
+    await expect(
+      readFile(join(cwd, ".claude/skills/turbo-vibe/SKILL.md"), "utf8"),
+    ).rejects.toThrow();
+    const withClaude = [...flags];
+    withClaude[withClaude.indexOf("--assistant") + 1] = "claude";
+    const mine = "my own skill\n";
+    const {
+      code,
+      stderr,
+      cwd: existing,
+    } = await run(["init", ...withClaude], {
+      ".claude/skills/turbo-vibe/SKILL.md": mine,
+    });
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      ".claude/skills/turbo-vibe/SKILL.md already exists; nothing was written (pass --force to replace)\n",
+    );
+    expect(
+      await readFile(
+        join(existing, ".claude/skills/turbo-vibe/SKILL.md"),
+        "utf8",
+      ),
+    ).toBe(mine);
+  });
+
+  it("writes only the guidance into a project that already has a config", async () => {
+    const config = "version: 1\nproject: mine\n";
+    const { code, cwd, stdout } = await run(
+      ["init", "--only-assistant", "--assistant", "cursor"],
+      { "turbo-vibe.yaml": config },
+    );
+    expect(code).toBe(0);
+    expect(stdout).toBe("wrote .cursor/rules/turbo-vibe.mdc\n");
+    expect(await readFile(join(cwd, "turbo-vibe.yaml"), "utf8")).toBe(config);
   });
 
   it("refuses a target it does not know", async () => {
@@ -233,6 +307,8 @@ describe("turbo-vibe init", () => {
       "--database",
       "none",
       "--identity",
+      "none",
+      "--assistant",
       "none",
     ]);
     expect(code).toBe(1);

@@ -109,12 +109,20 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     .option("--frontend <target>", labelled(choices.frontend))
     .option("--database <target>", labelled(choices.database))
     .option("--identity <target>", labelled(choices.identity))
+    .option(
+      "--assistant <which>",
+      `coding assistant guidance to write: ${choices.assistant.join(", ")}`,
+    )
+    .option(
+      "--only-assistant",
+      "write only the coding assistant guidance, for a project that already has turbo-vibe.yaml",
+    )
     .option("--force", "replace files that already exist")
     .action(async (options: Record<string, string | boolean | undefined>) => {
-      const { force, ...given } = options;
+      const { force, onlyAssistant, ...given } = options;
       exitCode = await init(
         given as Record<string, string>,
-        { force: force === true },
+        { force: force === true, onlyAssistant: onlyAssistant === true },
         io,
       );
     });

@@ -1,16 +1,18 @@
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { adapters } from "./adapters/index.js";
+import { type Assistant, assistantFiles, assistants } from "./assistant.js";
 import { schemaUrl } from "./config/json-schema.js";
 import { parseConfig } from "./config/load.js";
 import type { Io } from "./io.js";
-import { major } from "./version.js";
+import { major, version } from "./version.js";
 
 export const choices = {
   backend: ["cloudflare-container", "none"],
   frontend: ["cloudflare-static", "vercel-static", "vercel-nextjs", "none"],
   database: ["supabase", "none"],
   identity: ["workos", "none"],
+  assistant: assistants,
 } as const;
 
 export interface Answers {
@@ -20,6 +22,7 @@ export interface Answers {
   frontend: (typeof choices.frontend)[number];
   database: (typeof choices.database)[number];
   identity: (typeof choices.identity)[number];
+  assistant: (typeof choices.assistant)[number];
 }
 
 function sibling(prefix: string, hostname: string, apex: boolean): string {
@@ -155,6 +158,7 @@ export function filesFor(answers: Answers): Record<string, string> {
     "turbo-vibe.yaml": configFor(answers),
     ".github/workflows/staging.yml": stagingWorkflow,
     ".github/workflows/production.yml": productionWorkflow,
+    ...assistantFiles(answers.assistant, version),
   };
 }
 
@@ -172,15 +176,19 @@ const questions: Record<keyof Answers, string> = {
   frontend: `Frontend target (${labelled(choices.frontend)})`,
   database: `Database target (${labelled(choices.database)})`,
   identity: `Identity target (${labelled(choices.identity)})`,
+  assistant: `Coding assistant guidance to write (${choices.assistant.join(", ")})`,
 };
 
 export async function init(
   given: Partial<Record<keyof Answers, string>>,
-  { force }: { force: boolean },
+  { force, onlyAssistant = false }: { force: boolean; onlyAssistant?: boolean },
   io: Io,
 ): Promise<number> {
   const answers: Partial<Record<keyof Answers, string>> = { ...given };
-  for (const key of Object.keys(questions) as (keyof Answers)[]) {
+  const asked: (keyof Answers)[] = onlyAssistant
+    ? ["assistant"]
+    : (Object.keys(questions) as (keyof Answers)[]);
+  for (const key of asked) {
     if (answers[key]) continue;
     if (!io.ask) {
       io.stderr(
@@ -190,22 +198,35 @@ export async function init(
     }
     answers[key] = (await io.ask(questions[key])).trim();
   }
-  for (const key of ["backend", "frontend", "database", "identity"] as const) {
+  for (const key of (
+    ["backend", "frontend", "database", "identity", "assistant"] as const
+  ).filter((key) => asked.includes(key))) {
     const allowed: readonly string[] = choices[key];
     if (!allowed.includes(answers[key] ?? "")) {
       io.stderr(`--${key} must be one of ${allowed.join(", ")}\n`);
       return 1;
     }
   }
-  if (answers.backend === "none" && answers.frontend === "none") {
+  if (onlyAssistant && answers.assistant === "none") {
+    io.stderr("--only-assistant needs --assistant claude, cursor or both\n");
+    return 1;
+  }
+  if (
+    !onlyAssistant &&
+    answers.backend === "none" &&
+    answers.frontend === "none"
+  ) {
     io.stderr(
       "init needs a backend or a frontend: --backend and --frontend cannot both be none\n",
     );
     return 1;
   }
-  const files = filesFor(answers as Answers);
-  const parsed = parseConfig(files["turbo-vibe.yaml"] ?? "");
-  if (!parsed.ok) {
+  const files = onlyAssistant
+    ? assistantFiles(answers.assistant as Assistant, version)
+    : filesFor(answers as Answers);
+  const config = files["turbo-vibe.yaml"];
+  const parsed = config === undefined ? undefined : parseConfig(config);
+  if (parsed && !parsed.ok) {
     for (const { message } of parsed.problems) io.stderr(`${message}\n`);
     return 1;
   }
@@ -232,8 +253,10 @@ export async function init(
     await writeFile(join(io.cwd, name), content);
     io.stdout(`wrote ${name}\n`);
   }
-  io.stdout(
-    "next: add .turbo-vibe/ to .gitignore, then follow docs/bootstrap.md and run `turbo-vibe check --env staging`\n",
-  );
+  if (!onlyAssistant) {
+    io.stdout(
+      "next: add .turbo-vibe/ to .gitignore, then follow docs/bootstrap.md and run `turbo-vibe check --env staging`\n",
+    );
+  }
   return 0;
 }
