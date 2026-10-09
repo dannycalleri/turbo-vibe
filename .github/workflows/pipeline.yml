@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      allow-deletions:
+        description: Let apply delete or replace resources
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,6 +41,7 @@ jobs:
     with:
       config: examples/go-api/turbo-vibe.yaml
       use-local-cli: true
+      allow-deletions: ${{ inputs.allow-deletions == true }}
     secrets: inherit
 
   vercel-example:
@@ -43,6 +50,7 @@ jobs:
     with:
       config: examples/vercel-static/turbo-vibe.yaml
       use-local-cli: true
+      allow-deletions: ${{ inputs.allow-deletions == true }}
     secrets: inherit
 
   nextjs-example:
@@ -51,6 +59,7 @@ jobs:
     with:
       config: examples/nextjs/turbo-vibe.yaml
       use-local-cli: true
+      allow-deletions: ${{ inputs.allow-deletions == true }}
     secrets: inherit
 
   python-example:
@@ -59,4 +68,5 @@ jobs:
     with:
       config: examples/python-api/turbo-vibe.yaml
       use-local-cli: true
+      allow-deletions: ${{ inputs.allow-deletions == true }}
     secrets: inherit

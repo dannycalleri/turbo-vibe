@@ -72,11 +72,19 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      allow-deletions:
+        description: Let apply delete or replace resources
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   deploy:
     uses: dannycalleri/turbo-vibe/.github/workflows/deploy.yml@v1
+    with:
+      allow-deletions: ${{ inputs.allow-deletions == true }}
     secrets: inherit
 ```
 
@@ -86,17 +94,26 @@ jobs:
 name: Deploy to production
 on:
   workflow_dispatch:
+    inputs:
+      allow-deletions:
+        description: Let apply delete or replace resources
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   promote:
     uses: dannycalleri/turbo-vibe/.github/workflows/promote.yml@v1
+    with:
+      allow-deletions: ${{ inputs.allow-deletions == true }}
     secrets: inherit
 ```
 
 Pass `with: { config: path/to/turbo-vibe.yaml }` if the file is not at the root. The `@v1` tag and the CLI version move together, so a workflow tag always runs the CLI it was released with.
 
-Pull requests, including from forks, run the test-and-build job with no secrets. Only pushes to `main` deploy.
+Pull requests, including from forks, run the test-and-build job with no secrets. Only `main` deploys: on every push, or when a maintainer runs **Staging** by hand.
+
+`apply` refuses to delete or replace a resource unless told to, so removing or renaming a service, or a change that forces a resource to be recreated, stops the run before anything changes. The log names each resource. If the deletion is intended, run the workflow again from the Actions tab on `main` with **allow-deletions** ticked. Locally, `turbo-vibe plan --env staging` shows the same list before you merge.
 
 To give each pull request its own preview, set `previews: true` in `turbo-vibe.yaml` and add `.github/workflows/previews.yml`:
 

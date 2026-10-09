@@ -1,6 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  type Change,
   diagnostics,
   formatChanges,
   owners,
@@ -81,6 +82,33 @@ async function prepare(
   return { dir };
 }
 
+async function planChanges(
+  config: Config,
+  environment: EnvironmentName,
+  io: Io,
+  dir: string,
+  planFile: string,
+): Promise<Change[] | number> {
+  const planned = await io.capture(
+    "tofu",
+    ["plan", "-input=false", "-json", `-out=${planFile}`],
+    { cwd: dir, env: io.env },
+  );
+  for (const message of diagnostics(planned.stdout)) {
+    io.stderr(`${message}\n`);
+  }
+  if (planned.code !== 0) return planned.code;
+  const shown = await io.capture("tofu", ["show", "-json", planFile], {
+    cwd: dir,
+    env: io.env,
+  });
+  if (shown.code !== 0) return shown.code;
+  return summarize(
+    JSON.parse(shown.stdout) as TofuPlan,
+    owners(config, environment),
+  );
+}
+
 export async function plan(
   config: Config,
   environment: EnvironmentName,
@@ -88,27 +116,16 @@ export async function plan(
 ): Promise<number> {
   const prepared = await prepare(config, environment, io);
   if ("code" in prepared) return prepared.code;
-  const { dir } = prepared;
-  const planFile = join(dir, "tfplan");
+  const planFile = join(prepared.dir, "tfplan");
   try {
-    const planned = await io.capture(
-      "tofu",
-      ["plan", "-input=false", "-json", `-out=${planFile}`],
-      { cwd: dir, env: io.env },
+    const changes = await planChanges(
+      config,
+      environment,
+      io,
+      prepared.dir,
+      planFile,
     );
-    for (const message of diagnostics(planned.stdout)) {
-      io.stderr(`${message}\n`);
-    }
-    if (planned.code !== 0) return planned.code;
-    const shown = await io.capture("tofu", ["show", "-json", planFile], {
-      cwd: dir,
-      env: io.env,
-    });
-    if (shown.code !== 0) return shown.code;
-    const changes = summarize(
-      JSON.parse(shown.stdout) as TofuPlan,
-      owners(config, environment),
-    );
+    if (typeof changes === "number") return changes;
     io.stdout(`${formatChanges(environment, changes)}\n`);
     return 0;
   } finally {
@@ -120,13 +137,41 @@ export async function apply(
   config: Config,
   environment: EnvironmentName,
   io: Io,
+  { allowDeletions = false }: { allowDeletions?: boolean } = {},
 ): Promise<number> {
   const prepared = await prepare(config, environment, io);
   if ("code" in prepared) return prepared.code;
-  return io.run("tofu", ["apply", "-input=false", "-auto-approve"], {
-    cwd: prepared.dir,
-    env: io.env,
-  });
+  const planFile = join(prepared.dir, "tfplan");
+  try {
+    const changes = await planChanges(
+      config,
+      environment,
+      io,
+      prepared.dir,
+      planFile,
+    );
+    if (typeof changes === "number") return changes;
+    io.stdout(`${formatChanges(environment, changes)}\n`);
+    const destructive = changes.filter(
+      (change) => change.action === "delete" || change.action === "replace",
+    );
+    if (destructive.length > 0 && !isPreview(environment) && !allowDeletions) {
+      io.stderr(
+        `refusing to apply ${environment}: it would delete or replace ${destructive.length} resource(s):\n${destructive
+          .map((change) => `  ${change.action} ${change.address}\n`)
+          .join(
+            "",
+          )}if that is intended, run apply again with --allow-deletions (the workflows' allow-deletions input)\n`,
+      );
+      return 1;
+    }
+    return io.run("tofu", ["apply", "-input=false", planFile], {
+      cwd: prepared.dir,
+      env: io.env,
+    });
+  } finally {
+    await rm(planFile, { force: true });
+  }
 }
 
 export async function destroy(

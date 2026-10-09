@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { productionWorkflow, stagingWorkflow } from "../src/init.js";
 
 const root = new URL("../", import.meta.url);
 
@@ -20,10 +21,10 @@ describe("the reusable workflow", () => {
     );
   });
 
-  it("deploys only on pushes to main, one run per environment at a time", async () => {
+  it("deploys only from main, on a push or a manual run, one run per environment at a time", async () => {
     const { staging } = (await workflow("deploy.yml")).jobs;
     expect(staging.if).toBe(
-      "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+      "github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')",
     );
     expect(staging.environment).toBe("staging");
     expect(staging.concurrency["cancel-in-progress"]).toBe(false);
@@ -242,6 +243,59 @@ describe("workflows", () => {
       expect(await readFile(new URL(file, dir), "utf8")).not.toContain(
         "pull_request_target",
       );
+    }
+  });
+});
+
+describe("allow-deletions", () => {
+  const passThrough = "${{ inputs.allow-deletions == true }}";
+
+  it.each([
+    ["deploy.yml", "staging"],
+    ["promote.yml", "production"],
+  ])(
+    "%s takes it, off by default, and hands it to apply",
+    async (name, job) => {
+      const reusable = await workflow(name);
+      expect(reusable.on.workflow_call.inputs["allow-deletions"]).toEqual({
+        description: expect.any(String),
+        type: "boolean",
+        default: false,
+      });
+      const step = reusable.jobs[job].steps.find(
+        (candidate: { run?: string }) =>
+          candidate.run?.includes(" apply --env "),
+      );
+      expect(step.run).toMatch(/ \$\{ALLOW_DELETIONS:\+--allow-deletions\}$/);
+      expect(step.env.ALLOW_DELETIONS).toBe(
+        "${{ inputs.allow-deletions && 'yes' || '' }}",
+      );
+    },
+  );
+
+  it.each([
+    ["init's staging caller", async () => parse(stagingWorkflow)],
+    ["init's production caller", async () => parse(productionWorkflow)],
+    ["the kit's pipeline", () => workflow("pipeline.yml")],
+    ["the kit's production workflow", () => workflow("production.yml")],
+  ])("%s asks for it on a manual run and passes it on", async (_, load) => {
+    const caller = await load();
+    expect(caller.on.workflow_dispatch.inputs["allow-deletions"]).toMatchObject(
+      {
+        type: "boolean",
+        default: false,
+      },
+    );
+    const jobs = Object.values(caller.jobs) as {
+      uses?: string;
+      with?: Record<string, unknown>;
+    }[];
+    const callers = jobs.filter((job) =>
+      /(deploy|promote)\.yml/.test(job.uses ?? ""),
+    );
+    expect(callers.length).toBeGreaterThan(0);
+    for (const job of callers) {
+      expect(job.with?.["allow-deletions"]).toBe(passThrough);
     }
   });
 });

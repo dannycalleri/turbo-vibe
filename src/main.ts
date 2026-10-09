@@ -76,10 +76,20 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
       "create or update an environment's infrastructure with OpenTofu",
     )
     .addOption(environmentOption())
-    .action(async (options: { env: EnvironmentName }) => {
-      const project = await loadProject();
-      if (project) exitCode = await apply(project.config, options.env, io);
-    });
+    .option(
+      "--allow-deletions",
+      "apply even when the plan deletes or replaces resources",
+    )
+    .action(
+      async (options: { env: EnvironmentName; allowDeletions?: boolean }) => {
+        const project = await loadProject();
+        if (project) {
+          exitCode = await apply(project.config, options.env, io, {
+            allowDeletions: options.allowDeletions === true,
+          });
+        }
+      },
+    );
 
   program
     .command("schema", { hidden: true })

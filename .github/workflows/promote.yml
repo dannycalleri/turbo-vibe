@@ -11,6 +11,10 @@ on:
         description: Build the CLI from the checked-out repository instead of npm. Only the kit itself sets this.
         type: boolean
         default: false
+      allow-deletions:
+        description: Let apply delete or replace resources. Off by default, so an unintended deletion stops the run.
+        type: boolean
+        default: false
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: false
@@ -105,7 +109,9 @@ jobs:
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           tofu_wrapper: false
-      - run: turbo-vibe --config "$CONFIG" apply --env production
+      - run: turbo-vibe --config "$CONFIG" apply --env production ${ALLOW_DELETIONS:+--allow-deletions}
+        env:
+          ALLOW_DELETIONS: ${{ inputs.allow-deletions && 'yes' || '' }}
       - run: turbo-vibe --config "$CONFIG" migrate --env production
       - run: turbo-vibe --config "$CONFIG" promote --env production --build-id "$BUILD_ID"
         env:

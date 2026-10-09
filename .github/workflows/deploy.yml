@@ -11,6 +11,10 @@ on:
         description: Build the CLI from the checked-out repository instead of npm. Only the kit itself sets this.
         type: boolean
         default: false
+      allow-deletions:
+        description: Let apply delete or replace resources. Off by default, so an unintended deletion stops the run.
+        type: boolean
+        default: false
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: false
@@ -80,8 +84,8 @@ jobs:
   staging:
     name: Deploy staging
     needs: test
-    # Vendor tokens reach only pushes to main; pull requests, from forks or not, stop after the test job.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Vendor tokens reach only main, on a push or a maintainer's manual run; pull requests, from forks or not, stop after the test job.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     environment: staging
     concurrency:
@@ -128,7 +132,9 @@ jobs:
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           tofu_wrapper: false
-      - run: turbo-vibe --config "$CONFIG" apply --env staging
+      - run: turbo-vibe --config "$CONFIG" apply --env staging ${ALLOW_DELETIONS:+--allow-deletions}
+        env:
+          ALLOW_DELETIONS: ${{ inputs.allow-deletions && 'yes' || '' }}
       - run: turbo-vibe --config "$CONFIG" migrate --env staging
       - run: turbo-vibe --config "$CONFIG" deploy --env staging --build-id "$BUILD_ID"
       - run: turbo-vibe --config "$CONFIG" smoke --env staging --build-id "$BUILD_ID"

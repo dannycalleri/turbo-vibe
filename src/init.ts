@@ -106,6 +106,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      allow-deletions:
+        description: Let apply delete or replace resources
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -113,6 +119,8 @@ permissions:
 jobs:
   deploy:
     uses: dannycalleri/turbo-vibe/.github/workflows/deploy.yml@v1
+    with:
+      allow-deletions: \${{ inputs.allow-deletions == true }}
     secrets: inherit
 `;
 
@@ -120,6 +128,11 @@ export const productionWorkflow = `name: Deploy to production
 
 on:
   workflow_dispatch:
+    inputs:
+      allow-deletions:
+        description: Let apply delete or replace resources
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -127,6 +140,8 @@ permissions:
 jobs:
   promote:
     uses: dannycalleri/turbo-vibe/.github/workflows/promote.yml@v1
+    with:
+      allow-deletions: \${{ inputs.allow-deletions == true }}
     secrets: inherit
 `;
 
