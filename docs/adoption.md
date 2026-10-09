@@ -145,7 +145,7 @@ Do this once per project. The [bootstrap checklist](bootstrap.md) walks through 
 1. **Cloudflare:** the domain's zone on Cloudflare, and the Workers Paid plan (required for Containers).
    - An API token with *Workers Scripts: Edit*, *Containers: Edit*, *Workers Routes: Edit* and *DNS: Edit* on the zone.
    - An R2 bucket for state and build records, plus an R2 API token with *Object Read & Write* on it.
-2. **GitHub → Settings → Environments:** create `staging` and `production`. On `production`, add required reviewers; that is the approval step. Give each environment these secrets, using that environment's values:
+2. **GitHub → Settings → Environments:** create `staging` and `production`. On `production`, add required reviewers if your GitHub plan offers them; that is the approval step, on top of the typed build-ID confirmation every promotion asks for. Give each environment these secrets, using that environment's values:
    - `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`
    - `TURBO_VIBE_STATE_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (the R2 token)
    - with a database: `SUPABASE_ACCESS_TOKEN`

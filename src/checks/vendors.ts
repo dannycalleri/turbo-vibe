@@ -274,10 +274,10 @@ export const github: Check = async (context) => {
     findings.push(
       reviewed
         ? ok("github", "production requires a reviewer's approval")
-        : fail(
+        : warn(
             "github",
-            "production has no required reviewers, so promotion would not wait for approval",
-            "add required reviewers in Settings → Environments → production",
+            "production has no required reviewers, so the typed build-ID confirmation is the only safeguard before promotion",
+            "add required reviewers in Settings → Environments → production; GitHub offers them on public repositories and on paid plans",
           ),
     );
   }

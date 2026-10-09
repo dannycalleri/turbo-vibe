@@ -7,7 +7,7 @@ The one-time steps a machine cannot do for you. Do only the sections for the tar
 1. Put the project in a GitHub repository.
    - **Actions minutes:** public repositories run Actions at no cost. Private ones spend minutes from the account's allowance; see the README's [Actions minutes per run](../README.md#actions-minutes-per-run).
 2. In Settings → Environments, create `staging` and `production`.
-3. On `production`, add **required reviewers**. This is the approval that "Deploy to production" waits for.
+3. On `production`, add **required reviewers**. This is the approval that "Deploy to production" waits for. GitHub offers them on public repositories and on paid plans. On a private repository on GitHub Free, skip this step: every promotion still has to be confirmed by typing the build ID, and `check` reports the missing reviewers as a warning, not a failure.
    If the project uses previews, leave `staging`'s deployment branches unrestricted. Previews run in `staging` from pull request branches.
 4. Each later step names secrets. Add them to the GitHub environment they belong to (Settings → Environments → *name* → Environment secrets). The names are the same in both environments; the values are each environment's own.
 

@@ -726,16 +726,46 @@ describe("against recorded fakes", () => {
       ).toBe(true);
     });
 
-    it("requires reviewers on production and names the secrets it lacks", async () => {
+    it("lets a private repository without reviewers pass, with a warning", async () => {
+      repo(
+        "production",
+        [],
+        [
+          "AWS_ACCESS_KEY_ID",
+          "AWS_SECRET_ACCESS_KEY",
+          "CLOUDFLARE_ACCOUNT_ID",
+          "CLOUDFLARE_API_TOKEN",
+          "CLOUDFLARE_ZONE_ID",
+          "TURBO_VIBE_STATE_BUCKET",
+        ],
+      );
+      const production = {
+        ...context(container, githubEnv),
+        environment: "production" as const,
+      };
+      expect(
+        (await github(production)).map((finding) => finding.severity).sort(),
+      ).toEqual(["ok", "warn"]);
+    });
+
+    it("warns, without failing, when production has no reviewers, and names the secrets it lacks", async () => {
       repo("production", [], ["CLOUDFLARE_API_TOKEN"]);
       const production = {
         ...context(container, githubEnv),
         environment: "production" as const,
       };
       const findings = await github(production);
-      expect(findings.map((finding) => finding.message)).toEqual([
-        "production has no required reviewers, so promotion would not wait for approval",
-        "the production environment is missing AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, TURBO_VIBE_STATE_BUCKET",
+      expect(
+        findings.map((finding) => [finding.severity, finding.message]),
+      ).toEqual([
+        [
+          "warn",
+          "production has no required reviewers, so the typed build-ID confirmation is the only safeguard before promotion",
+        ],
+        [
+          "fail",
+          "the production environment is missing AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, TURBO_VIBE_STATE_BUCKET",
+        ],
       ]);
     });
   });
