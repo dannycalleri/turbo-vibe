@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parseConfig } from "../src/config/load.js";
 import { type Answers, choices, configFor } from "../src/init.js";
 import { derivePlan } from "../src/plan.js";
+import { major } from "../src/version.js";
 import { run } from "./harness.js";
 
 const answers = (overrides: Partial<Answers> = {}): Answers => ({
@@ -175,6 +176,12 @@ describe("turbo-vibe init", () => {
     expect(ask).toHaveBeenCalledTimes(6);
     expect(await readFile(join(cwd, "turbo-vibe.yaml"), "utf8")).toContain(
       "target: vercel-nextjs",
+    );
+  });
+
+  it("points the config at the published schema for the running major version", () => {
+    expect(configFor(answers()).split("\n")[0]).toBe(
+      `# yaml-language-server: $schema=https://unpkg.com/@turbo-vibe/cli@${major}/schema/turbo-vibe.schema.json`,
     );
   });
 

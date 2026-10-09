@@ -1,8 +1,10 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TargetCatalog } from "../src/adapters/index.js";
+import { schemaUrl } from "../src/config/json-schema.js";
 import { parseConfig } from "../src/config/load.js";
+import { major } from "../src/version.js";
 import { run } from "./harness.js";
 
 const valid = `version: 1
@@ -346,6 +348,22 @@ describe("parseConfig", () => {
 });
 
 describe("published JSON Schema", () => {
+  it("is what every example config points at", async () => {
+    const examples = join(import.meta.dirname, "../examples");
+    const entries = await readdir(examples, { withFileTypes: true });
+    for (const example of entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)) {
+      const config = await readFile(
+        join(examples, example, "turbo-vibe.yaml"),
+        "utf8",
+      );
+      expect(config.split("\n")[0], example).toBe(
+        `# yaml-language-server: $schema=${schemaUrl(major)}`,
+      );
+    }
+  });
+
   it("matches what the CLI generates; run `make schema` after changing the config schema", async () => {
     const { code, stdout } = await run(["schema"]);
     expect(code).toBe(0);

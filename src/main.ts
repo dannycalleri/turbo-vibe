@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { Command, CommanderError, Option } from "commander";
 import { apply } from "./apply.js";
@@ -12,12 +11,9 @@ import type { Io } from "./io.js";
 import { migrate } from "./migrate.js";
 import { derivePlan, formatPlan } from "./plan.js";
 import { deployPreview, removePreview } from "./preview.js";
+import { major, version } from "./version.js";
 
 export type { Io } from "./io.js";
-
-const { version } = createRequire(import.meta.url)("../package.json") as {
-  version: string;
-};
 
 export async function main(argv: readonly string[], io: Io): Promise<number> {
   let exitCode = 0;
@@ -78,9 +74,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     .command("schema", { hidden: true })
     .description("print the JSON Schema of turbo-vibe.yaml")
     .action(() => {
-      io.stdout(
-        `${JSON.stringify(jsonSchema(version.split(".")[0] ?? "1"), null, 2)}\n`,
-      );
+      io.stdout(`${JSON.stringify(jsonSchema(major), null, 2)}\n`);
     });
 
   program

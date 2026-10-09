@@ -1,8 +1,10 @@
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { adapters } from "./adapters/index.js";
+import { schemaUrl } from "./config/json-schema.js";
 import { parseConfig } from "./config/load.js";
 import type { Io } from "./io.js";
+import { major } from "./version.js";
 
 export const choices = {
   backend: ["cloudflare-container", "none"],
@@ -32,6 +34,7 @@ export function configFor(answers: Answers): string {
   const crossOrigin =
     answers.backend !== "none" && answers.frontend.startsWith("vercel-");
   const lines = [
+    `# yaml-language-server: $schema=${schemaUrl(major)}`,
     "version: 1",
     `project: ${answers.name}`,
     `domain: ${answers.domain}`,
