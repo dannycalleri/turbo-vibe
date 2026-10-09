@@ -21,7 +21,9 @@ const { version } = createRequire(import.meta.url)("../package.json") as {
 export async function main(argv: readonly string[], io: Io): Promise<number> {
   let exitCode = 0;
   const program = new Command("turbo-vibe")
-    .description("Deploy a project's services from turbo-vibe.yaml.")
+    .description(
+      "Take a prototype to production: staging and production from turbo-vibe.yaml, the build tested on staging promoted unchanged after approval.",
+    )
     .version(version)
     .option("-c, --config <file>", "project config file", "turbo-vibe.yaml")
     .exitOverride()

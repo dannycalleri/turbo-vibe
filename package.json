@@ -1,7 +1,7 @@
 {
   "name": "@turbo-vibe/cli",
   "version": "1.0.0",
-  "description": "Deploy any project from one config file.",
+  "description": "The production step after the prototype: staging and production from one file, the tested build promoted unchanged after approval.",
   "license": "MIT",
   "repository": {
     "type": "git",

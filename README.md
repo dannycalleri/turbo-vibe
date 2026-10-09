@@ -1,6 +1,8 @@
 # turbo-vibe
 
-Deploy a project's services from one `turbo-vibe.yaml`. To add it to an existing repository, follow the [adoption guide](docs/adoption.md). For the accounts, plans and tokens it needs, follow the [bootstrap checklist](docs/bootstrap.md).
+The production step after the prototype. turbo-vibe takes an app that works on your laptop and runs it for real users: a staging copy and a production copy, each with its own database, sign-in settings and address; every merge deployed to staging and smoke-tested; and the exact build that passed staging promoted to production after a person approves. Nothing is rebuilt on the way.
+
+You describe the services in one `turbo-vibe.yaml`: a backend, a frontend, a database, sign-in. The kit sets them up on Cloudflare or Vercel, Supabase and WorkOS, in your own accounts. To add it to an existing repository, follow the [adoption guide](docs/adoption.md). For the accounts, plans and tokens it needs, follow the [bootstrap checklist](docs/bootstrap.md).
 
 ```sh
 npx @turbo-vibe/cli init
@@ -19,6 +21,22 @@ npx @turbo-vibe/cli promote --env production
 `check` verifies an environment's accounts, tokens, and tools for the targets the project uses, and changes nothing. It lists every problem with its fix, and exits non-zero until the environment is ready.
 
 `deploy --dry-run` builds everything and validates the Worker without credentials.
+
+## What you are locked into
+
+Nothing that turbo-vibe owns. Every resource lives in your own vendor accounts, and the OpenTofu state and build records live in your own bucket. To stop using the kit, delete `turbo-vibe.yaml` and its workflows; your services keep running where they are.
+
+Moving between vendors is a different question. The kit sets up each host the same way, but a move is still work:
+
+| Part of the app | What moving it takes |
+|---|---|
+| A static frontend | Possible between `cloudflare-static` and `vercel-static` (beta), with work. On Vercel the page and the API have different origins, so: change `target` and remove `serve_with`; set `api_hostname` where `api.<hostname>` would be two levels below the zone; make the backend accept only `ALLOWED_ORIGINS`; and have the page read its API URL from `/_turbo-vibe/config.json`. See [Static frontends on Vercel](#static-frontends-on-vercel-beta). Moving back means adding `serve_with` again. |
+| A Next.js frontend | Not through the kit: `vercel-nextjs` (beta) is its only target. |
+| A backend container | Not through the kit yet: `cloudflare-container` is its only target. The image is built from your own Dockerfile and runs on any container host, given `BUILD_ID` as a build argument and, at runtime, `PORT`, `DATABASE_URL` and the sign-in and origin settings. If it sets `container.instance_from`, the new host must route those requests to the same instance itself. |
+| Database data | No. Moving a Supabase database's data to another provider is your own migration. |
+| Signed-in users | No. Users and their sessions stay in WorkOS. |
+
+Targets marked **beta** are supported and tested on every change, with less history in live runs than the others.
 
 ## Build once, promote the same build
 
@@ -109,7 +127,7 @@ A `supabase` database gets its own Supabase project per environment, with the Da
 
 `migrate` creates two roles in each database: `turbo_vibe_migrator`, which owns the schema and runs `supabase db push`, and `turbo_vibe_runtime`, which can read and write rows but cannot change the schema. Both connect through the Supabase session pooler (IPv4). A paused free-plan project is reported as paused. A failed migration stops the run before anything deploys. `deploy` gives every backend the runtime role's connection as the secret environment variable `DATABASE_URL` (session pooler, never the transaction pooler); it reads it from the environment's OpenTofu state, so a project with a database needs the state variables for `deploy` too. Write migrations forward-only, expand then contract, so the previous backend keeps working while the new one deploys.
 
-## Static frontends on Vercel
+## Static frontends on Vercel (beta)
 
 A `vercel-static` frontend gets a Vercel project per environment, named `<project>-<service>-<environment>`, on that environment's hostname. A DNS-only CNAME in the Cloudflare zone points the hostname at Vercel. `deploy` runs the frontend's build in CI, then ships the files as a prebuilt output (`vercel deploy --prebuilt`), so Vercel never receives or builds the source. Promotion ships the same recorded files to the production project.
 
@@ -133,7 +151,7 @@ environments:
 
 `examples/vercel-static` deploys the example's page to Vercel and its API to Cloudflare.
 
-## Next.js on Vercel
+## Next.js on Vercel (beta)
 
 A `vercel-nextjs` frontend is built in CI with `vercel build --prod`, which uses Vercel's build output format. Server-rendered pages and route handlers become Vercel functions. The kit ships that output prebuilt, records it, and promotes the same output to production without building again.
 
