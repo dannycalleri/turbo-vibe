@@ -14,6 +14,10 @@ test:
 build:
 	pnpm exec tsup
 
+.PHONY: compatibility
+compatibility: build
+	node dist/cli.js compatibility
+
 .PHONY: schema
 schema: build
 	mkdir -p schema

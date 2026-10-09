@@ -39,7 +39,7 @@ Moving between vendors is a different question. The kit sets up each host the sa
 | Database data | No. Moving a Supabase database's data to another provider is your own migration. |
 | Signed-in users | No. Users and their sessions stay in WorkOS. |
 
-Targets marked **beta** are supported and tested on every change, with less history in live runs than the others.
+Targets marked **beta** are supported and tested on every change, with less history in live runs than the others. [COMPATIBILITY.md](COMPATIBILITY.md) lists, for each adapter, the tool and provider versions this release pins and the last date it passed a live run.
 
 ## Build once, promote the same build
 

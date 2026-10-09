@@ -1,7 +1,15 @@
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Command, CommanderError, Option } from "commander";
 import { apply, plan } from "./apply.js";
 import { check } from "./check.js";
+import {
+  compatibility,
+  exampleTargets,
+  type Run,
+  readPins,
+  runSchema,
+} from "./compatibility.js";
 import { jsonSchema } from "./config/json-schema.js";
 import { loadConfigFile } from "./config/load.js";
 import { type EnvironmentName, environmentNames } from "./config/schema.js";
@@ -96,6 +104,42 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     .description("print the JSON Schema of turbo-vibe.yaml")
     .action(() => {
       io.stdout(`${JSON.stringify(jsonSchema(major), null, 2)}\n`);
+    });
+
+  program
+    .command("compatibility", { hidden: true })
+    .description(
+      "regenerate COMPATIBILITY.md from the pinned versions and, with --results, a live run's outcomes",
+    )
+    .option("--results <file>", "a live run's outcomes, as JSON")
+    .option("--matrix <file>", "the matrix to update", "COMPATIBILITY.md")
+    .action(async (options: { results?: string; matrix: string }) => {
+      const matrix = resolve(io.cwd, options.matrix);
+      const previous = await readFile(matrix, "utf8").catch(() => undefined);
+      let run: Run | undefined;
+      if (options.results) {
+        const parsed = runSchema.safeParse(
+          JSON.parse(await readFile(resolve(io.cwd, options.results), "utf8")),
+        );
+        if (!parsed.success) {
+          io.stderr(
+            `${options.results}: ${parsed.error.issues.map((issue) => `${issue.path.join(".")} ${issue.message}`).join("; ")}\n`,
+          );
+          exitCode = 1;
+          return;
+        }
+        run = parsed.data;
+      }
+      await writeFile(
+        matrix,
+        compatibility({
+          ...(previous === undefined ? {} : { previous }),
+          ...(run ? { run } : {}),
+          examples: await exampleTargets(io.cwd),
+          pins: await readPins(io.cwd),
+        }),
+      );
+      io.stdout(`wrote ${options.matrix}\n`);
     });
 
   program
