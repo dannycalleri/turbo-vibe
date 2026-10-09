@@ -129,6 +129,10 @@ export const productionWorkflow = `name: Deploy to production
 on:
   workflow_dispatch:
     inputs:
+      confirm-build:
+        description: The ID of the build to promote, as the last Staging run reports it
+        type: string
+        required: true
       allow-deletions:
         description: Let apply delete or replace resources
         type: boolean
@@ -141,6 +145,7 @@ jobs:
   promote:
     uses: dannycalleri/turbo-vibe/.github/workflows/promote.yml@v1
     with:
+      confirm-build: \${{ inputs.confirm-build }}
       allow-deletions: \${{ inputs.allow-deletions == true }}
     secrets: inherit
 `;

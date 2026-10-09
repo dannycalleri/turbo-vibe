@@ -66,13 +66,13 @@ describe("the production workflow", () => {
 
   it("migrates and deploys the build it chose, from that build's commit, without building anything", async () => {
     const { steps } = (await workflow("promote.yml")).jobs.production;
-    expect(commands(steps)).toEqual([
-      "promote",
-      "apply",
-      "migrate",
-      "promote",
-      "smoke",
-    ]);
+    expect(
+      commands(
+        steps.filter(
+          (step: { if?: string }) => !step.if?.includes("failure()"),
+        ),
+      ),
+    ).toEqual(["promote", "apply", "migrate", "promote", "smoke"]);
     const checkout = steps.findIndex(
       (step: { with?: { ref?: string } }) => step.with?.ref,
     );
@@ -296,6 +296,42 @@ describe("allow-deletions", () => {
     expect(callers.length).toBeGreaterThan(0);
     for (const job of callers) {
       expect(job.with?.["allow-deletions"]).toBe(passThrough);
+    }
+  });
+});
+
+describe("confirm-build", () => {
+  it("is required, and the choice refuses any other build", async () => {
+    const promote = await workflow("promote.yml");
+    expect(promote.on.workflow_call.inputs["confirm-build"]).toMatchObject({
+      type: "string",
+      required: true,
+    });
+    const { steps } = promote.jobs.production;
+    const choose = steps.find((step: { id?: string }) => step.id === "choose");
+    expect(choose.run).toContain(
+      'promote --env production --choose --confirm "$CONFIRM_BUILD"',
+    );
+    expect(choose.env.CONFIRM_BUILD).toBe("${{ inputs.confirm-build }}");
+    const named = steps.find((step: { run?: string }) =>
+      step.run?.includes("GITHUB_STEP_SUMMARY"),
+    );
+    expect(named.if).toBe("failure() && steps.choose.outcome == 'failure'");
+  });
+
+  it.each([
+    ["init's production caller", async () => parse(productionWorkflow)],
+    ["the kit's production workflow", () => workflow("production.yml")],
+  ])("%s asks for it and passes it on", async (_, load) => {
+    const caller = await load();
+    expect(caller.on.workflow_dispatch.inputs["confirm-build"]).toMatchObject({
+      type: "string",
+      required: true,
+    });
+    for (const job of Object.values(caller.jobs) as {
+      with?: Record<string, unknown>;
+    }[]) {
+      expect(job.with?.["confirm-build"]).toBe("${{ inputs.confirm-build }}");
     }
   });
 });

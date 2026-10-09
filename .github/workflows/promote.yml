@@ -15,6 +15,10 @@ on:
         description: Let apply delete or replace resources. Off by default, so an unintended deletion stops the run.
         type: boolean
         default: false
+      confirm-build:
+        description: The ID of the build to promote. The run stops if it is not the latest staging build that passed.
+        type: string
+        required: true
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: false
@@ -96,8 +100,15 @@ jobs:
       - name: Choose the latest staging build that passed
         id: choose
         run: |
-          build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose)
+          build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose --confirm "$CONFIRM_BUILD")
           echo "build-id=$build_id" >> "$GITHUB_OUTPUT"
+        env:
+          CONFIRM_BUILD: ${{ inputs.confirm-build }}
+      - name: Name the build to confirm
+        if: failure() && steps.choose.outcome == 'failure'
+        run: |
+          build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose) || exit 0
+          echo "The build ready to promote is \`$build_id\`. Run **Deploy to production** again with confirm-build set to \`$build_id\`." >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.choose.outputs.build-id }}

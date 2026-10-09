@@ -188,11 +188,16 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
       "--choose",
       "print the build that would be promoted, and change nothing",
     )
+    .option(
+      "--confirm <id>",
+      "refuse unless this is the build that would be promoted",
+    )
     .action(
       async (options: {
         env: EnvironmentName;
         buildId?: string;
         choose?: boolean;
+        confirm?: string;
       }) => {
         const project = await loadProject();
         if (project) {
@@ -202,6 +207,9 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
             {
               ...(options.buildId ? { buildId: options.buildId } : {}),
               ...(options.choose ? { choose: true } : {}),
+              ...(options.confirm !== undefined
+                ? { confirm: options.confirm }
+                : {}),
             },
             io,
           );

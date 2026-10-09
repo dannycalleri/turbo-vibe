@@ -3,6 +3,10 @@ name: Deploy to production
 on:
   workflow_dispatch:
     inputs:
+      confirm-build:
+        description: The ID of the build to promote, as the last Staging run reports it
+        type: string
+        required: true
       allow-deletions:
         description: Let apply delete or replace resources
         type: boolean
@@ -17,6 +21,7 @@ jobs:
     with:
       config: examples/go-api/turbo-vibe.yaml
       use-local-cli: true
+      confirm-build: ${{ inputs.confirm-build }}
       allow-deletions: ${{ inputs.allow-deletions == true }}
     secrets: inherit
 
@@ -25,6 +30,7 @@ jobs:
     with:
       config: examples/vercel-static/turbo-vibe.yaml
       use-local-cli: true
+      confirm-build: ${{ inputs.confirm-build }}
       allow-deletions: ${{ inputs.allow-deletions == true }}
     secrets: inherit
 
@@ -33,6 +39,7 @@ jobs:
     with:
       config: examples/nextjs/turbo-vibe.yaml
       use-local-cli: true
+      confirm-build: ${{ inputs.confirm-build }}
       allow-deletions: ${{ inputs.allow-deletions == true }}
     secrets: inherit
 
@@ -41,5 +48,6 @@ jobs:
     with:
       config: examples/python-api/turbo-vibe.yaml
       use-local-cli: true
+      confirm-build: ${{ inputs.confirm-build }}
       allow-deletions: ${{ inputs.allow-deletions == true }}
     secrets: inherit

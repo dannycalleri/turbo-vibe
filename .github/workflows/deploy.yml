@@ -138,3 +138,5 @@ jobs:
       - run: turbo-vibe --config "$CONFIG" migrate --env staging
       - run: turbo-vibe --config "$CONFIG" deploy --env staging --build-id "$BUILD_ID"
       - run: turbo-vibe --config "$CONFIG" smoke --env staging --build-id "$BUILD_ID"
+      - name: Name the build to promote
+        run: echo "Build \`$BUILD_ID\` passed staging. To promote it, run **Deploy to production** with confirm-build \`$BUILD_ID\`." >> "$GITHUB_STEP_SUMMARY"

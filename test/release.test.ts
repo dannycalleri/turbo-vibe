@@ -465,6 +465,63 @@ describe("promote", () => {
     expect(calls).not.toHaveBeenCalled();
   });
 
+  it("refuses a confirmation that is not the build it would promote, and names that build", async () => {
+    const calls = runner();
+    const r2 = fakeR2(seeded(record({})));
+    const { code, stdout, stderr } = await run(
+      ["promote", "--env", "production", "--choose", "--confirm", "abc12"],
+      { "turbo-vibe.yaml": project },
+      env,
+      calls,
+      r2.fetch(),
+    );
+    expect(code).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toBe(
+      'the build to promote is abc123, not "abc12"; production is unchanged. Confirm with abc123 to promote it\n',
+    );
+    expect(calls).not.toHaveBeenCalled();
+  });
+
+  it("accepts the confirmed build", async () => {
+    const r2 = fakeR2(seeded(record({})));
+    const { code, stdout } = await run(
+      ["promote", "--env", "production", "--choose", "--confirm", " abc123 "],
+      { "turbo-vibe.yaml": project },
+      env,
+      runner(),
+      r2.fetch(),
+    );
+    expect(code).toBe(0);
+    expect(stdout).toBe("abc123\n");
+  });
+
+  it("promotes a build whose ID was confirmed", async () => {
+    const calls = runner();
+    const r2 = fakeR2({
+      ...seeded(record({})),
+      "acme/builds/abc123/web.tar.gz": "archive",
+    });
+    const { code, stdout } = await run(
+      [
+        "promote",
+        "--env",
+        "production",
+        "--build-id",
+        "abc123",
+        "--confirm",
+        "abc123",
+      ],
+      { "turbo-vibe.yaml": project },
+      env,
+      calls,
+      r2.fetch(),
+    );
+    expect(code).toBe(0);
+    expect(stdout).toContain("promote build abc123 to production");
+    expect(calls.mock.calls.map(([, args]) => args[1])).toContain("deploy");
+  });
+
   it("promotes exactly the pinned build, even when a newer one has passed since", async () => {
     const r2 = fakeR2({
       ...seeded(

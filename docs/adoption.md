@@ -95,6 +95,10 @@ name: Deploy to production
 on:
   workflow_dispatch:
     inputs:
+      confirm-build:
+        description: The ID of the build to promote, as the last Staging run reports it
+        type: string
+        required: true
       allow-deletions:
         description: Let apply delete or replace resources
         type: boolean
@@ -105,6 +109,7 @@ jobs:
   promote:
     uses: dannycalleri/turbo-vibe/.github/workflows/promote.yml@v1
     with:
+      confirm-build: ${{ inputs.confirm-build }}
       allow-deletions: ${{ inputs.allow-deletions == true }}
     secrets: inherit
 ```
@@ -151,7 +156,7 @@ Do this once per project. The [bootstrap checklist](bootstrap.md) walks through 
 
 1. Merge a change to `main`. The **Staging** run applies infrastructure, migrates, builds and pushes the image, deploys, and smoke-tests.
    Check: the staging hostname serves the app, and `/api/health` on the **same hostname** reports the merged commit's SHA.
-2. Run **Deploy to production** from the Actions tab and approve it.
+2. Copy the build ID from the Staging run's summary, run **Deploy to production** from the Actions tab with it as **confirm-build**, and approve it if the `production` environment has reviewers.
    Check: production's `/api/health` reports the same SHA as staging. Nothing was rebuilt; the run's log has no `docker build`.
 
 If staging's smoke test fails, the run fails and names both build IDs. That build can never be promoted.
