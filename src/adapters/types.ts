@@ -86,6 +86,7 @@ export interface Adapter {
   readsOutputs?: boolean;
   buildsOwnOutput?: boolean;
   crossOrigin?: boolean;
+  stability?: "beta";
   secrets: readonly string[];
   outputs: readonly string[];
   plan(context: ServiceContext): Infrastructure;

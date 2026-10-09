@@ -1,5 +1,6 @@
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { adapters } from "./adapters/index.js";
 import { parseConfig } from "./config/load.js";
 import type { Io } from "./io.js";
 
@@ -134,13 +135,20 @@ export function filesFor(answers: Answers): Record<string, string> {
   };
 }
 
+export const labelled = (targets: readonly string[]) =>
+  targets
+    .map((target) =>
+      adapters[target]?.stability === "beta" ? `${target} (beta)` : target,
+    )
+    .join(", ");
+
 const questions: Record<keyof Answers, string> = {
   name: "Project name (lowercase letters, digits, hyphens)",
   domain: "Production domain, e.g. app.example.com",
-  backend: `Backend target (${choices.backend.join(", ")})`,
-  frontend: `Frontend target (${choices.frontend.join(", ")})`,
-  database: `Database target (${choices.database.join(", ")})`,
-  identity: `Identity target (${choices.identity.join(", ")})`,
+  backend: `Backend target (${labelled(choices.backend)})`,
+  frontend: `Frontend target (${labelled(choices.frontend)})`,
+  database: `Database target (${labelled(choices.database)})`,
+  identity: `Identity target (${labelled(choices.identity)})`,
 };
 
 export async function init(

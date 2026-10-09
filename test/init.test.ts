@@ -178,6 +178,15 @@ describe("turbo-vibe init", () => {
     );
   });
 
+  it("labels beta targets in the frontend question", async () => {
+    const ask = vi.fn(async (_question: string) => "");
+    await run(["init"], {}, {}, undefined, undefined, { ask });
+    const questions = ask.mock.calls.map(([question]) => question);
+    expect(questions).toContain(
+      "Frontend target (cloudflare-static, vercel-static (beta), vercel-nextjs (beta), none)",
+    );
+  });
+
   it("names the missing answer when it cannot ask", async () => {
     const { code, stderr } = await run(["init", "--name", "shop"]);
     expect(code).toBe(1);

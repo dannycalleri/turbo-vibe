@@ -6,7 +6,7 @@ import { check } from "./check.js";
 import { loadConfigFile } from "./config/load.js";
 import { type EnvironmentName, environmentNames } from "./config/schema.js";
 import { deploy, type Project, promote, smoke, test } from "./deploy.js";
-import { init } from "./init.js";
+import { choices, init, labelled } from "./init.js";
 import type { Io } from "./io.js";
 import { migrate } from "./migrate.js";
 import { derivePlan, formatPlan } from "./plan.js";
@@ -78,13 +78,10 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     )
     .option("--name <name>", "project name")
     .option("--domain <domain>", "production domain")
-    .option("--backend <target>", "cloudflare-container or none")
-    .option(
-      "--frontend <target>",
-      "cloudflare-static, vercel-static, vercel-nextjs, or none",
-    )
-    .option("--database <target>", "supabase or none")
-    .option("--identity <target>", "workos or none")
+    .option("--backend <target>", labelled(choices.backend))
+    .option("--frontend <target>", labelled(choices.frontend))
+    .option("--database <target>", labelled(choices.database))
+    .option("--identity <target>", labelled(choices.identity))
     .option("--force", "replace files that already exist")
     .action(async (options: Record<string, string | boolean | undefined>) => {
       const { force, ...given } = options;
