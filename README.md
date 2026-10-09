@@ -7,6 +7,7 @@ You describe the services in one `turbo-vibe.yaml`: a backend, a frontend, a dat
 ```sh
 npx @turbo-vibe/cli init
 npx @turbo-vibe/cli plan
+npx @turbo-vibe/cli plan --env staging
 npx @turbo-vibe/cli check --env staging
 npx @turbo-vibe/cli test
 npx @turbo-vibe/cli apply --env staging
@@ -17,6 +18,8 @@ npx @turbo-vibe/cli promote --env production
 ```
 
 `init` asks for the project's name, domain, and the target of each service, then writes `turbo-vibe.yaml` and the staging and production workflows. It never replaces existing files unless given `--force`. Every answer has a flag (`--name`, `--domain`, `--backend`, `--frontend`, `--database`, `--identity`) for running it non-interactively. It treats a two-label domain (`example.com`) as the zone apex and anything longer as one level below the zone. For a domain on a multi-part suffix, such as `example.co.uk`, edit the hostnames it writes. Build commands, output directories and the Supabase region it fills in are marked as defaults to replace.
+
+`plan` lists the services each environment runs and where, from the file alone. `plan --env <env>` asks OpenTofu what applying that environment would do and prints it per service: what it would create, change, replace or delete, with deletions and replacements listed apart. It prints resource addresses and actions only, never values, and changes nothing.
 
 `check` verifies an environment's accounts, tokens, and tools for the targets the project uses, and changes nothing. It lists every problem with its fix, and exits non-zero until the environment is ready.
 

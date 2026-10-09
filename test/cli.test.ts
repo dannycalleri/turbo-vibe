@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Runner } from "../src/run.js";
@@ -106,6 +106,48 @@ describe("turbo-vibe apply", () => {
       "acme/staging/terraform.tfstate",
     );
     expect(root + stdout + stderr).not.toMatch(/s3cr3t/);
+  });
+
+  it("plans against deployed state with --env, prints the summary, and removes the plan file", async () => {
+    const runner = vi.fn(async () => 0);
+    const capture = vi.fn(async (_command: string, args: readonly string[]) => {
+      const out = args.find((arg) => arg.startsWith("-out="));
+      if (out) await writeFile(out.slice("-out=".length), "plan");
+      const show = {
+        resource_changes: [
+          {
+            address:
+              'module.cloudflare.cloudflare_worker.this["acme-api-staging"]',
+            change: { actions: ["create"] },
+          },
+        ],
+      };
+      return {
+        code: 0,
+        stdout: args[0] === "show" ? JSON.stringify(show) : "",
+      };
+    });
+    const { code, stdout, cwd } = await run(
+      ["plan", "--env", "staging"],
+      files,
+      env,
+      runner,
+      undefined,
+      { capture },
+    );
+    const dir = join(cwd, ".turbo-vibe", "tofu", "staging");
+    expect(code).toBe(0);
+    expect(runner.mock.calls).toEqual([
+      ["tofu", ["init", "-input=false"], { cwd: dir, env }],
+    ]);
+    expect(capture.mock.calls.map(([, args]) => args)).toEqual([
+      ["plan", "-input=false", "-json", `-out=${join(dir, "tfplan")}`],
+      ["show", "-json", join(dir, "tfplan")],
+    ]);
+    expect(stdout).toBe(
+      'staging: 1 to create, 0 to change, 0 to replace, 0 to delete\n\napi\n  + module.cloudflare.cloudflare_worker.this["acme-api-staging"]\n',
+    );
+    await expect(stat(join(dir, "tfplan"))).rejects.toThrow();
   });
 
   it("stops when tofu init fails", async () => {

@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { Command, CommanderError, Option } from "commander";
-import { apply } from "./apply.js";
+import { apply, plan } from "./apply.js";
 import { check } from "./check.js";
 import { jsonSchema } from "./config/json-schema.js";
 import { loadConfigFile } from "./config/load.js";
@@ -52,11 +52,22 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
   program
     .command("plan")
     .description(
-      "show the services each environment would run, without changing anything",
+      "show the services each environment would run; with --env, what applying it would create, change, replace or delete. Changes nothing",
     )
-    .action(async () => {
+    .addOption(
+      new Option(
+        "-e, --env <environment>",
+        "compare with this environment's deployed state",
+      ).choices(environmentNames),
+    )
+    .action(async (options: { env?: EnvironmentName }) => {
       const project = await loadProject();
-      if (project) io.stdout(`${formatPlan(derivePlan(project.config))}\n`);
+      if (!project) return;
+      if (options.env) {
+        exitCode = await plan(project.config, options.env, io);
+      } else {
+        io.stdout(`${formatPlan(derivePlan(project.config))}\n`);
+      }
     });
 
   program
