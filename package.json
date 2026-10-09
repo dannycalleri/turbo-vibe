@@ -14,7 +14,8 @@
   },
   "files": [
     "dist",
-    "infra/**/*.tf"
+    "infra/**/*.tf",
+    "schema"
   ],
   "engines": {
     "node": ">=24"

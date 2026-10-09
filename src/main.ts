@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { Command, CommanderError, Option } from "commander";
 import { apply } from "./apply.js";
 import { check } from "./check.js";
+import { jsonSchema } from "./config/json-schema.js";
 import { loadConfigFile } from "./config/load.js";
 import { type EnvironmentName, environmentNames } from "./config/schema.js";
 import { deploy, type Project, promote, smoke, test } from "./deploy.js";
@@ -71,6 +72,15 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     .action(async (options: { env: EnvironmentName }) => {
       const project = await loadProject();
       if (project) exitCode = await apply(project.config, options.env, io);
+    });
+
+  program
+    .command("schema", { hidden: true })
+    .description("print the JSON Schema of turbo-vibe.yaml")
+    .action(() => {
+      io.stdout(
+        `${JSON.stringify(jsonSchema(version.split(".")[0] ?? "1"), null, 2)}\n`,
+      );
     });
 
   program

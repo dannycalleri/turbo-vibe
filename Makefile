@@ -14,6 +14,11 @@ test:
 build:
 	pnpm exec tsup
 
+.PHONY: schema
+schema: build
+	mkdir -p schema
+	node dist/cli.js schema > schema/turbo-vibe.schema.json
+
 TOFU_IMAGE := ghcr.io/opentofu/opentofu:1.13.1
 
 .PHONY: validate-infra

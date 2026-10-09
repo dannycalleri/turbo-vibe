@@ -8,6 +8,7 @@ Specs live outside this repo, in the OpenSpec store `turbo-vibe`; see `CLAUDE.lo
 
 - `make check` — the gate for every commit: `biome ci .`, `tsc --noEmit`, `vitest run`.
 - `make build` — bundles `src/cli.ts` into `dist/cli.js` with `tsup`.
+- `make schema` — regenerates `schema/turbo-vibe.schema.json` (shipped in the npm package) from the zod schema through the hidden `turbo-vibe schema` command; a test fails when the committed file is stale.
 - `make integration` — `validate-infra`, `lint-workflows` (`actionlint`, local or the pinned Docker image), `integration-tests` (`test/integration/`, against real Postgres in Docker), and `dry-run-example` (a real `wrangler deploy --dry-run` of each example under `examples/` that deploys to Cloudflare, building their images with Docker). Not part of `make check`.
 - `make validate-infra` — `tofu init -backend=false && tofu validate` on every module under `infra/`; uses a local `tofu` if present, otherwise the pinned OpenTofu Docker image.
 - `pnpm exec vitest run test/<file>.test.ts` — one test file.
@@ -16,7 +17,7 @@ Specs live outside this repo, in the OpenSpec store `turbo-vibe`; see `CLAUDE.lo
 ## Layout
 
 - `src/cli.ts` — process entry; everything else is reachable through `main(argv, io)` in `src/main.ts`, which tests call directly.
-- `src/config/` — the `turbo-vibe.yaml` schema (`zod`) and the loader that turns schema issues into `line: message` problems.
+- `src/config/` — the `turbo-vibe.yaml` schema (`zod`), the loader that turns schema issues into `line: message` problems, and `json-schema.ts`, which publishes the schema as JSON Schema with each kind's targets listed.
 - `src/adapters/` — one adapter per target, all behind the contract in `types.ts`; `index.ts` is the registry the config validator reads.
 - `src/infrastructure.ts` — composes adapter contributions into one OpenTofu root per project and environment, with state in R2.
 - `src/apply.ts` — `turbo-vibe apply`: writes the root to `.turbo-vibe/tofu/<env>/` and runs `tofu`.

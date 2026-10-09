@@ -1,6 +1,9 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TargetCatalog } from "../src/adapters/index.js";
 import { parseConfig } from "../src/config/load.js";
+import { run } from "./harness.js";
 
 const valid = `version: 1
 project: acme
@@ -339,5 +342,20 @@ describe("parseConfig", () => {
     expect(problems("- just\n- a list\n")).toEqual([
       { line: 1, message: "the file must be a YAML mapping" },
     ]);
+  });
+});
+
+describe("published JSON Schema", () => {
+  it("matches what the CLI generates; run `make schema` after changing the config schema", async () => {
+    const { code, stdout } = await run(["schema"]);
+    expect(code).toBe(0);
+    const committed = await readFile(
+      join(import.meta.dirname, "../schema/turbo-vibe.schema.json"),
+      "utf8",
+    );
+    expect(
+      committed,
+      "schema/turbo-vibe.schema.json is stale: run `make schema`",
+    ).toBe(stdout);
   });
 });
