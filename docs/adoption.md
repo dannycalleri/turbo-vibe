@@ -31,6 +31,7 @@ Check: `docker build --build-arg BUILD_ID=local -t app . && docker run -p 8080:8
 At the repository root:
 
 ```yaml
+# yaml-language-server: $schema=https://unpkg.com/@turbo-vibe/cli@1/schema/turbo-vibe.schema.json
 version: 1
 project: myapp                 # lowercase; names Workers, state, and Supabase projects
 domain: myapp.example.com      # production; staging defaults to staging.<domain>
