@@ -2,7 +2,7 @@
 
 The production step after the prototype. turbo-vibe takes an app that works on your laptop and runs it for real users: a staging copy and a production copy, each with its own database, sign-in settings and address; every merge deployed to staging and smoke-tested; and the exact build that passed staging promoted to production after a person approves. Nothing is rebuilt on the way.
 
-You describe the services in one `turbo-vibe.yaml`: a backend, a frontend, a database, sign-in. The kit sets them up on Cloudflare or Vercel, Supabase and WorkOS, in your own accounts. To add it to an existing repository, follow the [adoption guide](docs/adoption.md). For the accounts, plans and tokens it needs, follow the [bootstrap checklist](docs/bootstrap.md). Every field of the file is described in the [file format](docs/file-format.md).
+You describe the services in one `turbo-vibe.yaml`: a backend, a frontend, a database, sign-in. The kit sets them up on Cloudflare or Vercel, Supabase and WorkOS, in your own accounts. To add it to an existing repository, follow the [adoption guide](docs/adoption.md). For the accounts, plans and tokens it needs, follow the [bootstrap checklist](docs/bootstrap.md). Every field of the file is described in the [file format](docs/file-format.md). Three examples walk from `init` to production step by step: a [Go API with a page, a database and sign-in](examples/go-api/README.md), a [Python API](examples/python-api/README.md), and [Next.js on Vercel](examples/nextjs/README.md) (beta).
 
 ```sh
 npx @turbo-vibe/cli init

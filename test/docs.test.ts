@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { run } from "./harness.js";
 
 const root = join(import.meta.dirname, "..");
 const price = /[$€£]\s?\d|\d\s?(USD|EUR)\b|per (user |seat )?month|\/\s?month/i;
@@ -47,5 +48,30 @@ describe("public material", () => {
     );
     expect(price.test("US$5")).toBe(true);
     expect(withoutCode('run `cd "$(dirname "$0")"` first')).not.toMatch(price);
+  });
+});
+
+describe("the example walkthroughs", () => {
+  const walkthroughs = ["go-api", "python-api", "nextjs"].map((example) =>
+    join("examples", example, "README.md"),
+  );
+
+  it("use only commands and flags the CLI defines", async () => {
+    for (const file of walkthroughs) {
+      const text = await readFile(join(root, file), "utf8");
+      const commands = [
+        ...text.matchAll(/npx @turbo-vibe\/cli@1 ([^\n`]+)/g),
+      ].map((match) => match[1]?.trim().split(/\s+/) ?? []);
+      expect(commands.length, file).toBeGreaterThan(0);
+      for (const words of commands) {
+        const firstOption = words.findIndex((word) => word.startsWith("-"));
+        const path = firstOption === -1 ? words : words.slice(0, firstOption);
+        const { code, stdout } = await run([...path, "--help"]);
+        expect(code, `${file}: ${words.join(" ")}`).toBe(0);
+        for (const flag of words.filter((word) => word.startsWith("--"))) {
+          expect(stdout, `${file}: ${flag}`).toContain(flag);
+        }
+      }
+    }
   });
 });
