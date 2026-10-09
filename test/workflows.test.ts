@@ -335,3 +335,42 @@ describe("confirm-build", () => {
     }
   });
 });
+
+describe("the evidence workflow", () => {
+  it("runs weekly and on demand, from main only, in its own environment", async () => {
+    const evidence = await workflow("evidence.yml");
+    expect(evidence.on.schedule).toEqual([{ cron: "0 6 * * 1" }]);
+    expect(evidence.on).toHaveProperty("workflow_dispatch");
+    const job = evidence.jobs.evidence;
+    expect(job.if).toBe("github.ref == 'refs/heads/main'");
+    expect(job.environment).toBe("evidence");
+    expect(evidence.env.BRANCH).toMatch(/^evidence-/);
+  });
+
+  it("removes every preview it deploys, whatever the deploy's outcome", async () => {
+    const { steps } = (await workflow("evidence.yml")).jobs.evidence;
+    const loop = steps.find((step: { run?: string }) =>
+      step.run?.includes("preview deploy"),
+    ).run as string;
+    const examples = loop
+      .match(/for example in ([\w -]+); do/)?.[1]
+      ?.split(" ");
+    const previewable: string[] = [];
+    for (const entry of await readdir(new URL("examples/", root), {
+      withFileTypes: true,
+    })) {
+      if (!entry.isDirectory()) continue;
+      const config = parse(
+        await readFile(
+          new URL(`examples/${entry.name}/turbo-vibe.yaml`, root),
+          "utf8",
+        ),
+      );
+      if (config.previews) previewable.push(entry.name);
+    }
+    expect(examples?.sort()).toEqual(previewable.sort());
+    expect(loop).toMatch(
+      /\n\s+fi\n\s+turbo-vibe --config "\$config" preview remove --branch "\$BRANCH" \|\| removal=failed\n/,
+    );
+  });
+});

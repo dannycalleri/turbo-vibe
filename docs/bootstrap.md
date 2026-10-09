@@ -64,3 +64,10 @@ npx @turbo-vibe/cli@1 check --env production
 ```
 
 Run each with that environment's values in your shell, or as a workflow step in that GitHub environment. To check the GitHub side too, also set `GITHUB_TOKEN` (a token that can read the repository's environments) and `GITHUB_REPOSITORY` (`owner/name`). Fix each `FAIL` line using its `fix:` line, until both environments report `ready`. `check` changes nothing except one probe object it writes to the state bucket and deletes, to prove R2 enforces state locking.
+
+## The kit's own repository
+
+Only turbo-vibe's repository needs this. Its weekly `evidence` workflow deploys the examples as previews, smoke-tests them, removes them, and records the results in `COMPATIBILITY.md`.
+
+1. Create a GitHub environment named `evidence`, with the same secrets as `staging`. It needs no reviewers: it only creates and removes preview environments.
+2. Let the workflow push to `main`: it commits `COMPATIBILITY.md` when a run changes it. If `main` is protected, allow GitHub Actions to bypass the rule, or the commit is rejected and the run fails.

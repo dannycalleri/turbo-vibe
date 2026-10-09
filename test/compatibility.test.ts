@@ -101,6 +101,28 @@ describe("compatibility", () => {
     ).toBe(true);
   });
 
+  it("dates an example by when it passed, when that is not the run's date, and never moves a date back", () => {
+    const earlier = compatibility({
+      run: { date: "2026-10-19", examples: { "python-api": "passed" } },
+      examples,
+      pins,
+    });
+    const matrix = compatibility({
+      previous: earlier,
+      run: {
+        date: "2026-10-26",
+        examples: { "python-api": "passed", "vercel-static": "passed" },
+        passedOn: { "python-api": "2026-10-01", "vercel-static": "2026-10-24" },
+      },
+      examples,
+      pins,
+    });
+    expect(lastPasses(matrix)).toEqual({
+      "cloudflare-container": "2026-10-19",
+      "vercel-static": "2026-10-24",
+    });
+  });
+
   it("lists each adapter's pins and marks beta ones", () => {
     const matrix = compatibility({ examples, pins });
     expect(row(matrix, "cloudflare-container")).toBe(

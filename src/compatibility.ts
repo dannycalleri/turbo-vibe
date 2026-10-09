@@ -4,11 +4,14 @@ import { parse } from "yaml";
 import { z } from "zod";
 import { adapters } from "./adapters/index.js";
 
+const date = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "must be a date like 2026-10-12");
+
 export const runSchema = z.strictObject({
-  date: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "must be a date like 2026-10-12"),
+  date,
   examples: z.record(z.string(), z.enum(["passed", "failed"])),
+  passedOn: z.record(z.string(), date).optional(),
 });
 export type Run = z.infer<typeof runSchema>;
 
@@ -115,7 +118,10 @@ export function compatibility({
   const passes = lastPasses(previous);
   for (const [example, outcome] of Object.entries(run?.examples ?? {})) {
     if (outcome !== "passed" || !run) continue;
-    for (const target of examples[example] ?? []) passes[target] = run.date;
+    const passed = run.passedOn?.[example] ?? run.date;
+    for (const target of examples[example] ?? []) {
+      if (passed > (passes[target] ?? "")) passes[target] = passed;
+    }
   }
   const rows = Object.keys(adapters).map((target) => {
     const adapterTools = tools[target];
@@ -141,7 +147,7 @@ export function compatibility({
   return [
     "# Compatibility",
     "",
-    "Every week, and on demand, the kit's `evidence` workflow deploys each example under `examples/` to real vendor accounts, smoke-tests it, and removes it. This table is generated from those runs: for each adapter, the tool and provider versions this release pins, and the last date an example using it passed. Beta adapters are supported, with less live history than the others.",
+    "Every week, and on demand, the kit's `evidence` workflow deploys each example under `examples/` that can run as a preview to real vendor accounts, smoke-tests it, and removes it. The Go example's database is on Supabase's free plan, which cannot be branched, so it is dated by its latest staging build that passed. This table is generated from those runs: for each adapter, the tool and provider versions this release pins, and the last date an example using it passed. Beta adapters are supported, with less live history than the others.",
     "",
     "| Adapter | Stability | Pinned versions | Last live pass |",
     "|---|---|---|---|",

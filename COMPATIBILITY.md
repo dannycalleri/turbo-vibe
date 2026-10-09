@@ -1,6 +1,6 @@
 # Compatibility
 
-Every week, and on demand, the kit's `evidence` workflow deploys each example under `examples/` to real vendor accounts, smoke-tests it, and removes it. This table is generated from those runs: for each adapter, the tool and provider versions this release pins, and the last date an example using it passed. Beta adapters are supported, with less live history than the others.
+Every week, and on demand, the kit's `evidence` workflow deploys each example under `examples/` that can run as a preview to real vendor accounts, smoke-tests it, and removes it. The Go example's database is on Supabase's free plan, which cannot be branched, so it is dated by its latest staging build that passed. This table is generated from those runs: for each adapter, the tool and provider versions this release pins, and the last date an example using it passed. Beta adapters are supported, with less live history than the others.
 
 | Adapter | Stability | Pinned versions | Last live pass |
 |---|---|---|---|
