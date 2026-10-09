@@ -224,7 +224,7 @@ export const vercel: Check = async (context) => {
       ? warn(
           "vercel",
           "the team is on Hobby, which forbids commercial use",
-          "upgrade to Pro ($20 per user per month) for a commercial project",
+          "upgrade the team to Pro for a commercial project",
         )
       : ok("vercel", `the team is on the ${plan} plan`),
   ];

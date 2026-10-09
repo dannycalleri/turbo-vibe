@@ -1,11 +1,11 @@
 # Bootstrap checklist
 
-The one-time steps a machine cannot do for you. Do only the sections for the targets your `turbo-vibe.yaml` uses. Every cost is stated at the step that incurs it, before anything is created. When you are done, run `npx @turbo-vibe/cli@1 check --env staging`, then again with `--env production`. It names anything still missing.
+The one-time steps a machine cannot do for you. Do only the sections for the targets your `turbo-vibe.yaml` uses. Every paid plan is named at the step that needs it, before anything is created. When you are done, run `npx @turbo-vibe/cli@1 check --env staging`, then again with `--env production`. It names anything still missing.
 
 ## 1. GitHub
 
 1. Put the project in a GitHub repository.
-   - **Cost:** public repositories run Actions at no cost. Private ones spend minutes from the account's allowance; see the README's [Actions minutes per run](../README.md#actions-minutes-per-run).
+   - **Actions minutes:** public repositories run Actions at no cost. Private ones spend minutes from the account's allowance; see the README's [Actions minutes per run](../README.md#actions-minutes-per-run).
 2. In Settings → Environments, create `staging` and `production`.
 3. On `production`, add **required reviewers**. This is the approval that "Deploy to production" waits for.
    If the project uses previews, leave `staging`'s deployment branches unrestricted. Previews run in `staging` from pull request branches.
@@ -19,8 +19,7 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
 2. Add your domain as a zone (Websites → Add a site). If the domain is registered elsewhere, set the nameservers Cloudflare shows at your registrar. Registration can stay where it is. `check` reports a zone that is still pending.
 3. Choose hostnames **one level below the zone**: `staging-app.example.com`, not `staging.app.example.com`. Cloudflare's free Universal SSL certificate covers only the apex and first-level names. A deeper hostname needs Advanced Certificate Manager, a paid add-on.
 4. If the project has a `cloudflare-container` backend, subscribe to **Workers Paid**.
-   - **Cost:** $5 per month. It includes 25 GiB-hours of memory, 375 vCPU-minutes and 200 GB-hours of disk a month; beyond that, usage is billed per second.
-   - Containers are not available without it.
+   - Containers are not available without it. The plan includes an amount of container memory, CPU and disk each month, and bills usage beyond it; see Cloudflare's Containers pricing page.
    - Small instances that sleep when idle keep a staging API within the included amounts.
 5. Create an **API token** (My Profile → API Tokens → Create Custom Token) with:
    - Account → Workers Scripts: Edit, and Account → Containers: Edit (with a container backend);
@@ -28,7 +27,7 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
    - User → API Tokens: Read, so `check` can confirm the permissions above without changing anything;
    - Account → Billing: Read (with a container backend), so `check` can confirm Workers Paid.
 6. Create an **R2 bucket** for OpenTofu state and build records (R2 → Create bucket).
-   - **Cost:** R2's free tier covers the kit's state files and archives for most projects.
+   - R2's free tier covers the kit's state files and archives for most projects.
    - Then create an R2 API token with Object Read & Write on that bucket.
 7. Add the secrets to both environments:
    - `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`;
@@ -40,7 +39,7 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
 1. Create a Supabase organization. Put its slug in `turbo-vibe.yaml` as `organization`.
 2. Choose the plan.
    - **Free:** two active projects per organization, which is exactly staging and production for one app. A free project **pauses after a week without activity**, and `check` and `migrate` report it. Restore it from the dashboard.
-   - **Pro:** about $25 per month per organization. Needed for `staging: branch`, a persistent staging branch of the production project, and for preview environments; branch compute is billed per hour.
+   - **Pro** (or higher): needed for `staging: branch`, a persistent staging branch of the production project, and for preview environments; branch compute is billed per hour.
 3. Create a personal access token (Account → Access Tokens), and add it as `SUPABASE_ACCESS_TOKEN` to both environments.
 
 ## 4. WorkOS (projects with a `workos` identity service)
@@ -53,7 +52,7 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
 ## 5. Vercel (projects with a `vercel-static` or `vercel-nextjs` frontend)
 
 1. Create a Vercel account or team.
-   - **Cost:** Hobby is free but forbids commercial use; `check` warns about it. Pro is $20 per user per month.
+   - **Hobby** forbids commercial use, and `check` warns about it. A commercial project needs **Pro**.
 2. Create an access token (Account Settings → Tokens), scoped to the team. Copy the team ID (Team Settings → General).
 3. Add `VERCEL_API_TOKEN` and `VERCEL_TEAM_ID` to both environments.
 

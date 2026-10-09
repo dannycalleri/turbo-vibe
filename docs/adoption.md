@@ -117,9 +117,9 @@ A project with a database needs Supabase's paid plan for previews, because each 
 
 ## 4. Create the accounts, tokens, and GitHub environments
 
-Do this once per project. The [bootstrap checklist](bootstrap.md) walks through every step and its cost; this is the short version. The README's [Credentials](../README.md#credentials) table says which command reads each one. When you are done, `npx @turbo-vibe/cli@1 check --env staging` names anything still missing.
+Do this once per project. The [bootstrap checklist](bootstrap.md) walks through every step and the plan it needs; this is the short version. The README's [Credentials](../README.md#credentials) table says which command reads each one. When you are done, `npx @turbo-vibe/cli@1 check --env staging` names anything still missing.
 
-1. **Cloudflare:** the domain's zone on Cloudflare, and the Workers Paid plan ($5/month, required for Containers).
+1. **Cloudflare:** the domain's zone on Cloudflare, and the Workers Paid plan (required for Containers).
    - An API token with *Workers Scripts: Edit*, *Containers: Edit*, *Workers Routes: Edit* and *DNS: Edit* on the zone.
    - An R2 bucket for state and build records, plus an R2 API token with *Object Read & Write* on it.
 2. **GitHub → Settings → Environments:** create `staging` and `production`. On `production`, add required reviewers; that is the approval step. Give each environment these secrets, using that environment's values:

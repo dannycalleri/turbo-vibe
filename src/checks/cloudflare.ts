@@ -211,7 +211,7 @@ export const cloudflare: Check = async (context) => {
         warn(
           "cloudflare",
           "cannot read the account's subscriptions to confirm the Workers Paid plan",
-          "add Account → Billing → Read to the token so check can confirm Workers Paid ($5/month), which Containers need",
+          "add Account → Billing → Read to the token so check can confirm Workers Paid, which Containers need",
         ),
       );
     } else {
@@ -224,7 +224,7 @@ export const cloudflare: Check = async (context) => {
           : fail(
               "cloudflare",
               "the account is not on Workers Paid, and Cloudflare Containers need it",
-              "subscribe to Workers Paid ($5/month) in Workers & Pages → Plans",
+              "subscribe to Workers Paid in Workers & Pages → Plans",
             ),
       );
     }

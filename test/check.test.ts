@@ -365,7 +365,7 @@ describe("against recorded fakes", () => {
     expect(await cloudflare(context(container, cloudflareEnv))).toContainEqual(
       expect.objectContaining({
         severity: "fail",
-        fix: "subscribe to Workers Paid ($5/month) in Workers & Pages → Plans",
+        fix: "subscribe to Workers Paid in Workers & Pages → Plans",
       }),
     );
   });
@@ -617,7 +617,7 @@ describe("against recorded fakes", () => {
         warn(
           "vercel",
           "the team is on Hobby, which forbids commercial use",
-          "upgrade to Pro ($20 per user per month) for a commercial project",
+          "upgrade the team to Pro for a commercial project",
         ),
       ]);
     });
