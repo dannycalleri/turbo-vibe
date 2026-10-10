@@ -30,6 +30,11 @@ interface Policy {
 
 const zoneScoped = new Set(["DNS Write", "Workers Routes Write"]);
 
+// The dashboard's "Containers" permission keeps its old API name.
+const groupNames: Record<string, string[]> = {
+  "Containers Write": ["Containers Write", "Cloudchamber Write"],
+};
+
 export function covers(
   resources: Record<string, unknown>,
   permission: string,
@@ -61,8 +66,8 @@ export function granted(
 ): boolean {
   const matching = policies.filter(
     (policy) =>
-      (policy.permission_groups ?? []).some(
-        (group) => group.name === permission,
+      (policy.permission_groups ?? []).some((group) =>
+        (groupNames[permission] ?? [permission]).includes(group.name),
       ) && covers(policy.resources ?? {}, permission, ids),
   );
   return (
@@ -106,19 +111,31 @@ export const cloudflare: Check = async (context) => {
   }
   if (findings.length > 0) return findings;
 
-  const verified = await get<{ id: string; status: string }>(
+  let tokens = "/user/tokens";
+  let verified = await get<{ id: string; status: string }>(
     context,
-    "/user/tokens/verify",
+    `${tokens}/verify`,
   );
+  if (
+    verified.body?.result?.status !== "active" &&
+    io.env.CLOUDFLARE_ACCOUNT_ID
+  ) {
+    tokens = `/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}/tokens`;
+    verified = await get(context, `${tokens}/verify`);
+  }
   if (verified.body?.result?.status !== "active") {
     return [
       fail(
         "cloudflare",
         "CLOUDFLARE_API_TOKEN is not a valid, active API token",
-        "create a token in Cloudflare → My Profile → API Tokens and set it as CLOUDFLARE_API_TOKEN",
+        "create a token in Cloudflare → Manage Account → Account API Tokens and set it as CLOUDFLARE_API_TOKEN",
       ),
     ];
   }
+  const accountOwned = tokens !== "/user/tokens";
+  const tokenPage = accountOwned
+    ? "Manage Account → Account API Tokens"
+    : "My Profile → API Tokens";
   findings.push(ok("cloudflare", "CLOUDFLARE_API_TOKEN is active"));
 
   const zone = await get<{
@@ -162,14 +179,16 @@ export const cloudflare: Check = async (context) => {
 
   const token = await get<{ policies?: Policy[] }>(
     context,
-    `/user/tokens/${verified.body.result.id}`,
+    `${tokens}/${verified.body.result.id}`,
   );
   if (!token.body?.result?.policies) {
     findings.push(
       fail(
         "cloudflare",
         "CLOUDFLARE_API_TOKEN cannot read its own permissions, so check cannot confirm them",
-        "add the User → API Tokens → Read permission to the token",
+        accountOwned
+          ? "add the Account → Account API Tokens → Read permission to the token"
+          : "add the User → API Tokens → Read permission to the token",
       ),
     );
   } else {
@@ -188,7 +207,7 @@ export const cloudflare: Check = async (context) => {
           : fail(
               "cloudflare",
               `CLOUDFLARE_API_TOKEN lacks ${permission}${zoneScoped.has(permission) ? ` on ${zoneName ?? config.domain}` : ""}`,
-              `edit the token in Cloudflare → My Profile → API Tokens and add ${permission}${zoneScoped.has(permission) ? ` for zone ${zoneName ?? config.domain}` : " for this account"}`,
+              `edit the token in Cloudflare → ${tokenPage} and add ${permission}${zoneScoped.has(permission) ? ` for zone ${zoneName ?? config.domain}` : " for this account"}`,
             ),
       );
     }
