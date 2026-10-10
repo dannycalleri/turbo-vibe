@@ -1,5 +1,7 @@
+# yaml-language-server: $schema=https://unpkg.com/@turbo-vibe/cli@1/schema/turbo-vibe.schema.json
 version: 1
 project: tv-vercel
+previews: true
 domain: vercel-example.turbovibe.ai
 environments:
   staging:

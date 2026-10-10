@@ -41,18 +41,15 @@ export function requiredSecrets(config: Config): string[] {
   return [...names].sort();
 }
 
-export function composeInfrastructure(
+export function contributions(
   config: Config,
   environment: EnvironmentName,
   managedRedirectUris: Readonly<Record<string, string[]>> = {},
-): Infrastructure {
+): [string, Infrastructure][] {
   const hosts = layout(config, environment);
-  let cloudflare: CloudflareInputs | undefined;
-  let supabase: Record<string, SupabaseInputs> | undefined;
-  let workos: Record<string, WorkosInputs> | undefined;
-  let vercel: VercelInputs | undefined;
-  for (const [name, service] of Object.entries(config.services)) {
-    const contribution = adapterFor(service.target).plan({
+  return Object.entries(config.services).map(([name, service]) => [
+    name,
+    adapterFor(service.target).plan({
       config,
       name,
       service,
@@ -62,7 +59,24 @@ export function composeInfrastructure(
       ...(managedRedirectUris[name]
         ? { managedRedirectUris: managedRedirectUris[name] }
         : {}),
-    });
+    }),
+  ]);
+}
+
+export function composeInfrastructure(
+  config: Config,
+  environment: EnvironmentName,
+  managedRedirectUris: Readonly<Record<string, string[]>> = {},
+): Infrastructure {
+  let cloudflare: CloudflareInputs | undefined;
+  let supabase: Record<string, SupabaseInputs> | undefined;
+  let workos: Record<string, WorkosInputs> | undefined;
+  let vercel: VercelInputs | undefined;
+  for (const [, contribution] of contributions(
+    config,
+    environment,
+    managedRedirectUris,
+  )) {
     if (contribution.cloudflare) {
       cloudflare ??= { workers: {}, hostnames: [] };
       Object.assign(cloudflare.workers, contribution.cloudflare.workers);
@@ -152,17 +166,17 @@ export function rootModule(
     };
   }
   for (const [name, inputs] of Object.entries(infrastructure.supabase ?? {})) {
-    const { branch_of_production, ...variables } = inputs;
+    const { branch_of, ...variables } = inputs;
     const module = `supabase_${name}`;
     root.module[module] = { source: supabaseModule, ...variables };
-    if (branch_of_production) {
+    if (branch_of) {
       root.data = {
         terraform_remote_state: {
-          production: { backend: "s3", config: backend("production") },
+          [branch_of]: { backend: "s3", config: backend(branch_of) },
         },
       };
       root.module[module].parent_project_ref =
-        `\${data.terraform_remote_state.production.outputs.${module}_project_ref}`;
+        `\${data.terraform_remote_state.${branch_of}.outputs.${module}_project_ref}`;
     } else {
       root.output = {
         ...root.output,

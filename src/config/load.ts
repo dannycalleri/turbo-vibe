@@ -167,6 +167,51 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
     }
   }
 
+  for (const [name, service] of Object.entries(config.services)) {
+    const target = catalog[service.target];
+    if (service.kind !== "frontend" || !target) continue;
+    const field = (key: string) => `\`services.${name}.build.${key}\``;
+    if (!target.buildsOwnOutput && !service.build.output) {
+      problems.push({
+        path: ["services", name, "build"],
+        message: `missing required field ${field("output")} for target ${service.target}`,
+      });
+    }
+    if (!target.buildsOwnOutput && service.build.root) {
+      problems.push({
+        path: ["services", name, "build", "root"],
+        message: `${field("root")} applies only to targets that build their own output, not ${service.target}`,
+      });
+    }
+    if (target.buildsOwnOutput && service.build.output) {
+      problems.push({
+        path: ["services", name, "build", "output"],
+        message: `${field("output")} does not apply to ${service.target}, which builds its own output`,
+      });
+    }
+  }
+
+  for (const [name, service] of Object.entries(config.services)) {
+    const container =
+      service.kind === "backend" ? service.container : undefined;
+    if (container?.instance_from && (container.max_instances ?? 0) < 2) {
+      problems.push({
+        path: ["services", name, "container"],
+        message: `service \`${name}\` routes requests by ${container.instance_from}, so it needs max_instances of 2 or more: sessions and the default instance share them`,
+      });
+    }
+    if (
+      container?.max_instances &&
+      container.max_instances > 1 &&
+      !container.instance_from
+    ) {
+      problems.push({
+        path: ["services", name, "container", "max_instances"],
+        message: `service \`${name}\` allows ${container.max_instances} instances but sets no instance_from, so every request still goes to one instance`,
+      });
+    }
+  }
+
   for (const kind of ["database", "identity"] as const) {
     const services = Object.entries(config.services).filter(
       ([, service]) => service.kind === kind,

@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://unpkg.com/@turbo-vibe/cli@1/schema/turbo-vibe.schema.json
+version: 1
+project: tv-python
+previews: true
+domain: python-example.turbovibe.ai
+environments:
+  staging: { hostname: staging-python-example.turbovibe.ai }
+services:
+  api:
+    kind: backend
+    target: cloudflare-container
+    build:
+      dockerfile: Dockerfile
+      test: docker run --rm -v "$PWD":/src -w /src python:3.13-slim python -m unittest -v
+    container:
+      instance_from: query:session
+      max_instances: 3

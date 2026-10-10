@@ -46,6 +46,14 @@ const backend = z.strictObject({
           "must be a duration such as 30s, 5m, or 1h",
         )
         .optional(),
+      max_instances: z.number().int().min(1).optional(),
+      instance_from: z
+        .string()
+        .regex(
+          /^(query|header):[A-Za-z0-9_-]+$/,
+          "must be query:<parameter> or header:<name>",
+        )
+        .optional(),
     })
     .optional(),
 });
@@ -56,7 +64,8 @@ const frontend = z.strictObject({
   serve_with: name.optional(),
   build: z.strictObject({
     command: z.string().min(1),
-    output: z.string().min(1),
+    output: z.string().min(1).optional(),
+    root: z.string().min(1).optional(),
     test: z.string().min(1).optional(),
   }),
 });
@@ -92,12 +101,21 @@ export const serviceKinds = [
 export type ServiceKind = (typeof serviceKinds)[number];
 
 export const environmentNames = ["staging", "production"] as const;
-export type EnvironmentName = (typeof environmentNames)[number];
+export type StableEnvironment = (typeof environmentNames)[number];
+export type PreviewEnvironment = `preview-${string}`;
+export type EnvironmentName = StableEnvironment | PreviewEnvironment;
+
+export function isPreview(
+  environment: EnvironmentName,
+): environment is PreviewEnvironment {
+  return environment.startsWith("preview-");
+}
 
 export const configSchema = z.strictObject({
   version: z.literal(1),
   project: name,
   domain: hostname,
+  previews: z.boolean().optional(),
   environments: z
     .strictObject({
       staging: environment.optional(),

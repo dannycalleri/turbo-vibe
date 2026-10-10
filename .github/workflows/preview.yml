@@ -1,0 +1,183 @@
+name: turbo-vibe preview
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: Path to the project's turbo-vibe.yaml.
+        type: string
+        default: turbo-vibe.yaml
+      use-local-cli:
+        description: Build the CLI from the checked-out repository instead of npm. Only the kit itself sets this.
+        type: boolean
+        default: false
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+      CLOUDFLARE_ZONE_ID:
+        required: false
+      TURBO_VIBE_STATE_BUCKET:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      SUPABASE_ACCESS_TOKEN:
+        required: false
+      WORKOS_API_KEY:
+        required: false
+      WORKOS_CLIENT_ID:
+        required: false
+      VERCEL_API_TOKEN:
+        required: false
+      VERCEL_TEAM_ID:
+        required: false
+
+env:
+  TURBO_VIBE_CLI: "@turbo-vibe/cli@1.0.0"
+  NODE_VERSION: "24"
+  TOFU_VERSION: "1.13.1"
+  CONFIG: ${{ inputs.config }}
+  BUILD_ID: ${{ github.event.pull_request.head.sha }}
+  BRANCH: ${{ github.head_ref }}
+
+permissions:
+  contents: read
+
+jobs:
+  fork:
+    name: No preview for a fork
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "::notice title=No preview::Previews are only created for pull requests from branches of this repository; a fork's run receives no secrets."
+
+  deploy:
+    name: Deploy the preview
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: turbo-vibe-preview-${{ inputs.config }}-${{ github.head_ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      TURBO_VIBE_STATE_BUCKET: ${{ secrets.TURBO_VIBE_STATE_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
+      WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+      VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: inputs.use-local-cli
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ inputs.use-local-cli && 'pnpm' || '' }}
+      - name: Install the turbo-vibe CLI
+        env:
+          USE_LOCAL_CLI: ${{ inputs.use-local-cli }}
+        run: |
+          bin="$RUNNER_TEMP/turbo-vibe-bin"
+          mkdir -p "$bin"
+          if [ "$USE_LOCAL_CLI" = "true" ]; then
+            pnpm install --frozen-lockfile
+            pnpm build
+            printf '#!/bin/sh\nexec node "%s/dist/cli.js" "$@"\n' "$GITHUB_WORKSPACE" > "$bin/turbo-vibe"
+          else
+            printf '#!/bin/sh\nexec npx --yes "%s" "$@"\n' "$TURBO_VIBE_CLI" > "$bin/turbo-vibe"
+          fi
+          chmod +x "$bin/turbo-vibe"
+          echo "$bin" >> "$GITHUB_PATH"
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - name: Deploy the preview
+        run: |
+          set -o pipefail
+          turbo-vibe --config "$CONFIG" preview deploy --branch "$BRANCH" --build-id "$BUILD_ID" | tee "$RUNNER_TEMP/preview.txt"
+      - name: Show the preview on the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          comment="$RUNNER_TEMP/comment.md"
+          marker="<!-- turbo-vibe-preview:$CONFIG -->"
+          {
+            echo "$marker"
+            echo "**turbo-vibe preview** for \`$CONFIG\` at $BUILD_ID"
+            echo
+            grep -E '^(preview|no preview):' "$RUNNER_TEMP/preview.txt"
+          } > "$comment"
+          existing=$(MARKER="$marker" gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.body | startswith(env.MARKER)) | .id' | head -n 1)
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F "body=@$comment" > /dev/null
+          else
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$comment"
+          fi
+
+  remove:
+    name: Remove the preview
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: turbo-vibe-preview-${{ inputs.config }}-${{ github.head_ref }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      TURBO_VIBE_STATE_BUCKET: ${{ secrets.TURBO_VIBE_STATE_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
+      WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+      VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: inputs.use-local-cli
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ inputs.use-local-cli && 'pnpm' || '' }}
+      - name: Install the turbo-vibe CLI
+        env:
+          USE_LOCAL_CLI: ${{ inputs.use-local-cli }}
+        run: |
+          bin="$RUNNER_TEMP/turbo-vibe-bin"
+          mkdir -p "$bin"
+          if [ "$USE_LOCAL_CLI" = "true" ]; then
+            pnpm install --frozen-lockfile
+            pnpm build
+            printf '#!/bin/sh\nexec node "%s/dist/cli.js" "$@"\n' "$GITHUB_WORKSPACE" > "$bin/turbo-vibe"
+          else
+            printf '#!/bin/sh\nexec npx --yes "%s" "$@"\n' "$TURBO_VIBE_CLI" > "$bin/turbo-vibe"
+          fi
+          chmod +x "$bin/turbo-vibe"
+          echo "$bin" >> "$GITHUB_PATH"
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - run: turbo-vibe --config "$CONFIG" preview remove --branch "$BRANCH"

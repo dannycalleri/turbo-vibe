@@ -11,6 +11,14 @@ on:
         description: Build the CLI from the checked-out repository instead of npm. Only the kit itself sets this.
         type: boolean
         default: false
+      allow-deletions:
+        description: Let apply delete or replace resources. Off by default, so an unintended deletion stops the run.
+        type: boolean
+        default: false
+      confirm-build:
+        description: The ID of the build to promote. The run stops if it is not the latest staging build that passed.
+        type: string
+        required: true
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: false
@@ -92,8 +100,15 @@ jobs:
       - name: Choose the latest staging build that passed
         id: choose
         run: |
-          build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose)
+          build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose --confirm "$CONFIRM_BUILD")
           echo "build-id=$build_id" >> "$GITHUB_OUTPUT"
+        env:
+          CONFIRM_BUILD: ${{ inputs.confirm-build }}
+      - name: Name the build to confirm
+        if: failure() && steps.choose.outcome == 'failure'
+        run: |
+          build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose) || exit 0
+          echo "The build ready to promote is \`$build_id\`. Run **Deploy to production** again with confirm-build set to \`$build_id\`." >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.choose.outputs.build-id }}
@@ -105,7 +120,9 @@ jobs:
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           tofu_wrapper: false
-      - run: turbo-vibe --config "$CONFIG" apply --env production
+      - run: turbo-vibe --config "$CONFIG" apply --env production ${ALLOW_DELETIONS:+--allow-deletions}
+        env:
+          ALLOW_DELETIONS: ${{ inputs.allow-deletions && 'yes' || '' }}
       - run: turbo-vibe --config "$CONFIG" migrate --env production
       - run: turbo-vibe --config "$CONFIG" promote --env production --build-id "$BUILD_ID"
         env:

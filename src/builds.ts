@@ -97,6 +97,26 @@ export class BuildStore {
       : new Uint8Array(await response.arrayBuffer());
   }
 
+  async putIfAbsent(key: string, body: string): Promise<number> {
+    const response = await this.io.fetch(
+      await this.client.sign(this.url(key).toString(), {
+        method: "PUT",
+        body,
+        headers: { "if-none-match": "*" },
+      }),
+    );
+    return response.status;
+  }
+
+  async remove(key: string): Promise<void> {
+    await this.send(
+      this.url(key),
+      { method: "DELETE" },
+      `delete ${key}`,
+      [404],
+    );
+  }
+
   private recordKey(buildId: string): string {
     return `${this.project}/builds/${buildId}.json`;
   }

@@ -14,6 +14,15 @@ test:
 build:
 	pnpm exec tsup
 
+.PHONY: compatibility
+compatibility: build
+	node dist/cli.js compatibility
+
+.PHONY: schema
+schema: build
+	mkdir -p schema
+	node dist/cli.js schema > schema/turbo-vibe.schema.json
+
 TOFU_IMAGE := ghcr.io/opentofu/opentofu:1.13.1
 
 .PHONY: validate-infra
@@ -40,7 +49,7 @@ lint-workflows:
 	else docker run --rm -v "$(CURDIR)":/repo -w /repo $(ACTIONLINT_IMAGE) -no-color; fi
 
 dry-run-example: build
-	@for config in examples/go-api/turbo-vibe.yaml examples/vercel-static/turbo-vibe.yaml; do \
+	@for config in examples/go-api/turbo-vibe.yaml examples/vercel-static/turbo-vibe.yaml examples/python-api/turbo-vibe.yaml; do \
 		tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/turbo-vibe-dry-run.XXXXXX"); \
 		(cd "$$tmp" && node $(CURDIR)/dist/cli.js --config $(CURDIR)/$$config deploy --env staging --build-id dry-run --dry-run) || exit 1; \
 		rm -rf "$$tmp"; \

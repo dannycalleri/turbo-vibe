@@ -1,6 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { apply } from "../src/apply.js";
+import { parseConfig } from "../src/config/load.js";
 import type { Runner } from "../src/run.js";
 import { project, run } from "./harness.js";
 
@@ -99,13 +102,139 @@ describe("turbo-vibe apply", () => {
     expect(code).toBe(0);
     expect(runner.mock.calls).toEqual([
       ["tofu", ["init", "-input=false"], { cwd: dir, env }],
-      ["tofu", ["apply", "-input=false", "-auto-approve"], { cwd: dir, env }],
+      [
+        "tofu",
+        ["apply", "-input=false", join(dir, "tfplan")],
+        { cwd: dir, env },
+      ],
     ]);
     const root = await readFile(join(dir, "main.tf.json"), "utf8");
     expect(JSON.parse(root).terraform.backend.s3.key).toBe(
       "acme/staging/terraform.tfstate",
     );
     expect(root + stdout + stderr).not.toMatch(/s3cr3t/);
+  });
+
+  it("plans against deployed state with --env, prints the summary, and removes the plan file", async () => {
+    const runner = vi.fn(async () => 0);
+    const capture = vi.fn(async (_command: string, args: readonly string[]) => {
+      const out = args.find((arg) => arg.startsWith("-out="));
+      if (out) await writeFile(out.slice("-out=".length), "plan");
+      const show = {
+        resource_changes: [
+          {
+            address:
+              'module.cloudflare.cloudflare_worker.this["acme-api-staging"]',
+            change: { actions: ["create"] },
+          },
+        ],
+      };
+      return {
+        code: 0,
+        stdout: args[0] === "show" ? JSON.stringify(show) : "",
+      };
+    });
+    const { code, stdout, cwd } = await run(
+      ["plan", "--env", "staging"],
+      files,
+      env,
+      runner,
+      undefined,
+      { capture },
+    );
+    const dir = join(cwd, ".turbo-vibe", "tofu", "staging");
+    expect(code).toBe(0);
+    expect(runner.mock.calls).toEqual([
+      ["tofu", ["init", "-input=false"], { cwd: dir, env }],
+    ]);
+    expect(capture.mock.calls.map(([, args]) => args)).toEqual([
+      ["plan", "-input=false", "-json", `-out=${join(dir, "tfplan")}`],
+      ["show", "-json", join(dir, "tfplan")],
+    ]);
+    expect(stdout).toBe(
+      'staging: 1 to create, 0 to change, 0 to replace, 0 to delete\n\napi\n  + module.cloudflare.cloudflare_worker.this["acme-api-staging"]\n',
+    );
+    await expect(stat(join(dir, "tfplan"))).rejects.toThrow();
+  });
+
+  const planning = (...changes: [string, string[]][]) =>
+    vi.fn(async (_command: string, args: readonly string[]) => ({
+      code: 0,
+      stdout:
+        args[0] === "show"
+          ? JSON.stringify({
+              resource_changes: changes.map(([address, actions]) => ({
+                address,
+                change: { actions },
+              })),
+            })
+          : "",
+    }));
+  const worker = 'module.cloudflare.cloudflare_worker.this["acme-old-staging"]';
+
+  it("refuses a plan that deletes or replaces, naming each resource, and applies nothing", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code, stdout, stderr } = await run(
+      ["apply", "--env", "staging"],
+      files,
+      env,
+      runner,
+      undefined,
+      {
+        capture: planning(
+          [worker, ["delete"]],
+          ["module.supabase_db.supabase_project.this[0]", ["delete", "create"]],
+          [
+            'module.cloudflare.cloudflare_worker.this["acme-api-staging"]',
+            ["create"],
+          ],
+        ),
+      },
+    );
+    expect(code).toBe(1);
+    expect(stdout).toContain("Deletions and replacements:");
+    expect(stderr).toBe(
+      `refusing to apply staging: it would delete or replace 2 resource(s):\n  delete ${worker}\n  replace module.supabase_db.supabase_project.this[0]\nif that is intended, run apply again with --allow-deletions (the workflows' allow-deletions input)\n`,
+    );
+    expect(runner.mock.calls.map(([, args]) => args[0])).toEqual(["init"]);
+  });
+
+  it("applies the plan it showed when deletions are allowed", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code, cwd } = await run(
+      ["apply", "--env", "staging", "--allow-deletions"],
+      files,
+      env,
+      runner,
+      undefined,
+      { capture: planning([worker, ["delete"]]) },
+    );
+    expect(code).toBe(0);
+    expect(runner.mock.calls.at(-1)?.[1]).toEqual([
+      "apply",
+      "-input=false",
+      join(cwd, ".turbo-vibe", "tofu", "staging", "tfplan"),
+    ]);
+  });
+
+  it("never refuses a preview's deletions", async () => {
+    const result = parseConfig(files["turbo-vibe.yaml"]);
+    if (!result.ok) throw new Error("invalid fixture");
+    const cwd = await mkdtemp(join(tmpdir(), "turbo-vibe-"));
+    const runner = vi.fn<Runner>(async () => 0);
+    const code = await apply(result.config, "preview-login", {
+      cwd,
+      env,
+      run: runner,
+      capture: planning([worker, ["delete"]]),
+      fetch: vi.fn(),
+      sleep: async () => {},
+      sql: () => ({ execute: async () => {}, end: async () => {} }),
+      stdout: () => {},
+      stderr: () => {},
+    });
+    expect(code).toBe(0);
+    expect(runner.mock.calls.at(-1)?.[1]?.[0]).toBe("apply");
   });
 
   it("stops when tofu init fails", async () => {

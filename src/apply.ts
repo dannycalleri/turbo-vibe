@@ -1,6 +1,18 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Config, EnvironmentName } from "./config/schema.js";
+import {
+  type Change,
+  diagnostics,
+  formatChanges,
+  owners,
+  summarize,
+  type TofuPlan,
+} from "./changes.js";
+import {
+  type Config,
+  type EnvironmentName,
+  isPreview,
+} from "./config/schema.js";
 import { discoverRedirectUris } from "./identity.js";
 import { requiredSecrets, rootModule } from "./infrastructure.js";
 import type { Io } from "./io.js";
@@ -40,14 +52,14 @@ async function initRoot(
   return { dir, code };
 }
 
-export async function apply(
+async function prepare(
   config: Config,
   environment: EnvironmentName,
   io: Io,
-): Promise<number> {
-  if (missingVariables(requiredSecrets(config), io)) return 1;
+): Promise<{ dir: string } | { code: number }> {
+  if (missingVariables(requiredSecrets(config), io)) return { code: 1 };
   const { dir, code } = await initRoot(config, environment, io);
-  if (code !== 0) return code;
+  if (code !== 0) return { code };
   if (
     Object.values(config.services).some(
       (service) => service.kind === "identity",
@@ -56,18 +68,127 @@ export async function apply(
     const outputs = await currentOutputs(dir, io);
     if (!outputs) {
       io.stderr(`cannot read the current ${environment} outputs\n`);
-      return 1;
+      return { code: 1 };
     }
     let managed: Record<string, string[]>;
     try {
       managed = await discoverRedirectUris(config, environment, outputs, io);
     } catch (error) {
       io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
-      return 1;
+      return { code: 1 };
     }
     await writeRoot(config, environment, io, managed);
   }
-  return io.run("tofu", ["apply", "-input=false", "-auto-approve"], {
+  return { dir };
+}
+
+async function planChanges(
+  config: Config,
+  environment: EnvironmentName,
+  io: Io,
+  dir: string,
+  planFile: string,
+): Promise<Change[] | number> {
+  const planned = await io.capture(
+    "tofu",
+    ["plan", "-input=false", "-json", `-out=${planFile}`],
+    { cwd: dir, env: io.env },
+  );
+  for (const message of diagnostics(planned.stdout)) {
+    io.stderr(`${message}\n`);
+  }
+  if (planned.code !== 0) return planned.code;
+  const shown = await io.capture("tofu", ["show", "-json", planFile], {
+    cwd: dir,
+    env: io.env,
+  });
+  if (shown.code !== 0) return shown.code;
+  return summarize(
+    JSON.parse(shown.stdout) as TofuPlan,
+    owners(config, environment),
+  );
+}
+
+export async function plan(
+  config: Config,
+  environment: EnvironmentName,
+  io: Io,
+): Promise<number> {
+  const prepared = await prepare(config, environment, io);
+  if ("code" in prepared) return prepared.code;
+  const planFile = join(prepared.dir, "tfplan");
+  try {
+    const changes = await planChanges(
+      config,
+      environment,
+      io,
+      prepared.dir,
+      planFile,
+    );
+    if (typeof changes === "number") return changes;
+    io.stdout(`${formatChanges(environment, changes)}\n`);
+    return 0;
+  } finally {
+    await rm(planFile, { force: true });
+  }
+}
+
+export async function apply(
+  config: Config,
+  environment: EnvironmentName,
+  io: Io,
+  { allowDeletions = false }: { allowDeletions?: boolean } = {},
+): Promise<number> {
+  const prepared = await prepare(config, environment, io);
+  if ("code" in prepared) return prepared.code;
+  const planFile = join(prepared.dir, "tfplan");
+  try {
+    const changes = await planChanges(
+      config,
+      environment,
+      io,
+      prepared.dir,
+      planFile,
+    );
+    if (typeof changes === "number") return changes;
+    io.stdout(`${formatChanges(environment, changes)}\n`);
+    const destructive = changes.filter(
+      (change) => change.action === "delete" || change.action === "replace",
+    );
+    if (destructive.length > 0 && !isPreview(environment) && !allowDeletions) {
+      io.stderr(
+        `refusing to apply ${environment}: it would delete or replace ${destructive.length} resource(s):\n${destructive
+          .map((change) => `  ${change.action} ${change.address}\n`)
+          .join(
+            "",
+          )}if that is intended, run apply again with --allow-deletions (the workflows' allow-deletions input)\n`,
+      );
+      return 1;
+    }
+    return io.run("tofu", ["apply", "-input=false", planFile], {
+      cwd: prepared.dir,
+      env: io.env,
+    });
+  } finally {
+    await rm(planFile, { force: true });
+  }
+}
+
+export async function destroy(
+  config: Config,
+  environment: EnvironmentName,
+  io: Io,
+): Promise<number> {
+  if (!isPreview(environment)) {
+    io.stderr(
+      `refusing to destroy ${environment}: only previews are ever removed\n`,
+    );
+    return 1;
+  }
+  if (missingVariables(requiredSecrets(config), io)) return 1;
+  const { dir, code } = await initRoot(config, environment, io);
+  if (code !== 0) return code;
+  return io.run("tofu", ["destroy", "-input=false", "-auto-approve"], {
     cwd: dir,
     env: io.env,
   });

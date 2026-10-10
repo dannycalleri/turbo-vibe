@@ -1,10 +1,26 @@
 import { adapters } from "./adapters/index.js";
-import type { Config, EnvironmentName, Service } from "./config/schema.js";
+import {
+  type Config,
+  type EnvironmentName,
+  isPreview,
+  type Service,
+} from "./config/schema.js";
+
+function sibling(prefix: string, hostname: string): string {
+  const [first, ...rest] = hostname.split(".");
+  return `${prefix}-${first}.${rest.join(".")}`;
+}
 
 export function hostnameFor(
   config: Config,
   environment: EnvironmentName,
 ): string {
+  if (isPreview(environment)) {
+    return sibling(
+      environment.slice("preview-".length),
+      hostnameFor(config, "staging"),
+    );
+  }
   const configured = config.environments?.[environment]?.hostname;
   if (configured) return configured;
   return environment === "production"
@@ -24,8 +40,12 @@ export function layout(config: Config, environment: EnvironmentName): Layout {
   const crossOrigin =
     services.some((service) => service.kind === "backend") &&
     services.some((service) => adapters[service.target]?.crossOrigin === true);
+  const configured = isPreview(environment)
+    ? undefined
+    : config.environments?.[environment]?.api_hostname;
   const backendHostname = crossOrigin
-    ? (config.environments?.[environment]?.api_hostname ?? `api.${hostname}`)
+    ? (configured ??
+      (isPreview(environment) ? sibling("api", hostname) : `api.${hostname}`))
     : hostname;
   return { hostname, backendHostname, crossOrigin };
 }

@@ -33,6 +33,10 @@ export interface DeployContext extends ServiceContext {
   io: Io;
 }
 
+export interface RemoveContext extends ServiceContext {
+  io: Io;
+}
+
 export interface DeployResult {
   code: number;
   outputs?: Outputs;
@@ -61,7 +65,7 @@ export interface SupabaseInputs {
   organization_id: string;
   name: string;
   region: string;
-  branch_of_production: boolean;
+  branch_of?: "staging" | "production";
 }
 
 export interface WorkosInputs {
@@ -80,10 +84,13 @@ export interface Adapter {
   kind: ServiceKind;
   hostsStaticAssets: boolean;
   readsOutputs?: boolean;
+  buildsOwnOutput?: boolean;
   crossOrigin?: boolean;
+  stability?: "beta";
   secrets: readonly string[];
   outputs: readonly string[];
   plan(context: ServiceContext): Infrastructure;
   deploy?(context: DeployContext): Promise<DeployResult>;
   smoke?(context: SmokeContext): Promise<SmokeResult>;
+  remove?(context: RemoveContext): Promise<number>;
 }

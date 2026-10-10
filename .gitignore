@@ -1,9 +1,3 @@
-# Specs live in the private OpenSpec store `turbo-vibe`
-openspec/
-.claude/skills/openspec-*/
-.claude/commands/opsx/
-CLAUDE.local.md
-
 # Node
 node_modules/
 dist/

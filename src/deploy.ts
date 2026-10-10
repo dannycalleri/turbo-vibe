@@ -135,7 +135,7 @@ function withoutCredentials(
   );
 }
 
-function deploySecrets(config: Config): string[] {
+export function deploySecrets(config: Config): string[] {
   const names = new Set<string>([
     ...stateSecrets,
     ...(hasIdentity(config) ? identitySecrets : []),
@@ -230,7 +230,10 @@ export async function deploy(
   if (!infra) return 1;
   const secrets = dryRun ? {} : runtimeSecrets(config, environment, infra, io);
   if (!secrets) return 1;
-  const store = dryRun ? undefined : new BuildStore(io, config.project);
+  const store =
+    dryRun || environment !== "staging"
+      ? undefined
+      : new BuildStore(io, config.project);
   const outputs = await deployServices(
     project,
     environment,
@@ -250,7 +253,11 @@ export async function deploy(
 export async function promote(
   project: Project,
   environment: EnvironmentName,
-  { buildId, choose }: { buildId?: string; choose?: boolean },
+  {
+    buildId,
+    choose,
+    confirm,
+  }: { buildId?: string; choose?: boolean; confirm?: string },
   io: Io,
 ): Promise<number> {
   const { config } = project;
@@ -276,6 +283,12 @@ export async function promote(
   if (chosen.smoke !== "passed") {
     io.stderr(
       `build ${chosen.buildId} has not passed its smoke test (${chosen.smoke}); production is unchanged\n`,
+    );
+    return 1;
+  }
+  if (confirm !== undefined && confirm.trim() !== chosen.buildId) {
+    io.stderr(
+      `the build to promote is ${chosen.buildId}, not ${JSON.stringify(confirm)}; production is unchanged. Confirm with ${chosen.buildId} to promote it\n`,
     );
     return 1;
   }

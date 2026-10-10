@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { productionWorkflow, stagingWorkflow } from "../src/init.js";
 
 const root = new URL("../", import.meta.url);
 
@@ -20,10 +21,10 @@ describe("the reusable workflow", () => {
     );
   });
 
-  it("deploys only on pushes to main, one run per environment at a time", async () => {
+  it("deploys only from main, on a push or a manual run, one run per environment at a time", async () => {
     const { staging } = (await workflow("deploy.yml")).jobs;
     expect(staging.if).toBe(
-      "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+      "github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')",
     );
     expect(staging.environment).toBe("staging");
     expect(staging.concurrency["cancel-in-progress"]).toBe(false);
@@ -65,13 +66,13 @@ describe("the production workflow", () => {
 
   it("migrates and deploys the build it chose, from that build's commit, without building anything", async () => {
     const { steps } = (await workflow("promote.yml")).jobs.production;
-    expect(commands(steps)).toEqual([
-      "promote",
-      "apply",
-      "migrate",
-      "promote",
-      "smoke",
-    ]);
+    expect(
+      commands(
+        steps.filter(
+          (step: { if?: string }) => !step.if?.includes("failure()"),
+        ),
+      ),
+    ).toEqual(["promote", "apply", "migrate", "promote", "smoke"]);
     const checkout = steps.findIndex(
       (step: { with?: { ref?: string } }) => step.with?.ref,
     );
@@ -140,7 +141,7 @@ describe("the release workflow", () => {
 });
 
 describe("secrets", () => {
-  it("lets both reusable workflows receive every credential an adapter or the state bucket reads", async () => {
+  it("lets every reusable workflow job that deploys receive every credential an adapter or the state bucket reads", async () => {
     const { adapters } = await import("../src/adapters/index.js");
     const { stateSecrets } = await import("../src/infrastructure.js");
     const names = new Set([
@@ -150,6 +151,8 @@ describe("secrets", () => {
     for (const [file, job] of [
       ["deploy.yml", "staging"],
       ["promote.yml", "production"],
+      ["preview.yml", "deploy"],
+      ["preview.yml", "remove"],
     ] as const) {
       const definition = await workflow(file);
       for (const name of names) {
@@ -165,6 +168,74 @@ describe("secrets", () => {
   });
 });
 
+describe("the preview workflow", () => {
+  const sameRepository =
+    "github.event.pull_request.head.repo.full_name == github.repository";
+
+  it("gives a fork's pull request no preview, says why, and touches no secret", async () => {
+    const { fork } = (await workflow("preview.yml")).jobs;
+    expect(fork.if).toBe(
+      "github.event.pull_request.head.repo.full_name != github.repository",
+    );
+    expect(fork.steps[0].run).toContain(
+      "Previews are only created for pull requests from branches of this repository",
+    );
+    expect(JSON.stringify(fork)).not.toContain("${{ secrets.");
+    expect(fork).not.toHaveProperty("environment");
+  });
+
+  it("deploys a branch's preview while the pull request is open, and removes it when it closes", async () => {
+    const { deploy, remove } = (await workflow("preview.yml")).jobs;
+    expect(deploy.if).toBe(
+      `${sameRepository} && github.event.action != 'closed'`,
+    );
+    expect(remove.if).toBe(
+      `${sameRepository} && github.event.action == 'closed'`,
+    );
+    const runs = (job: { steps: { run?: string }[] }) =>
+      job.steps.map((step) => step.run ?? "").join("\n");
+    expect(runs(deploy)).toContain(
+      'preview deploy --branch "$BRANCH" --build-id "$BUILD_ID"',
+    );
+    expect(runs(deploy)).toContain(
+      'marker="<!-- turbo-vibe-preview:$CONFIG -->"',
+    );
+    expect(runs(deploy)).toContain("select(.body | startswith(env.MARKER))");
+    expect(runs(deploy)).toContain("grep -E '^(preview|no preview):'");
+    expect(runs(deploy)).not.toContain("--edit-last");
+    expect(deploy.concurrency["cancel-in-progress"]).toBe(false);
+    expect(runs(remove)).toContain('preview remove --branch "$BRANCH"');
+    expect(deploy.permissions).toEqual({
+      contents: "read",
+      "pull-requests": "write",
+    });
+  });
+
+  it("runs the same CLI release as the other reusable workflows", async () => {
+    expect((await workflow("preview.yml")).env.TURBO_VIBE_CLI).toBe(
+      (await workflow("deploy.yml")).env.TURBO_VIBE_CLI,
+    );
+  });
+
+  it("is called by the kit for the examples without a database, on every pull request event that matters", async () => {
+    const previews = await workflow("previews.yml");
+    expect(previews.on.pull_request.types).toEqual([
+      "opened",
+      "synchronize",
+      "reopened",
+      "closed",
+    ]);
+    expect(
+      Object.values(previews.jobs).map(
+        (job) => (job as { with: { config: string } }).with.config,
+      ),
+    ).toEqual([
+      "examples/python-api/turbo-vibe.yaml",
+      "examples/vercel-static/turbo-vibe.yaml",
+    ]);
+  });
+});
+
 describe("workflows", () => {
   it("never run pull-request code with secrets through pull_request_target", async () => {
     const dir = new URL(".github/workflows/", root);
@@ -173,5 +244,133 @@ describe("workflows", () => {
         "pull_request_target",
       );
     }
+  });
+});
+
+describe("allow-deletions", () => {
+  const passThrough = "${{ inputs.allow-deletions == true }}";
+
+  it.each([
+    ["deploy.yml", "staging"],
+    ["promote.yml", "production"],
+  ])(
+    "%s takes it, off by default, and hands it to apply",
+    async (name, job) => {
+      const reusable = await workflow(name);
+      expect(reusable.on.workflow_call.inputs["allow-deletions"]).toEqual({
+        description: expect.any(String),
+        type: "boolean",
+        default: false,
+      });
+      const step = reusable.jobs[job].steps.find(
+        (candidate: { run?: string }) =>
+          candidate.run?.includes(" apply --env "),
+      );
+      expect(step.run).toMatch(/ \$\{ALLOW_DELETIONS:\+--allow-deletions\}$/);
+      expect(step.env.ALLOW_DELETIONS).toBe(
+        "${{ inputs.allow-deletions && 'yes' || '' }}",
+      );
+    },
+  );
+
+  it.each([
+    ["init's staging caller", async () => parse(stagingWorkflow)],
+    ["init's production caller", async () => parse(productionWorkflow)],
+    ["the kit's pipeline", () => workflow("pipeline.yml")],
+    ["the kit's production workflow", () => workflow("production.yml")],
+  ])("%s asks for it on a manual run and passes it on", async (_, load) => {
+    const caller = await load();
+    expect(caller.on.workflow_dispatch.inputs["allow-deletions"]).toMatchObject(
+      {
+        type: "boolean",
+        default: false,
+      },
+    );
+    const jobs = Object.values(caller.jobs) as {
+      uses?: string;
+      with?: Record<string, unknown>;
+    }[];
+    const callers = jobs.filter((job) =>
+      /(deploy|promote)\.yml/.test(job.uses ?? ""),
+    );
+    expect(callers.length).toBeGreaterThan(0);
+    for (const job of callers) {
+      expect(job.with?.["allow-deletions"]).toBe(passThrough);
+    }
+  });
+});
+
+describe("confirm-build", () => {
+  it("is required, and the choice refuses any other build", async () => {
+    const promote = await workflow("promote.yml");
+    expect(promote.on.workflow_call.inputs["confirm-build"]).toMatchObject({
+      type: "string",
+      required: true,
+    });
+    const { steps } = promote.jobs.production;
+    const choose = steps.find((step: { id?: string }) => step.id === "choose");
+    expect(choose.run).toContain(
+      'promote --env production --choose --confirm "$CONFIRM_BUILD"',
+    );
+    expect(choose.env.CONFIRM_BUILD).toBe("${{ inputs.confirm-build }}");
+    const named = steps.find((step: { run?: string }) =>
+      step.run?.includes("GITHUB_STEP_SUMMARY"),
+    );
+    expect(named.if).toBe("failure() && steps.choose.outcome == 'failure'");
+  });
+
+  it.each([
+    ["init's production caller", async () => parse(productionWorkflow)],
+    ["the kit's production workflow", () => workflow("production.yml")],
+  ])("%s asks for it and passes it on", async (_, load) => {
+    const caller = await load();
+    expect(caller.on.workflow_dispatch.inputs["confirm-build"]).toMatchObject({
+      type: "string",
+      required: true,
+    });
+    for (const job of Object.values(caller.jobs) as {
+      with?: Record<string, unknown>;
+    }[]) {
+      expect(job.with?.["confirm-build"]).toBe("${{ inputs.confirm-build }}");
+    }
+  });
+});
+
+describe("the evidence workflow", () => {
+  it("runs weekly and on demand, from main only, in its own environment", async () => {
+    const evidence = await workflow("evidence.yml");
+    expect(evidence.on.schedule).toEqual([{ cron: "0 6 * * 1" }]);
+    expect(evidence.on).toHaveProperty("workflow_dispatch");
+    const job = evidence.jobs.evidence;
+    expect(job.if).toBe("github.ref == 'refs/heads/main'");
+    expect(job.environment).toBe("evidence");
+    expect(evidence.env.BRANCH).toMatch(/^evidence-/);
+  });
+
+  it("removes every preview it deploys, whatever the deploy's outcome", async () => {
+    const { steps } = (await workflow("evidence.yml")).jobs.evidence;
+    const loop = steps.find((step: { run?: string }) =>
+      step.run?.includes("preview deploy"),
+    ).run as string;
+    const examples = loop
+      .match(/for example in ([\w -]+); do/)?.[1]
+      ?.split(" ");
+    const previewable: string[] = [];
+    for (const entry of await readdir(new URL("examples/", root), {
+      withFileTypes: true,
+    })) {
+      if (!entry.isDirectory()) continue;
+      const config = parse(
+        await readFile(
+          new URL(`examples/${entry.name}/turbo-vibe.yaml`, root),
+          "utf8",
+        ),
+      );
+      if (config.previews) previewable.push(entry.name);
+    }
+    expect(examples?.sort()).toEqual(previewable.sort());
+    expect(loop).toMatch(
+      /\n\s+fi\n\s+turbo-vibe --config "\$config" preview remove --branch "\$BRANCH" \|\| removal=failed\n/,
+    );
   });
 });

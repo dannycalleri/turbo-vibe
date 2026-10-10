@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://unpkg.com/@turbo-vibe/cli@1/schema/turbo-vibe.schema.json
+version: 1
+project: tv-next
+domain: next-example.turbovibe.ai
+previews: true
+environments:
+  staging: { hostname: staging-next-example.turbovibe.ai }
+services:
+  web:
+    kind: frontend
+    target: vercel-nextjs
+    build:
+      command: npm ci

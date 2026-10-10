@@ -1,6 +1,11 @@
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TargetCatalog } from "../src/adapters/index.js";
+import { schemaUrl } from "../src/config/json-schema.js";
 import { parseConfig } from "../src/config/load.js";
+import { major } from "../src/version.js";
+import { run } from "./harness.js";
 
 const valid = `version: 1
 project: acme
@@ -158,6 +163,42 @@ describe("parseConfig", () => {
     ]);
   });
 
+  it("needs a static frontend's output directory, but not a Next.js app's", () => {
+    const frontend = (target: string) =>
+      `version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  web:\n    kind: frontend\n    target: ${target}\n    build: { command: "npm ci" }\n`;
+    expect(problems(frontend("vercel-static"))).toEqual([
+      {
+        line: 8,
+        message:
+          "missing required field `services.web.build.output` for target vercel-static",
+      },
+    ]);
+    expect(parseConfig(frontend("vercel-nextjs")).ok).toBe(true);
+  });
+
+  it("rejects build settings a target would ignore", () => {
+    const frontend = (target: string, build: string) =>
+      `version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  web:\n    kind: frontend\n    target: ${target}\n    build:\n      command: npm ci\n${build}`;
+    expect(
+      problems(
+        frontend("vercel-static", "      output: dist\n      root: web\n"),
+      ),
+    ).toEqual([
+      {
+        line: 11,
+        message:
+          "`services.web.build.root` applies only to targets that build their own output, not vercel-static",
+      },
+    ]);
+    expect(problems(frontend("vercel-nextjs", "      output: out\n"))).toEqual([
+      {
+        line: 10,
+        message:
+          "`services.web.build.output` does not apply to vercel-nextjs, which builds its own output",
+      },
+    ]);
+  });
+
   it("allows at most one identity service", () => {
     const identity = (name: string) =>
       `  ${name}:\n    kind: identity\n    target: workos\n`;
@@ -208,6 +249,32 @@ describe("parseConfig", () => {
     expect(parseConfig(`${valid + db}    plan: paid\n`).ok).toBe(true);
   });
 
+  it("refuses an instance rule it cannot route by, and extra instances nothing routes to", () => {
+    const withContainer = (container: string) =>
+      valid.replace(
+        '    build: { dockerfile: Dockerfile, test: "make check" }\n',
+        `    build: { dockerfile: Dockerfile, test: "make check" }\n    container: ${container}\n`,
+      );
+    expect(
+      parseConfig(
+        withContainer("{ instance_from: query:session, max_instances: 5 }"),
+      ).ok,
+    ).toBe(true);
+    expect(
+      problems(withContainer("{ instance_from: cookie:session }"))[0]?.message,
+    ).toBe(
+      "`services.api.container.instance_from` must be query:<parameter> or header:<name>",
+    );
+    expect(
+      problems(withContainer("{ instance_from: query:session }"))[0]?.message,
+    ).toBe(
+      "service `api` routes requests by query:session, so it needs max_instances of 2 or more: sessions and the default instance share them",
+    );
+    expect(problems(withContainer("{ max_instances: 5 }"))[0]?.message).toBe(
+      "service `api` allows 5 instances but sets no instance_from, so every request still goes to one instance",
+    );
+  });
+
   it("names the service, the target, and the available targets for an unknown target", () => {
     expect(
       problems(valid.replace("target: cloudflare-container", "target: heroku")),
@@ -215,7 +282,7 @@ describe("parseConfig", () => {
       {
         line: 7,
         message:
-          "service `api` names unknown target `heroku`; available targets: cloudflare-container, cloudflare-static, supabase, workos, vercel-static",
+          "service `api` names unknown target `heroku`; available targets: cloudflare-container, cloudflare-static, supabase, workos, vercel-static, vercel-nextjs",
       },
     ]);
   });
@@ -277,5 +344,36 @@ describe("parseConfig", () => {
     expect(problems("- just\n- a list\n")).toEqual([
       { line: 1, message: "the file must be a YAML mapping" },
     ]);
+  });
+});
+
+describe("published JSON Schema", () => {
+  it("is what every example config points at", async () => {
+    const examples = join(import.meta.dirname, "../examples");
+    const entries = await readdir(examples, { withFileTypes: true });
+    for (const example of entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)) {
+      const config = await readFile(
+        join(examples, example, "turbo-vibe.yaml"),
+        "utf8",
+      );
+      expect(config.split("\n")[0], example).toBe(
+        `# yaml-language-server: $schema=${schemaUrl(major)}`,
+      );
+    }
+  });
+
+  it("matches what the CLI generates; run `make schema` after changing the config schema", async () => {
+    const { code, stdout } = await run(["schema"]);
+    expect(code).toBe(0);
+    const committed = await readFile(
+      join(import.meta.dirname, "../schema/turbo-vibe.schema.json"),
+      "utf8",
+    );
+    expect(
+      committed,
+      "schema/turbo-vibe.schema.json is stale: run `make schema`",
+    ).toBe(stdout);
   });
 });
