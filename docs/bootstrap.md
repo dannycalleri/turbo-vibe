@@ -46,7 +46,7 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
 
 1. Create a WorkOS workspace. It has a staging and a production environment.
 2. To use the production environment, a team admin adds **billing** in the WorkOS dashboard. Production unlocks after that.
-3. From each environment's API Keys page, copy the API key and the client ID. The production key is shown **only once**.
+3. From each environment's API Keys page, copy the API key. The production key is shown **only once**. For the client ID, click the application named in the key's row; the application's page shows it.
 4. Add `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` with the **staging** environment's values to `staging`, and the **production** values to `production`. `check` refuses a production key on staging.
 
 ## 5. Vercel (projects with a `vercel-static` or `vercel-nextjs` frontend)
