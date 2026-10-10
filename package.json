@@ -1,0 +1,60 @@
+{
+  "name": "@turbo-vibe/cli",
+  "version": "1.0.0",
+  "description": "Deploy any project from one config file.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dannycalleri/turbo-vibe.git"
+  },
+  "homepage": "https://github.com/dannycalleri/turbo-vibe#readme",
+  "type": "module",
+  "bin": {
+    "turbo-vibe": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "infra/**/*.tf"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "check": "make check",
+    "validate:infra": "make validate-infra"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "0.3.7",
+    "aws4fetch": "1.0.20",
+    "commander": "15.0.0",
+    "postgres": "3.4.9",
+    "supabase": "2.120.0",
+    "vercel": "63.1.0",
+    "wrangler": "4.148.0",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "26.6.4",
+    "msw": "3.0.2",
+    "tsup": "8.5.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
+    "ignoredBuiltDependencies": [
+      "workerd"
+    ]
+  },
+  "packageManager": "pnpm@10.26.2"
+}

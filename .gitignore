@@ -13,6 +13,8 @@ coverage/
 .wrangler/
 .vercel/
 .terraform/
+.terraform.lock.hcl
+.turbo-vibe/
 *.tfstate
 *.tfstate.*
 
@@ -22,3 +24,4 @@ coverage/
 !.env.example
 
 .DS_Store
+

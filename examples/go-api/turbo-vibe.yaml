@@ -1,0 +1,31 @@
+version: 1
+project: tv-example
+domain: example.turbovibe.ai
+environments:
+  staging: { hostname: staging-example.turbovibe.ai }
+services:
+  api:
+    kind: backend
+    target: cloudflare-container
+    build:
+      dockerfile: Dockerfile
+      test: docker run --rm -v "$PWD":/src -w /src golang:1.27 go test ./...
+    container:
+      instance_type: lite
+      sleep_after: 5m
+  web:
+    kind: frontend
+    target: cloudflare-static
+    serve_with: api
+    build:
+      command: web/build.sh
+      output: web/dist
+  db:
+    kind: database
+    target: supabase
+    organization: your-supabase-org-slug
+    region: eu-central-1
+    plan: free
+  auth:
+    kind: identity
+    target: workos

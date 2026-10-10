@@ -1,0 +1,22 @@
+version: 1
+project: tv-vercel
+domain: vercel-example.turbovibe.ai
+environments:
+  staging:
+    hostname: staging-vercel-example.turbovibe.ai
+    api_hostname: api-staging-vercel-example.turbovibe.ai
+  production:
+    api_hostname: api-vercel-example.turbovibe.ai
+services:
+  api:
+    kind: backend
+    target: cloudflare-container
+    build:
+      dockerfile: ../go-api/Dockerfile
+      test: docker run --rm -v "$PWD/../go-api":/src -w /src golang:1.27 go test ./...
+  web:
+    kind: frontend
+    target: vercel-static
+    build:
+      command: web/build.sh
+      output: web/dist

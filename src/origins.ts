@@ -1,0 +1,93 @@
+import { adapters } from "./adapters/index.js";
+import type { Config, EnvironmentName, Service } from "./config/schema.js";
+
+export function hostnameFor(
+  config: Config,
+  environment: EnvironmentName,
+): string {
+  const configured = config.environments?.[environment]?.hostname;
+  if (configured) return configured;
+  return environment === "production"
+    ? config.domain
+    : `${environment}.${config.domain}`;
+}
+
+export interface Layout {
+  hostname: string;
+  backendHostname: string;
+  crossOrigin: boolean;
+}
+
+export function layout(config: Config, environment: EnvironmentName): Layout {
+  const hostname = hostnameFor(config, environment);
+  const services = Object.values(config.services);
+  const crossOrigin =
+    services.some((service) => service.kind === "backend") &&
+    services.some((service) => adapters[service.target]?.crossOrigin === true);
+  const backendHostname = crossOrigin
+    ? (config.environments?.[environment]?.api_hostname ?? `api.${hostname}`)
+    : hostname;
+  return { hostname, backendHostname, crossOrigin };
+}
+
+export function hostOf(layout: Layout, service: Service): string {
+  return service.kind === "backend" ? layout.backendHostname : layout.hostname;
+}
+
+export interface OriginSettings {
+  allowedOrigins: string[];
+  frontendUrl: string;
+  cookieDomain?: string;
+}
+
+export function originSettings(
+  config: Config,
+  environment: EnvironmentName,
+): OriginSettings | undefined {
+  const { hostname, backendHostname, crossOrigin } = layout(
+    config,
+    environment,
+  );
+  if (!crossOrigin) return undefined;
+  const frontendUrl = `https://${hostname}`;
+  const cookieDomain = sharedDomain(hostname, backendHostname);
+  return {
+    allowedOrigins: [frontendUrl],
+    frontendUrl,
+    ...(cookieDomain ? { cookieDomain } : {}),
+  };
+}
+
+export function parentDomain(hostname: string): string {
+  return hostname.slice(hostname.indexOf(".") + 1);
+}
+
+function sharedDomain(a: string, b: string): string | undefined {
+  const left = a.split(".").reverse();
+  const right = b.split(".").reverse();
+  const shared: string[] = [];
+  while (
+    shared.length < left.length &&
+    left[shared.length] === right[shared.length]
+  ) {
+    shared.push(left[shared.length] as string);
+  }
+  return shared.length >= 2 ? shared.reverse().join(".") : undefined;
+}
+
+export function apiUrl(config: Config, environment: EnvironmentName): string {
+  const { backendHostname, crossOrigin } = layout(config, environment);
+  return crossOrigin ? `https://${backendHostname}` : "";
+}
+
+export function callbackUrl(
+  config: Config,
+  environment: EnvironmentName,
+): string | undefined {
+  const identity = Object.values(config.services).find(
+    (service) => service.kind === "identity",
+  );
+  if (identity?.kind !== "identity") return undefined;
+  const { backendHostname } = layout(config, environment);
+  return `https://${backendHostname}${identity.callback_path}`;
+}
