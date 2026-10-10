@@ -130,13 +130,9 @@ describe("parseConfig", () => {
     ]);
   });
 
-  it("requires a database's Supabase organization and region", () => {
+  it("requires a database's Supabase region", () => {
     const source = `${valid}  db:\n    kind: database\n    target: supabase\n`;
     expect(problems(source)).toEqual([
-      {
-        line: 14,
-        message: "missing required field `services.db.organization`",
-      },
       { line: 14, message: "missing required field `services.db.region`" },
     ]);
   });

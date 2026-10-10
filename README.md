@@ -201,6 +201,7 @@ A `workos` identity service registers each environment's callback as a WorkOS re
 | `TURBO_VIBE_STATE_BUCKET` | an R2 bucket for OpenTofu state, created once by hand |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | an R2 API token with Object Read & Write on that bucket |
 | `SUPABASE_ACCESS_TOKEN` | a Supabase personal access token, for projects with a `supabase` database (`apply` and `migrate`) |
+| `SUPABASE_ORGANIZATION` | the Supabase organization's slug, when the database leaves `organization` out of `turbo-vibe.yaml` (`apply`) |
 | `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` | the WorkOS environment's API key and client ID; set the staging ones on the `staging` GitHub environment and the production ones on `production` (`apply` and `deploy`) |
 | `VERCEL_API_TOKEN`, `VERCEL_TEAM_ID` | a Vercel access token and the team (or personal account) ID, for `vercel-static` frontends (`apply` and `deploy`) |
 

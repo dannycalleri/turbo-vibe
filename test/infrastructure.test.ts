@@ -141,6 +141,25 @@ describe("databases", () => {
       "SUPABASE_ACCESS_TOKEN",
     );
   });
+
+  it("takes the organization from SUPABASE_ORGANIZATION when the file leaves it out", () => {
+    const withoutOrganization = config(
+      api + db().replace("    organization: acme-org\n", ""),
+    );
+    expect(requiredSecrets(withoutOrganization)).toContain(
+      "SUPABASE_ORGANIZATION",
+    );
+    expect(requiredSecrets(config(api + db()))).not.toContain(
+      "SUPABASE_ORGANIZATION",
+    );
+    const env = { SUPABASE_ORGANIZATION: "from-env" };
+    expect(
+      rootModule(withoutOrganization, "staging", env).module.supabase_db,
+    ).toMatchObject({ organization_id: "from-env" });
+    expect(
+      rootModule(config(api + db()), "staging", env).module.supabase_db,
+    ).toMatchObject({ organization_id: "acme-org" });
+  });
 });
 
 describe("identity", () => {

@@ -32,10 +32,20 @@ export const supabase: Check = async (context) => {
       ),
     ];
   }
+  const slug = service.organization ?? io.env.SUPABASE_ORGANIZATION;
+  if (!slug) {
+    return [
+      missing(
+        "supabase",
+        "SUPABASE_ORGANIZATION",
+        "set `organization` in turbo-vibe.yaml, or SUPABASE_ORGANIZATION, to the slug in Supabase → Organization Settings",
+      ),
+    ];
+  }
   const api = "https://api.supabase.com/v1";
   const organization = await getJson<{ plan?: string }>(
     context,
-    `${api}/organizations/${service.organization}`,
+    `${api}/organizations/${slug}`,
     token,
   );
   if (organization.status === 401) {
@@ -51,8 +61,8 @@ export const supabase: Check = async (context) => {
     return [
       fail(
         "supabase",
-        `SUPABASE_ACCESS_TOKEN cannot see organization ${service.organization}`,
-        `check \`organization\` is the slug in Organization Settings, and that the token's user is a member of it`,
+        `SUPABASE_ACCESS_TOKEN cannot see organization ${slug}`,
+        `check the slug (\`organization\` or SUPABASE_ORGANIZATION) matches Organization Settings, and that the token's user is a member of it`,
       ),
     ];
   }
@@ -63,16 +73,13 @@ export const supabase: Check = async (context) => {
     findings.push(
       fail(
         "supabase",
-        `organization ${service.organization} is on the free plan, but the config says plan: paid${service.staging === "branch" ? " and staging: branch" : ""}`,
+        `organization ${slug} is on the free plan, but the config says plan: paid${service.staging === "branch" ? " and staging: branch" : ""}`,
         "upgrade the organization to Pro, or set plan: free and staging: project",
       ),
     );
   } else {
     findings.push(
-      ok(
-        "supabase",
-        `organization ${service.organization} is on the ${plan} plan`,
-      ),
+      ok("supabase", `organization ${slug} is on the ${plan} plan`),
     );
   }
 
@@ -90,7 +97,7 @@ export const supabase: Check = async (context) => {
     return findings;
   }
   const inOrganization = projects.body.filter(
-    (project) => project.organization_id === service.organization,
+    (project) => project.organization_id === slug,
   );
   const own = inOrganization.find(
     (project) => project.name === `${config.project}-${name}-${environment}`,
@@ -117,7 +124,7 @@ export const supabase: Check = async (context) => {
     findings.push(
       fail(
         "supabase",
-        `organization ${service.organization} already has ${active.length} active projects, and the free plan allows two`,
+        `organization ${slug} already has ${active.length} active projects, and the free plan allows two`,
         "pause or delete a project you no longer need, or upgrade to Pro",
       ),
     );

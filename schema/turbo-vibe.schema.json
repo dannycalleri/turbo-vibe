@@ -228,7 +228,6 @@
             "required": [
               "kind",
               "target",
-              "organization",
               "region"
             ],
             "additionalProperties": false

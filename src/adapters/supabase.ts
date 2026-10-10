@@ -20,7 +20,9 @@ export const supabase: Adapter = {
     return {
       supabase: {
         [name]: {
-          organization_id: service.organization,
+          ...(service.organization
+            ? { organization_id: service.organization }
+            : {}),
           name: `${config.project}-${name}-${environment}`,
           region: service.region,
           ...(branchOf ? { branch_of: branchOf } : {}),

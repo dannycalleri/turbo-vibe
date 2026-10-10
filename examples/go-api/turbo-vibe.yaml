@@ -24,7 +24,6 @@ services:
   db:
     kind: database
     target: supabase
-    organization: your-supabase-org-slug
     region: eu-central-1
     plan: free
   auth:

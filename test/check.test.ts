@@ -480,6 +480,29 @@ describe("against recorded fakes", () => {
       );
     }
 
+    it("reads the organization from SUPABASE_ORGANIZATION when the file leaves it out, and names it when both are missing", async () => {
+      supabaseApi("free", [{ name: "acme-db-staging", status: "INACTIVE" }]);
+      const withoutOrganization = db.replace("    organization: acme\n", "");
+      expect(
+        await supabase(
+          context(withoutOrganization, {
+            ...token,
+            SUPABASE_ORGANIZATION: "acme",
+          }),
+        ),
+      ).toContainEqual(
+        expect.objectContaining({
+          message: "project acme-db-staging is paused",
+        }),
+      );
+      expect(await supabase(context(withoutOrganization, token))).toEqual([
+        expect.objectContaining({
+          severity: "fail",
+          message: "SUPABASE_ORGANIZATION is not set",
+        }),
+      ]);
+    });
+
     it("reports a paused project as paused, with how to restore it", async () => {
       supabaseApi("free", [{ name: "acme-db-staging", status: "INACTIVE" }]);
       expect(await supabase(context(db, token))).toContainEqual(

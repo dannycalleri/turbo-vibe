@@ -62,7 +62,7 @@ export interface VercelInputs {
 }
 
 export interface SupabaseInputs {
-  organization_id: string;
+  organization_id?: string;
   name: string;
   region: string;
   branch_of?: "staging" | "production";

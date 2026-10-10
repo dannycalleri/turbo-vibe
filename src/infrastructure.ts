@@ -37,6 +37,8 @@ export function requiredSecrets(config: Config): string[] {
   const names = new Set<string>(stateSecrets);
   for (const service of Object.values(config.services)) {
     for (const name of adapterFor(service.target).secrets) names.add(name);
+    if (service.kind === "database" && !service.organization)
+      names.add("SUPABASE_ORGANIZATION");
   }
   return [...names].sort();
 }
@@ -168,7 +170,11 @@ export function rootModule(
   for (const [name, inputs] of Object.entries(infrastructure.supabase ?? {})) {
     const { branch_of, ...variables } = inputs;
     const module = `supabase_${name}`;
-    root.module[module] = { source: supabaseModule, ...variables };
+    root.module[module] = {
+      source: supabaseModule,
+      organization_id: env.SUPABASE_ORGANIZATION,
+      ...variables,
+    };
     if (branch_of) {
       root.data = {
         terraform_remote_state: {
