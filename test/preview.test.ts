@@ -50,6 +50,17 @@ describe("previewEnvironment", () => {
     expect(environment).toMatch(/-[0-9a-f]{6}$/);
     expect(previewEnvironment(`${long}x`, staging)).not.toBe(environment);
   });
+
+  it("keeps the API's whole hostname within the 64 characters a certificate allows", () => {
+    const deep = "staging-vercel-example.turbovibe.ai";
+    const environment = previewEnvironment(
+      "supabase-organization-from-env",
+      deep,
+    );
+    const hostname = `api-${environment.slice("preview-".length)}-${deep}`;
+    expect(hostname.length).toBeLessThanOrEqual(64);
+    expect(environment).toMatch(/^preview-supabase-[a-z0-9-]*[0-9a-f]{6}$/);
+  });
 });
 
 function config(source: string): Config {
