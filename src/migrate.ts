@@ -110,10 +110,20 @@ export async function migrate(
       );
       return 1;
     }
-    const response = await io.fetch(
-      `https://api.supabase.com/v1/projects/${connection.project_ref}`,
-      { headers: { authorization: `Bearer ${io.env.SUPABASE_ACCESS_TOKEN}` } },
-    );
+    let response: Response;
+    try {
+      response = await io.fetch(
+        `https://api.supabase.com/v1/projects/${connection.project_ref}`,
+        {
+          headers: { authorization: `Bearer ${io.env.SUPABASE_ACCESS_TOKEN}` },
+        },
+      );
+    } catch (error) {
+      io.stderr(
+        `cannot reach the Supabase API (${error instanceof Error ? error.message : String(error)}); nothing was migrated, rerun\n`,
+      );
+      return 1;
+    }
     const status = response.ok
       ? ((await response.json()) as { status?: string }).status
       : `HTTP ${response.status}`;

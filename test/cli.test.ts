@@ -445,6 +445,26 @@ services:
     expect(stdout + stderr).not.toMatch(/pgpw|migpw|runpw|s3cr3t/);
   });
 
+  it("reports an unreachable Supabase API in one line and touches nothing", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { sessions, sql } = sqlRecorder();
+    const { code, stderr } = await run(
+      ["migrate", "--env", "staging"],
+      { "turbo-vibe.yaml": withDb },
+      env,
+      runner,
+      vi.fn<typeof fetch>(async () => {
+        throw new TypeError("fetch failed");
+      }),
+      { capture: async () => ({ code: 0, stdout: outputs }), sql },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "cannot reach the Supabase API (fetch failed); nothing was migrated, rerun\n",
+    );
+    expect(sessions).toHaveLength(0);
+  });
+
   it("reports a paused project as paused and touches nothing", async () => {
     const runner = vi.fn<Runner>(async () => 0);
     const { sessions, sql } = sqlRecorder();
