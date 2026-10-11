@@ -11,12 +11,18 @@ on:
         description: Let apply delete or replace resources
         type: boolean
         default: false
+      example:
+        description: The example to promote, or all of them
+        type: choice
+        options: [all, example, vercel-example, nextjs-example, python-example]
+        default: all
 
 permissions:
   contents: read
 
 jobs:
   example:
+    if: inputs.example == 'all' || inputs.example == 'example'
     uses: ./.github/workflows/promote.yml
     with:
       config: examples/go-api/turbo-vibe.yaml
@@ -26,6 +32,7 @@ jobs:
     secrets: inherit
 
   vercel-example:
+    if: inputs.example == 'all' || inputs.example == 'vercel-example'
     uses: ./.github/workflows/promote.yml
     with:
       config: examples/vercel-static/turbo-vibe.yaml
@@ -35,6 +42,7 @@ jobs:
     secrets: inherit
 
   nextjs-example:
+    if: inputs.example == 'all' || inputs.example == 'nextjs-example'
     uses: ./.github/workflows/promote.yml
     with:
       config: examples/nextjs/turbo-vibe.yaml
@@ -44,6 +52,7 @@ jobs:
     secrets: inherit
 
   python-example:
+    if: inputs.example == 'all' || inputs.example == 'python-example'
     uses: ./.github/workflows/promote.yml
     with:
       config: examples/python-api/turbo-vibe.yaml
