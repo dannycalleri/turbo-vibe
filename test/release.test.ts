@@ -1059,7 +1059,12 @@ services:
     );
     expect(install?.slice(0, 2)).toEqual(["sh", ["-c", "npm ci"]]);
     expect(install?.[2].cwd).toBe(root);
-    expect(build?.[1].slice(1)).toEqual(["build", "--prod", "--yes"]);
+    expect(build?.[1].slice(1)).toEqual([
+      "build",
+      "--prod",
+      "--yes",
+      "--standalone",
+    ]);
     expect(build?.[2]).toMatchObject({
       cwd: root,
       env: { BUILD_ID: "abc123", VERCEL_TELEMETRY_DISABLED: "1" },

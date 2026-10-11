@@ -68,6 +68,12 @@ describe("the Next.js example", () => {
       "functions",
     );
     expect(await readlink(join(shipped, "index.rsc.func"))).toBe("index.func");
+    const function_ = join(shipped, "index.func");
+    const vcConfig = JSON.parse(
+      await readFile(join(function_, ".vc-config.json"), "utf8"),
+    );
+    expect(Object.keys(vcConfig.filePathMap ?? {})).toEqual([]);
+    await access(join(function_, "node_modules", "client-only", "index.js"));
     await expect(
       access(join(dirname(example), ".vercel", "project.json")),
     ).rejects.toThrow();
