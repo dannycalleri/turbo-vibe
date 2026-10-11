@@ -26,6 +26,8 @@ on:
         required: false
       SUPABASE_ACCESS_TOKEN:
         required: false
+      SUPABASE_ORGANIZATION:
+        required: false
       WORKOS_API_KEY:
         required: false
       WORKOS_CLIENT_ID:

@@ -148,7 +148,7 @@ Do this once per project. The [bootstrap checklist](bootstrap.md) walks through 
 2. **GitHub → Settings → Environments:** create `staging` and `production`. On `production`, add required reviewers if your GitHub plan offers them; that is the approval step, on top of the typed build-ID confirmation every promotion asks for. Give each environment these secrets, using that environment's values:
    - `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`
    - `TURBO_VIBE_STATE_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (the R2 token)
-   - with a database: `SUPABASE_ACCESS_TOKEN`
+   - with a database: `SUPABASE_ACCESS_TOKEN`, and `SUPABASE_ORGANIZATION` unless `turbo-vibe.yaml` sets `organization`
    - with sign-in: `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` (the staging environment's keys on `staging`, the production keys on `production`)
    - with a `vercel-static` frontend: `VERCEL_API_TOKEN`, `VERCEL_TEAM_ID`
 
