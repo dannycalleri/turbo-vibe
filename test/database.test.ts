@@ -139,6 +139,13 @@ describe("scramVerifier", () => {
       `SCRAM-SHA-256$4096:${salt.toString("base64")}$${storedKey}:${serverKey}`,
     );
   });
+
+  it("gives a password the same verifier on every run, so re-running migrate never changes what Supabase's pooler cached", () => {
+    expect(scramVerifier("secret")).toBe(scramVerifier("secret"));
+    expect(scramVerifier("secret").split("$")[1]).not.toBe(
+      scramVerifier("other").split("$")[1],
+    );
+  });
 });
 
 describe("runtime connection", () => {

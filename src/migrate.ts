@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { missingVariables, readOutputs } from "./apply.js";
@@ -39,8 +38,8 @@ export async function migrateDatabase(
   );
   try {
     for (const statement of roleStatements(endpoint.database, {
-      migrator: scramVerifier(connection.migrator_password, randomBytes(16)),
-      runtime: scramVerifier(connection.runtime_password, randomBytes(16)),
+      migrator: scramVerifier(connection.migrator_password),
+      runtime: scramVerifier(connection.runtime_password),
     })) {
       await admin.execute(statement);
     }
