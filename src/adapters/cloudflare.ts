@@ -2,6 +2,7 @@ import { rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { checkBuildId } from "../smoke.js";
 import { recordedOrBuilt, staticBuild } from "./assets.js";
+import { awaitRollout } from "./rollout.js";
 import type { Adapter, DeployContext, ServiceContext } from "./types.js";
 import {
   buildIdPath,
@@ -12,15 +13,18 @@ import {
 
 type Backend = Extract<DeployContext["service"], { kind: "backend" }>;
 
-async function buildAndPush(
+function imageTag(context: DeployContext): string {
+  return `${context.config.project}-${context.name}:${context.buildId}`;
+}
+
+function dockerBuild(
   context: DeployContext,
   backend: Backend,
-): Promise<string | number> {
+  tag: string,
+): Promise<number> {
   const { io, configDir } = context;
   const dockerfile = resolve(configDir, backend.build.dockerfile);
-  const tag = `${context.config.project}-${context.name}:${context.buildId}`;
-  const options = { cwd: configDir, env: io.env };
-  const built = await io.run(
+  return io.run(
     "docker",
     [
       "build",
@@ -36,8 +40,18 @@ async function buildAndPush(
         ? resolve(configDir, backend.build.context)
         : dirname(dockerfile),
     ],
-    options,
+    { cwd: configDir, env: io.env },
   );
+}
+
+async function buildAndPush(
+  context: DeployContext,
+  backend: Backend,
+): Promise<string | number> {
+  const { io, configDir } = context;
+  const tag = imageTag(context);
+  const options = { cwd: configDir, env: io.env };
+  const built = await dockerBuild(context, backend, tag);
   if (built !== 0) return built;
   const pushed = await io.run(process.execPath, wranglerPushArgs(tag), options);
   if (pushed !== 0) return pushed;
@@ -57,6 +71,58 @@ async function buildAndPush(
     return 1;
   }
   return digest;
+}
+
+// A deploy replaces running instances with SIGTERM, and Cloudflare waits 15 minutes before killing one that ignores it.
+async function stopsOnSigterm(
+  context: DeployContext,
+  backend: Backend,
+): Promise<number> {
+  const { io, configDir } = context;
+  const tag = imageTag(context);
+  const options = { cwd: configDir, env: io.env };
+  const built = await dockerBuild(context, backend, tag);
+  if (built !== 0) return built;
+  const started = await io.capture(
+    "docker",
+    ["run", "--detach", "--platform", "linux/amd64", "--env", "PORT=8080", tag],
+    options,
+  );
+  const id = started.stdout.trim();
+  if (started.code !== 0 || !id) {
+    io.stderr(`cannot start ${tag} to check that it stops on SIGTERM\n`);
+    return 1;
+  }
+  try {
+    await io.sleep(3_000);
+    const running = await io.capture(
+      "docker",
+      ["inspect", "--format", "{{.State.Running}}", id],
+      options,
+    );
+    if (running.stdout.trim() !== "true") {
+      io.stdout(
+        `${context.name}: the container exited by itself within 3 seconds, so whether it stops on SIGTERM is not checked\n`,
+      );
+      return 0;
+    }
+    await io.run("docker", ["stop", "--time", "10", id], options);
+    const exited = await io.capture(
+      "docker",
+      ["inspect", "--format", "{{.State.ExitCode}}", id],
+      options,
+    );
+    if (exited.stdout.trim() === "137") {
+      io.stderr(
+        `${context.name}: the container ignored SIGTERM and was killed after 10 seconds. Cloudflare replaces a running container on every deploy by sending SIGTERM and waits up to 15 minutes before killing it, so make its main process exit on SIGTERM: handle the signal, or start it through an init such as tini\n`,
+      );
+      return 1;
+    }
+    io.stdout(`${context.name}: the container stops on SIGTERM\n`);
+    return 0;
+  } finally {
+    await io.run("docker", ["rm", "--force", id], options);
+  }
 }
 
 const secrets = [
@@ -128,6 +194,10 @@ export const cloudflareContainer: Adapter = {
       );
       return { code: 1 };
     }
+    if (context.dryRun) {
+      const stopped = await stopsOnSigterm(context, context.service);
+      if (stopped !== 0) return { code: stopped };
+    }
     let image = context.recorded?.image;
     if (!image && !context.dryRun) {
       const pushed = await buildAndPush(context, context.service);
@@ -146,7 +216,9 @@ export const cloudflareContainer: Adapter = {
       ...(image ? { image } : {}),
       ...(assets ? { assets } : {}),
     });
-    const code = await wranglerDeploy(context, file, context.secrets);
+    let code = await wranglerDeploy(context, file, context.secrets);
+    if (code === 0 && !context.dryRun)
+      code = await awaitRollout(`${name}-backend`, context.io);
     return { code, ...(image ? { outputs: { image } } : {}) };
   },
   async remove(context) {
@@ -190,8 +262,6 @@ export const cloudflareContainer: Adapter = {
             ?.build_id;
           return typeof buildId === "string" ? buildId : undefined;
         },
-        staleHint:
-          "the container may still run the previous image: Cloudflare replaces it by sending SIGTERM and waits up to 15 minutes, so make its main process exit on SIGTERM",
       },
       context.buildId,
       context.io,
