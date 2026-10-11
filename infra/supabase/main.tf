@@ -46,7 +46,7 @@ resource "random_password" "role" {
 # Each role's SCRAM salt is random but kept across migrates: Supabase's pooler caches the verifier, so a new
 # salt on every run locks the role out. It must not derive from the password, since SCRAM hands it to any client.
 resource "random_bytes" "salt" {
-  for_each = random_password.role
+  for_each = toset(["migrator", "runtime"])
 
   length = 16
 
