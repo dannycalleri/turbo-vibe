@@ -166,7 +166,8 @@ async function nextBuild(context: DeployContext): Promise<string | number> {
   try {
     built = await io.run(
       process.execPath,
-      [vercelBin, "build", "--prod", "--yes"],
+      // Without --standalone the functions name files in this project's node_modules, which the archived output lacks.
+      [vercelBin, "build", "--prod", "--yes", "--standalone"],
       {
         cwd: root,
         env: {
