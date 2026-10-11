@@ -3,12 +3,12 @@ import type { Io } from "../io.js";
 interface Application {
   id: string;
   name: string;
-  version: number;
 }
 
 interface Rollout {
+  id: string;
   status: string;
-  target_version: number;
+  created_at: string;
   progress?: { updated_instances?: number; total_instances?: number };
 }
 
@@ -18,15 +18,15 @@ const sigtermNoticeAfterMs = 90_000;
 // Cloudflare kills an instance 15 minutes after SIGTERM; two more minutes cover starting its replacement.
 export const rolloutLimitMs = 17 * 60_000;
 
-async function result<T>(
-  url: string,
-  token: string | undefined,
-  io: Io,
-): Promise<T | undefined> {
+function api(io: Io): string {
+  return `https://api.cloudflare.com/client/v4/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}/containers/applications`;
+}
+
+async function result<T>(url: string, io: Io): Promise<T | undefined> {
   for (let attempt = 1; attempt <= requestAttempts; attempt++) {
     try {
       const response = await io.fetch(url, {
-        headers: { authorization: `Bearer ${token}` },
+        headers: { authorization: `Bearer ${io.env.CLOUDFLARE_API_TOKEN}` },
         signal: AbortSignal.timeout(10_000),
       });
       if (response.ok) return ((await response.json()) as { result: T }).result;
@@ -36,56 +36,79 @@ async function result<T>(
   return undefined;
 }
 
+// null: no such application yet; undefined: Cloudflare did not answer.
+async function application(
+  name: string,
+  io: Io,
+): Promise<Application | null | undefined> {
+  const listed = await result<Application[]>(
+    `${api(io)}?name=${encodeURIComponent(name)}`,
+    io,
+  );
+  return (
+    listed && (listed.find((candidate) => candidate.name === name) ?? null)
+  );
+}
+
+async function rollouts(id: string, io: Io): Promise<Rollout[] | undefined> {
+  return result<Rollout[]>(`${api(io)}/${id}/rollouts`, io);
+}
+
+// The application's own version can lag behind the rollout a deploy starts, so the deploy's
+// rollout is the one that was not there before it.
+export async function existingRollouts(
+  name: string,
+  io: Io,
+): Promise<ReadonlySet<string> | undefined> {
+  const found = await application(name, io);
+  if (found === null) return new Set();
+  const listed = found && (await rollouts(found.id, io));
+  if (!listed) {
+    io.stderr(`cannot read the rollouts of ${name} before deploying\n`);
+    return undefined;
+  }
+  return new Set(listed.map((rollout) => rollout.id));
+}
+
 // `wrangler deploy` returns once the rollout has started; the new image serves only once every instance is replaced.
 export async function awaitRollout(
-  applicationName: string,
+  name: string,
+  before: ReadonlySet<string>,
   io: Io,
 ): Promise<number> {
-  const api = `https://api.cloudflare.com/client/v4/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}/containers/applications`;
-  const token = io.env.CLOUDFLARE_API_TOKEN;
-  const application = (
-    await result<Application[]>(
-      `${api}?name=${encodeURIComponent(applicationName)}`,
-      token,
-      io,
-    )
-  )?.find((candidate) => candidate.name === applicationName);
-  if (!application) {
+  const found = await application(name, io);
+  if (!found) {
     io.stderr(
-      `cannot find container application ${applicationName} to follow its rollout\n`,
+      `cannot find container application ${name} to follow its rollout\n`,
     );
     return 1;
   }
 
   let reported = "";
   for (let waited = 0; ; waited += pollMs) {
-    const rollouts = await result<Rollout[]>(
-      `${api}/${application.id}/rollouts`,
-      token,
-      io,
-    );
-    if (!rollouts) {
-      io.stderr(`cannot read the rollout of ${applicationName}\n`);
+    const listed = await rollouts(found.id, io);
+    if (!listed) {
+      io.stderr(`cannot read the rollout of ${name}\n`);
       return 1;
     }
-    // A first deploy creates the application with its image and starts no rollout.
-    const rollout = rollouts.find(
-      (candidate) => candidate.target_version === application.version,
-    );
-    if (!rollout || rollout.status === "completed") {
-      if (rollout)
-        io.stdout(`${applicationName}: every instance runs the new image\n`);
+    const rollout = listed
+      .filter((candidate) => !before.has(candidate.id))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+    if (!rollout) {
+      io.stdout(`${name}: no rollout started, so no instance to replace\n`);
+      return 0;
+    }
+    if (rollout.status === "completed") {
+      io.stdout(`${name}: every instance runs the new image\n`);
       return 0;
     }
     if (rollout.status === "replaced") {
-      io.stderr(
-        `the rollout of ${applicationName} was replaced by a newer deploy\n`,
-      );
+      io.stderr(`the rollout of ${name} was replaced by a newer deploy\n`);
       return 1;
     }
     if (rollout.status === "reverted") {
       io.stderr(
-        `Cloudflare reverted the rollout of ${applicationName} to the previous image\n`,
+        `Cloudflare reverted the rollout of ${name} to the previous image\n`,
       );
       return 1;
     }
@@ -94,17 +117,17 @@ export async function awaitRollout(
     const total = rollout.progress?.total_instances ?? 0;
     const progress = `${updated}/${total} instances on the new image`;
     if (progress !== reported) {
-      io.stdout(`${applicationName}: ${progress}\n`);
+      io.stdout(`${name}: ${progress}\n`);
       reported = progress;
     }
     if (waited === sigtermNoticeAfterMs) {
       io.stdout(
-        `${applicationName}: still waiting for ${total - updated} instance(s) on the previous image to exit. Cloudflare stops an instance with SIGTERM and kills it after 15 minutes, so a main process that ignores SIGTERM holds the rollout until then\n`,
+        `${name}: still waiting for ${total - updated} instance(s) on the previous image to exit. Cloudflare stops an instance with SIGTERM and kills it after 15 minutes, so a main process that ignores SIGTERM holds the rollout until then\n`,
       );
     }
     if (waited >= rolloutLimitMs) {
       io.stderr(
-        `the rollout of ${applicationName} did not finish within ${rolloutLimitMs / 60_000} minutes (${progress}); the new Worker is live, and requests can still reach the previous image\n`,
+        `the rollout of ${name} did not finish within ${rolloutLimitMs / 60_000} minutes (${progress}); the new Worker is live, and requests can still reach the previous image\n`,
       );
       return 1;
     }

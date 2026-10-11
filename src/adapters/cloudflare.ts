@@ -2,7 +2,7 @@ import { rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { checkBuildId } from "../smoke.js";
 import { recordedOrBuilt, staticBuild } from "./assets.js";
-import { awaitRollout } from "./rollout.js";
+import { awaitRollout, existingRollouts } from "./rollout.js";
 import type { Adapter, DeployContext, ServiceContext } from "./types.js";
 import {
   buildIdPath,
@@ -216,9 +216,14 @@ export const cloudflareContainer: Adapter = {
       ...(image ? { image } : {}),
       ...(assets ? { assets } : {}),
     });
+    const application = `${name}-backend`;
+    const before = context.dryRun
+      ? new Set<string>()
+      : await existingRollouts(application, context.io);
+    if (!before) return { code: 1 };
     let code = await wranglerDeploy(context, file, context.secrets);
     if (code === 0 && !context.dryRun)
-      code = await awaitRollout(`${name}-backend`, context.io);
+      code = await awaitRollout(application, before, context.io);
     return { code, ...(image ? { outputs: { image } } : {}) };
   },
   async remove(context) {
