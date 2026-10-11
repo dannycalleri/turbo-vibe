@@ -194,7 +194,7 @@ export const cloudflareContainer: Adapter = {
       );
       return { code: 1 };
     }
-    if (context.dryRun) {
+    if (context.dryRun && !context.recorded) {
       const stopped = await stopsOnSigterm(context, context.service);
       if (stopped !== 0) return { code: stopped };
     }
