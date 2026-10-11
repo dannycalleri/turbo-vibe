@@ -165,7 +165,7 @@ export async function apply(
       );
       return 1;
     }
-    return io.run("tofu", ["apply", "-input=false", planFile], {
+    return await io.run("tofu", ["apply", "-input=false", planFile], {
       cwd: prepared.dir,
       env: io.env,
     });
