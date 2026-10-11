@@ -85,6 +85,11 @@ describe("deploy to staging", () => {
     ]);
     expect(calls.mock.calls[0]?.[2].env).toEqual({ BUILD_ID: "abc123" });
     expect(calls.mock.calls[2]?.[1]).toContain("BUILD_ID=abc123");
+    const deployArgs =
+      calls.mock.calls.find((call) => call[1][1] === "deploy")?.[1] ?? [];
+    expect(deployArgs[deployArgs.indexOf("--containers-rollout") + 1]).toBe(
+      "immediate",
+    );
 
     const config = await workerConfig(cwd, "staging", "acme-api-staging");
     expect(config.containers[0]).toEqual({
@@ -288,7 +293,7 @@ describe("smoke", () => {
     );
     expect(code).toBe(1);
     expect(stderr).toBe(
-      "FAIL api: https://staging.acme.example.com/api/health reports build old999, expected abc123\n",
+      "FAIL api: https://staging.acme.example.com/api/health reports build old999, expected abc123; the container may still run the previous image: Cloudflare replaces it by sending SIGTERM and waits up to 15 minutes, so make its main process exit on SIGTERM\n",
     );
     expect(r2.record("acme/builds/abc123.json").smoke).toBe("failed");
   });
@@ -644,6 +649,8 @@ describe("runtime secrets", () => {
               postgres_password: "pgpw",
               migrator_password: "migpw",
               runtime_password: "runpw",
+              migrator_salt: "bWlncmF0b3Itc2FsdA==",
+              runtime_salt: "cnVudGltZS1zYWx0LTE2",
             },
           },
         },

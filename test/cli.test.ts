@@ -343,6 +343,8 @@ services:
     postgres_password: "pgpw",
     migrator_password: "migpw",
     runtime_password: "runpw",
+    migrator_salt: "bWlncmF0b3Itc2FsdA==",
+    runtime_salt: "cnVudGltZS1zYWx0LTE2",
   };
   const outputs = JSON.stringify({
     supabase_db_connection: { value: connection, sensitive: true },
@@ -420,7 +422,7 @@ services:
     );
     expect(sessions[0]?.statements).toContainEqual(
       expect.stringMatching(
-        /^ALTER ROLE turbo_vibe_runtime WITH LOGIN PASSWORD 'SCRAM-SHA-256\$4096:/,
+        /^ALTER ROLE turbo_vibe_runtime WITH LOGIN PASSWORD 'SCRAM-SHA-256\$4096:cnVudGltZS1zYWx0LTE2\$/,
       ),
     );
     expect(sessions[0]?.statements.join("\n")).not.toMatch(/migpw|runpw/);

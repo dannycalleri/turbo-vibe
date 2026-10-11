@@ -17,6 +17,8 @@ export interface Connection {
   postgres_password: string;
   migrator_password: string;
   runtime_password: string;
+  migrator_salt: string;
+  runtime_salt: string;
 }
 
 const sessionPort = 5432;

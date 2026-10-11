@@ -19,6 +19,8 @@ const passwords = {
   postgres_password: "postgres-pw",
   migrator_password: "migrator-pw",
   runtime_password: "runtime-pw",
+  migrator_salt: "bWlncmF0b3Itc2FsdA==",
+  runtime_salt: "cnVudGltZS1zYWx0LTE2",
 };
 
 let container = "";

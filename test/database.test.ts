@@ -20,6 +20,8 @@ const connection = {
   postgres_password: "p",
   migrator_password: "m",
   runtime_password: "r",
+  migrator_salt: "bXNhbHQ=",
+  runtime_salt: "cnNhbHQ=",
 };
 
 const session: Endpoint = {

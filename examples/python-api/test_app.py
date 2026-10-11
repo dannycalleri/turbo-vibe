@@ -1,5 +1,10 @@
 import json
+import os
+import signal
+import subprocess
+import sys
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -26,6 +31,18 @@ class HealthTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             urllib.request.urlopen(f"{self.base}/elsewhere")
         self.assertEqual(caught.exception.code, 404)
+
+
+class ShutdownTest(unittest.TestCase):
+    def test_exits_cleanly_on_sigterm_so_a_deploy_can_replace_it(self):
+        process = subprocess.Popen(
+            [sys.executable, "app.py"],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            env={**os.environ, "PORT": "0"},
+        )
+        time.sleep(0.5)
+        process.send_signal(signal.SIGTERM)
+        self.assertEqual(process.wait(timeout=5), 0)
 
 
 if __name__ == "__main__":

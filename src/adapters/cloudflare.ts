@@ -190,6 +190,8 @@ export const cloudflareContainer: Adapter = {
             ?.build_id;
           return typeof buildId === "string" ? buildId : undefined;
         },
+        staleHint:
+          "the container may still run the previous image: Cloudflare replaces it by sending SIGTERM and waits up to 15 minutes, so make its main process exit on SIGTERM",
       },
       context.buildId,
       context.io,

@@ -150,6 +150,10 @@ export function wranglerDeployArgs(
     "deploy",
     "--config",
     configFile,
+    // With max_instances above 1, wrangler's default gradual rollout leaves most instances on the old image
+    // for an unannounced time after deploy returns, so the smoke test would keep meeting the previous build.
+    "--containers-rollout",
+    "immediate",
     ...(dryRun ? ["--dry-run"] : []),
     ...(secretsFile ? ["--secrets-file", secretsFile] : []),
   ];
