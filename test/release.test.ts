@@ -644,6 +644,8 @@ describe("runtime secrets", () => {
               postgres_password: "pgpw",
               migrator_password: "migpw",
               runtime_password: "runpw",
+              migrator_salt: "bWlncmF0b3Itc2FsdA==",
+              runtime_salt: "cnVudGltZS1zYWx0LTE2",
             },
           },
         },

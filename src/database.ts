@@ -17,6 +17,8 @@ export interface Connection {
   postgres_password: string;
   migrator_password: string;
   runtime_password: string;
+  migrator_salt: string;
+  runtime_salt: string;
 }
 
 const sessionPort = 5432;
@@ -60,18 +62,9 @@ function ident(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-// Supabase's pooler caches a role's verifier and logs in to Postgres with keys derived from its salt,
-// so a fresh random salt on every migrate locks the role out of the pooler until that cache expires.
-function saltFor(password: string): Buffer {
-  return createHmac("sha256", password)
-    .update("turbo-vibe scram salt")
-    .digest()
-    .subarray(0, 16);
-}
-
 export function scramVerifier(
   password: string,
-  salt: Buffer = saltFor(password),
+  salt: Buffer,
   iterations = 4096,
 ): string {
   const salted = pbkdf2Sync(

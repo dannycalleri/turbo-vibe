@@ -20,6 +20,8 @@ const connection = {
   postgres_password: "p",
   migrator_password: "m",
   runtime_password: "r",
+  migrator_salt: "bXNhbHQ=",
+  runtime_salt: "cnNhbHQ=",
 };
 
 const session: Endpoint = {
@@ -137,13 +139,6 @@ describe("scramVerifier", () => {
       .digest("base64");
     expect(scramVerifier("secret", salt)).toBe(
       `SCRAM-SHA-256$4096:${salt.toString("base64")}$${storedKey}:${serverKey}`,
-    );
-  });
-
-  it("gives a password the same verifier on every run, so re-running migrate never changes what Supabase's pooler cached", () => {
-    expect(scramVerifier("secret")).toBe(scramVerifier("secret"));
-    expect(scramVerifier("secret").split("$")[1]).not.toBe(
-      scramVerifier("other").split("$")[1],
     );
   });
 });
