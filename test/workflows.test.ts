@@ -58,6 +58,18 @@ describe("the production workflow", () => {
     ]);
   });
 
+  it("promotes the chosen example, or every example by default", async () => {
+    const { on, jobs } = await workflow("production.yml");
+    const { example } = on.workflow_dispatch.inputs;
+    expect(example.default).toBe("all");
+    expect(example.options).toEqual(["all", ...Object.keys(jobs)]);
+    for (const job of Object.keys(jobs)) {
+      expect(jobs[job].if).toBe(
+        `inputs.example == 'all' || inputs.example == '${job}'`,
+      );
+    }
+  });
+
   it("waits for the production environment's approval and runs one promotion at a time", async () => {
     const { production } = (await workflow("promote.yml")).jobs;
     expect(production.environment).toBe("production");
