@@ -30,11 +30,6 @@ interface Policy {
 
 const zoneScoped = new Set(["DNS Write", "Workers Routes Write"]);
 
-// The dashboard's "Containers" permission keeps its old API name.
-const groupNames: Record<string, string[]> = {
-  "Containers Write": ["Containers Write", "Cloudchamber Write"],
-};
-
 export function covers(
   resources: Record<string, unknown>,
   permission: string,
@@ -66,8 +61,8 @@ export function granted(
 ): boolean {
   const matching = policies.filter(
     (policy) =>
-      (policy.permission_groups ?? []).some((group) =>
-        (groupNames[permission] ?? [permission]).includes(group.name),
+      (policy.permission_groups ?? []).some(
+        (group) => group.name === permission,
       ) && covers(policy.resources ?? {}, permission, ids),
   );
   return (
@@ -92,7 +87,8 @@ export function requiredPermissions(context: CheckContext): string[] {
     needed.add("Workers Scripts Write");
     needed.add("Workers Routes Write");
   }
-  if (targets.has("cloudflare-container")) needed.add("Containers Write");
+  if (targets.has("cloudflare-container"))
+    needed.add("Workers Containers Write");
   return [...needed];
 }
 

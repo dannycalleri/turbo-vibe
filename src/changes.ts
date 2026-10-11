@@ -51,6 +51,10 @@ export function owners(
       cloudflare?.workers ?? {},
     )) {
       own(key("module.cloudflare.cloudflare_worker.this", worker), service);
+      own(
+        key("module.cloudflare.cloudflare_worker_version.placeholder", worker),
+        service,
+      );
       for (const route of routes) {
         own(
           key("module.cloudflare.cloudflare_workers_route.this", route),

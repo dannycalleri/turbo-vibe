@@ -73,7 +73,7 @@ const frontend = z.strictObject({
 const database = z.strictObject({
   kind: z.literal("database"),
   target: z.string(),
-  organization: z.string().min(1),
+  organization: z.string().min(1).optional(),
   region: z.string().min(1),
   plan: z.enum(["free", "paid"]).optional(),
   staging: z.enum(["project", "branch"]).optional(),

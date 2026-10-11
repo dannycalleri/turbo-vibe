@@ -22,7 +22,7 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
    - Containers are not available without it. The plan includes an amount of container memory, CPU and disk each month, and bills usage beyond it; see Cloudflare's Containers pricing page.
    - Small instances that sleep when idle keep a staging API within the included amounts.
 5. Create an **API token** owned by the account (Manage Account → Account API Tokens → Create Token → Custom token), so it keeps working when the person who made it leaves. A user token (My Profile → API Tokens) works too. Give it:
-   - Account → Workers Scripts: Edit, and Account → Containers: Edit (with a container backend);
+   - Account → Workers Scripts: Edit, and Account → Workers Containers: Edit (with a container backend);
    - Zone → Workers Routes: Edit, and Zone → DNS: Edit, for your zone;
    - Account → Account API Tokens: Read (User → API Tokens: Read on a user token), so `check` can confirm the permissions above without changing anything;
    - Account → Billing: Read (with a container backend), so `check` can confirm Workers Paid.
@@ -36,7 +36,7 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
 
 ## 3. Supabase (projects with a `supabase` database)
 
-1. Create a Supabase organization. Put its slug in `turbo-vibe.yaml` as `organization`.
+1. Create a Supabase organization. Put its slug in `turbo-vibe.yaml` as `organization`, or, to keep it out of a public repository, leave `organization` out and add the slug as the `SUPABASE_ORGANIZATION` secret to both environments.
 2. Choose the plan.
    - **Free:** two active projects per organization, which is exactly staging and production for one app. A free project **pauses after a week without activity**, and `check` and `migrate` report it. Restore it from the dashboard.
    - **Pro** (or higher): needed for `staging: branch`, a persistent staging branch of the production project, and for preview environments; branch compute is billed per hour.

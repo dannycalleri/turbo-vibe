@@ -15,12 +15,35 @@ locals {
   ]...)
 }
 
+# Cloudflare refuses a route to a Worker with no deployed code, and wrangler deploys only after apply.
+# The placeholder answers 503 until then; ignore_changes keeps OpenTofu from ever replacing wrangler's code.
+resource "cloudflare_worker_version" "placeholder" {
+  for_each = var.workers
+
+  account_id         = var.account_id
+  worker_id          = cloudflare_worker.this[each.key].id
+  compatibility_date = "2025-01-01"
+  main_module        = "placeholder.mjs"
+  deploy             = true
+  modules = [{
+    name           = "placeholder.mjs"
+    content_type   = "application/javascript+module"
+    content_base64 = base64encode("export default { fetch: () => new Response(\"not deployed yet\", { status: 503 }) };")
+  }]
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
 resource "cloudflare_workers_route" "this" {
   for_each = local.routes
 
   zone_id = var.zone_id
   pattern = each.key
   script  = cloudflare_worker.this[each.value].name
+
+  depends_on = [cloudflare_worker_version.placeholder]
 }
 
 # Routes only match proxied hostnames; 100:: is the documented placeholder origin for Worker-only hostnames.

@@ -217,6 +217,28 @@ describe("turbo-vibe apply", () => {
     ]);
   });
 
+  it("keeps the plan file until tofu apply has finished with it", async () => {
+    const capture = vi.fn(async (_command: string, args: readonly string[]) => {
+      const out = args.find((arg) => arg.startsWith("-out="));
+      if (out) await writeFile(out.slice("-out=".length), "plan");
+      return { code: 0, stdout: args[0] === "show" ? "{}" : "" };
+    });
+    const runner = vi.fn<Runner>(async (_command, args) => {
+      if (args[0] !== "apply") return 0;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return (await readFile(args[2] ?? "", "utf8")) === "plan" ? 0 : 1;
+    });
+    const { code } = await run(
+      ["apply", "--env", "staging"],
+      files,
+      env,
+      runner,
+      undefined,
+      { capture },
+    );
+    expect(code).toBe(0);
+  });
+
   it("never refuses a preview's deletions", async () => {
     const result = parseConfig(files["turbo-vibe.yaml"]);
     if (!result.ok) throw new Error("invalid fixture");

@@ -71,7 +71,7 @@ A backend is served under `/api/` and a frontend under `/`.
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `organization` | string | required | The Supabase organization's slug. |
+| `organization` | string | `SUPABASE_ORGANIZATION` | The Supabase organization's slug. Leave it out to keep the slug out of the repository; `plan --env`, `apply` and `check` then read it from `SUPABASE_ORGANIZATION`. |
 | `region` | string | required | The Supabase region, such as `eu-central-1`. |
 | `plan` | `free` or `paid` | `free` | The organization's plan; `check` compares it with the real one. |
 | `staging` | `project` or `branch` | `project` | Staging gets its own project, or a persistent branch of production's (paid plans). |

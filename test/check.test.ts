@@ -138,7 +138,7 @@ describe("checks are limited to what the project uses", () => {
       "DNS Write",
       "Workers Scripts Write",
       "Workers Routes Write",
-      "Containers Write",
+      "Workers Containers Write",
     ]);
   });
 });
@@ -308,7 +308,7 @@ describe("against recorded fakes", () => {
           ...[dns].flat(),
           "Workers Scripts Write",
           "Workers Routes Write",
-          "Containers Write",
+          "Workers Containers Write",
         ],
       });
       const failures = (
@@ -325,7 +325,7 @@ describe("against recorded fakes", () => {
       permissions: [
         "Workers Scripts Write",
         "Workers Routes Write",
-        "Containers Write",
+        "Workers Containers Write",
       ],
     });
     const findings = await cloudflare(context(container, cloudflareEnv));
@@ -345,7 +345,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
-        "Containers Write",
+        "Workers Containers Write",
       ],
     });
     expect(
@@ -355,7 +355,24 @@ describe("against recorded fakes", () => {
     ).toBe(true);
   });
 
-  it("accepts an account-owned token, whose Containers permission the API names Cloudchamber Write", async () => {
+  it("accepts an account-owned token", async () => {
+    cloudflareApi({
+      owner: "account",
+      permissions: [
+        "DNS Write",
+        "Workers Scripts Write",
+        "Workers Routes Write",
+        "Workers Containers Write",
+      ],
+    });
+    expect(
+      (await cloudflare(context(container, cloudflareEnv))).every(
+        (finding) => finding.severity === "ok",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not take the older Cloudchamber Write for Workers Containers Write, which wrangler's deploy needs", async () => {
     cloudflareApi({
       owner: "account",
       permissions: [
@@ -365,11 +382,12 @@ describe("against recorded fakes", () => {
         "Cloudchamber Write",
       ],
     });
-    expect(
-      (await cloudflare(context(container, cloudflareEnv))).every(
-        (finding) => finding.severity === "ok",
-      ),
-    ).toBe(true);
+    const failures = (
+      await cloudflare(context(container, cloudflareEnv))
+    ).filter((finding) => finding.severity === "fail");
+    expect(failures.map((finding) => finding.message)).toEqual([
+      "CLOUDFLARE_API_TOKEN lacks Workers Containers Write",
+    ]);
   });
 
   it("points a missing permission on an account-owned token to the account's token page", async () => {
@@ -403,7 +421,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
-        "Containers Write",
+        "Workers Containers Write",
       ],
       plan: "free",
     });
@@ -421,7 +439,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
-        "Containers Write",
+        "Workers Containers Write",
       ],
     });
     const { CLOUDFLARE_ACCOUNT_ID: _, ...withoutAccount } = cloudflareEnv;
@@ -430,7 +448,7 @@ describe("against recorded fakes", () => {
       [],
     );
     expect(findings.map((finding) => finding.message)).not.toContain(
-      "CLOUDFLARE_API_TOKEN has Containers Write",
+      "CLOUDFLARE_API_TOKEN has Workers Containers Write",
     );
   });
 
@@ -524,6 +542,29 @@ describe("against recorded fakes", () => {
         ),
       );
     }
+
+    it("reads the organization from SUPABASE_ORGANIZATION when the file leaves it out, and names it when both are missing", async () => {
+      supabaseApi("free", [{ name: "acme-db-staging", status: "INACTIVE" }]);
+      const withoutOrganization = db.replace("    organization: acme\n", "");
+      expect(
+        await supabase(
+          context(withoutOrganization, {
+            ...token,
+            SUPABASE_ORGANIZATION: "acme",
+          }),
+        ),
+      ).toContainEqual(
+        expect.objectContaining({
+          message: "project acme-db-staging is paused",
+        }),
+      );
+      expect(await supabase(context(withoutOrganization, token))).toEqual([
+        expect.objectContaining({
+          severity: "fail",
+          message: "SUPABASE_ORGANIZATION is not set",
+        }),
+      ]);
+    });
 
     it("reports a paused project as paused, with how to restore it", async () => {
       supabaseApi("free", [{ name: "acme-db-staging", status: "INACTIVE" }]);

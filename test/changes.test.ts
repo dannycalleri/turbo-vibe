@@ -67,6 +67,10 @@ describe("summarize", () => {
       [
         ['module.cloudflare.cloudflare_worker.this["acme-api-staging"]', "api"],
         [
+          'module.cloudflare.cloudflare_worker_version.placeholder["acme-api-staging"]',
+          "api",
+        ],
+        [
           'module.cloudflare.cloudflare_workers_route.this["api.staging.acme.example.com/api/*"]',
           "api",
         ],

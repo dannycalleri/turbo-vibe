@@ -9,6 +9,8 @@ import { migrate } from "./migrate.js";
 import { hostnameFor, hostOf, layout } from "./origins.js";
 
 const maxLabel = 63;
+// A certificate's common name holds at most 64 characters; Vercel issues one per hostname.
+const maxHostname = 64;
 
 export function previewEnvironment(
   branch: string,
@@ -21,8 +23,10 @@ export function previewEnvironment(
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   const named = /^[a-z]/.test(slug) ? slug : `pr-${slug}`.replace(/-+$/, "");
-  const room =
-    maxLabel - "api-".length - (stagingHostname.split(".")[0] ?? "").length - 1;
+  const room = Math.min(
+    maxLabel - "api-".length - (stagingHostname.split(".")[0] ?? "").length - 1,
+    maxHostname - "api-".length - stagingHostname.length - 1,
+  );
   // Normalizing can map two branches to one name (fix/login, fix-login); the hash keeps their previews apart.
   if (named === branch && named.length <= room) return `preview-${named}`;
   const hash = createHash("sha256").update(branch).digest("hex").slice(0, 6);
