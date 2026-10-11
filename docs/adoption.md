@@ -21,8 +21,9 @@ The smoke test after every deploy asks the backend which build it is running.
   ```
 
 - Serve every backend route under `/api/`. When the frontend is served from the same Worker, only `/api/*` reaches the backend.
+- Exit on `SIGTERM`. Cloudflare replaces a running container with the new image by sending `SIGTERM`, and waits up to 15 minutes before killing one that ignores it; until then the old build keeps answering and the smoke test fails. A process running as the container's PID 1 ignores `SIGTERM` unless it handles it: Go servers exit by default, but Python and Node need a handler (or `docker run --init`-style init, such as `tini`, as the entrypoint).
 
-Check: `docker build --build-arg BUILD_ID=local -t app . && docker run -p 8080:8080 app`, then `curl localhost:8080/api/health` → `{"build_id":"local"}`.
+Check: `docker build --build-arg BUILD_ID=local -t app . && docker run -p 8080:8080 app`, then `curl localhost:8080/api/health` → `{"build_id":"local"}`. `docker stop` should return at once, not after its 10-second timeout.
 
 ## 2. Add `turbo-vibe.yaml`
 

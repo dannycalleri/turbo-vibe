@@ -11,6 +11,7 @@ export function judge(
   url: string,
   expected: string,
   observed: Observation,
+  staleHint?: string,
 ): SmokeResult {
   if ("error" in observed) {
     return { ok: false, message: `${url} unreachable: ${observed.error}` };
@@ -21,7 +22,7 @@ export function judge(
   if (observed.buildId !== expected) {
     return {
       ok: false,
-      message: `${url} reports build ${observed.buildId ?? "(none)"}, expected ${expected}`,
+      message: `${url} reports build ${observed.buildId ?? "(none)"}, expected ${expected}${observed.buildId && staleHint ? `; ${staleHint}` : ""}`,
     };
   }
   return { ok: true, message: `${url} reports build ${expected}` };
@@ -30,6 +31,7 @@ export function judge(
 export interface Probe {
   url: string;
   read: (response: Response) => Promise<string | undefined>;
+  staleHint?: string;
 }
 
 export async function checkBuildId(
@@ -58,7 +60,7 @@ export async function checkBuildId(
         error: error instanceof Error ? error.message : String(error),
       };
     }
-    result = judge(probe.url, expected, observed);
+    result = judge(probe.url, expected, observed, probe.staleHint);
     if (result.ok || attempt === attempts) break;
     await sleep(delayMs);
   }

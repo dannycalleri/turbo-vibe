@@ -288,7 +288,7 @@ describe("smoke", () => {
     );
     expect(code).toBe(1);
     expect(stderr).toBe(
-      "FAIL api: https://staging.acme.example.com/api/health reports build old999, expected abc123\n",
+      "FAIL api: https://staging.acme.example.com/api/health reports build old999, expected abc123; the container may still run the previous image: Cloudflare replaces it by sending SIGTERM and waits up to 15 minutes, so make its main process exit on SIGTERM\n",
     );
     expect(r2.record("acme/builds/abc123.json").smoke).toBe("failed");
   });
