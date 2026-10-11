@@ -71,8 +71,22 @@ export function fakeR2(seed: Record<string, string> = {}) {
     ]),
   );
   const unsigned: string[] = [];
+  let rolloutReads = 0;
   async function handle(request: Request): Promise<Response | undefined> {
     const url = new URL(request.url);
+    const named = url.searchParams.get("name");
+    if (url.pathname.endsWith("/containers/applications") && named)
+      return Response.json({ result: [{ id: `app-${named}`, name: named }] });
+    if (url.pathname.endsWith("/rollouts")) {
+      rolloutReads++;
+      return Response.json({
+        result: Array.from({ length: rolloutReads }, (_, index) => ({
+          id: `rollout-${index}`,
+          status: "completed",
+          created_at: `2026-10-11T10:00:0${index}Z`,
+        })),
+      });
+    }
     if (url.hostname !== "acc123.r2.cloudflarestorage.com") return undefined;
     if (
       !request.headers.get("authorization")?.startsWith("AWS4-HMAC-SHA256 ")

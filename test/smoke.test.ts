@@ -18,17 +18,6 @@ describe("judge", () => {
     });
   });
 
-  it("adds the probe's hint when an older build answers, but not when none does", () => {
-    const hint = "make its main process exit on SIGTERM";
-    expect(judge(url, "abc", { status: 200, buildId: "old" }, hint)).toEqual({
-      ok: false,
-      message: `${url} reports build old, expected abc; ${hint}`,
-    });
-    expect(
-      judge(url, "abc", { status: 200, buildId: undefined }, hint).message,
-    ).toBe(`${url} reports build (none), expected abc`);
-  });
-
   it("fails when the service is unreachable", () => {
     expect(judge(url, "abc", { error: "getaddrinfo ENOTFOUND" })).toEqual({
       ok: false,

@@ -52,15 +52,25 @@ describe("deploy to staging", () => {
   it("builds once, pushes the image, ships it by digest, and records the build", async () => {
     const r2 = fakeR2();
     const calls = runner();
-    const { code, cwd } = await run(
+    const fetch = r2.fetch();
+    const { code, cwd, stdout } = await run(
       ["deploy", "--env", "staging", "--build-id", "abc123"],
       { "turbo-vibe.yaml": project },
       env,
       calls,
-      r2.fetch(),
+      fetch,
       { capture: capturing() },
     );
     expect(code).toBe(0);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /\/containers\/applications\?name=acme-api-staging-backend$/,
+      ),
+      expect.anything(),
+    );
+    expect(stdout).toContain(
+      "acme-api-staging-backend: every instance runs the new image\n",
+    );
     expect(
       calls.mock.calls.map(([command, args]) => [command, args.slice(0, 3)]),
     ).toEqual([
@@ -146,6 +156,92 @@ services:
     });
   });
 
+  describe("checks in a dry run that the container stops on SIGTERM", () => {
+    function container(running: string, exitCode: string) {
+      return vi.fn(async (_command: string, args: readonly string[]) => ({
+        code: 0,
+        stdout:
+          args[0] === "run"
+            ? "c0ffee\n"
+            : args.includes("{{.State.Running}}")
+              ? `${running}\n`
+              : `${exitCode}\n`,
+      }));
+    }
+
+    async function dryRun(capture: ReturnType<typeof container>) {
+      const calls = runner();
+      const result = await run(
+        ["deploy", "--env", "staging", "--build-id", "abc123", "--dry-run"],
+        { "turbo-vibe.yaml": project },
+        {},
+        calls,
+        undefined,
+        { capture },
+      );
+      return { ...result, calls };
+    }
+
+    it("passes a container that exits when docker stop sends SIGTERM, and removes it", async () => {
+      const capture = container("true", "0");
+      const { code, stdout, calls } = await dryRun(capture);
+      expect(code).toBe(0);
+      expect(stdout).toContain("api: the container stops on SIGTERM\n");
+      expect(capture).toHaveBeenCalledWith(
+        "docker",
+        [
+          "run",
+          "--detach",
+          "--platform",
+          "linux/amd64",
+          "--env",
+          "PORT=8080",
+          "acme-api:abc123",
+        ],
+        expect.anything(),
+      );
+      expect(calls).toHaveBeenCalledWith(
+        "docker",
+        ["stop", "--time", "10", "c0ffee"],
+        expect.anything(),
+      );
+      expect(calls).toHaveBeenCalledWith(
+        "docker",
+        ["rm", "--force", "c0ffee"],
+        expect.anything(),
+      );
+    });
+
+    it("fails a container docker had to kill, before wrangler runs, and still removes it", async () => {
+      const { code, stderr, calls } = await dryRun(container("true", "137"));
+      expect(code).toBe(1);
+      expect(stderr).toContain(
+        "api: the container ignored SIGTERM and was killed after 10 seconds.",
+      );
+      expect(
+        calls.mock.calls.some(([command]) => command === process.execPath),
+      ).toBe(false);
+      expect(calls).toHaveBeenCalledWith(
+        "docker",
+        ["rm", "--force", "c0ffee"],
+        expect.anything(),
+      );
+    });
+
+    it("says it could not check a container that exited by itself, and goes on", async () => {
+      const { code, stdout, calls } = await dryRun(container("false", "1"));
+      expect(code).toBe(0);
+      expect(stdout).toContain(
+        "api: the container exited by itself within 3 seconds, so whether it stops on SIGTERM is not checked\n",
+      );
+      expect(calls).not.toHaveBeenCalledWith(
+        "docker",
+        expect.arrayContaining(["stop"]),
+        expect.anything(),
+      );
+    });
+  });
+
   it("builds and validates without credentials, uploads, or a record in a dry run", async () => {
     const calls = runner();
     const r2 = fakeR2();
@@ -159,9 +255,11 @@ services:
     expect(code).toBe(0);
     expect(calls.mock.calls.map(([command]) => command)).toEqual([
       "sh",
+      "docker",
+      "docker",
       process.execPath,
     ]);
-    expect(calls.mock.calls[1]?.[1]).toContain("--dry-run");
+    expect(calls.mock.calls[3]?.[1]).toContain("--dry-run");
     expect(
       (await workerConfig(cwd, "staging", "acme-api-staging")).containers[0],
     ).toMatchObject({
@@ -293,7 +391,7 @@ describe("smoke", () => {
     );
     expect(code).toBe(1);
     expect(stderr).toBe(
-      "FAIL api: https://staging.acme.example.com/api/health reports build old999, expected abc123; the container may still run the previous image: Cloudflare replaces it by sending SIGTERM and waits up to 15 minutes, so make its main process exit on SIGTERM\n",
+      "FAIL api: https://staging.acme.example.com/api/health reports build old999, expected abc123\n",
     );
     expect(r2.record("acme/builds/abc123.json").smoke).toBe("failed");
   });
@@ -742,7 +840,11 @@ describe("a project with a database", () => {
     expect(calls.mock.calls.some(([command]) => command === "tofu")).toBe(
       false,
     );
-    expect(capture).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalledWith(
+      "tofu",
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it("smoke-checks only the services that ship builds", async () => {
