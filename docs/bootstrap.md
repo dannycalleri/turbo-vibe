@@ -21,10 +21,10 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
 4. If the project has a `cloudflare-container` backend, subscribe to **Workers Paid**.
    - Containers are not available without it. The plan includes an amount of container memory, CPU and disk each month, and bills usage beyond it; see Cloudflare's Containers pricing page.
    - Small instances that sleep when idle keep a staging API within the included amounts.
-5. Create an **API token** (My Profile → API Tokens → Create Custom Token) with:
+5. Create an **API token** owned by the account (Manage Account → Account API Tokens → Create Token → Custom token), so it keeps working when the person who made it leaves. A user token (My Profile → API Tokens) works too. Give it:
    - Account → Workers Scripts: Edit, and Account → Containers: Edit (with a container backend);
    - Zone → Workers Routes: Edit, and Zone → DNS: Edit, for your zone;
-   - User → API Tokens: Read, so `check` can confirm the permissions above without changing anything;
+   - Account → Account API Tokens: Read (User → API Tokens: Read on a user token), so `check` can confirm the permissions above without changing anything;
    - Account → Billing: Read (with a container backend), so `check` can confirm Workers Paid.
 6. Create an **R2 bucket** for OpenTofu state and build records (R2 → Create bucket).
    - R2's free tier covers the kit's state files and archives for most projects.

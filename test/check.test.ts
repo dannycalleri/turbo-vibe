@@ -246,16 +246,30 @@ describe("against recorded fakes", () => {
     permissions,
     zoneStatus = "active",
     plan = "workers_paid",
+    owner = "user",
   }: {
     permissions: (string | Grant)[];
     zoneStatus?: string;
     plan?: string;
+    owner?: "user" | "account";
   }) {
+    const tokens =
+      owner === "user"
+        ? "https://api.cloudflare.com/client/v4/user/tokens"
+        : "https://api.cloudflare.com/client/v4/accounts/acc123/tokens";
     server.use(
       http.get("https://api.cloudflare.com/client/v4/user/tokens/verify", () =>
+        owner === "user"
+          ? envelope({ id: "tok1", status: "active" })
+          : HttpResponse.json(
+              { success: false, errors: [{ code: 1000 }], result: null },
+              { status: 401 },
+            ),
+      ),
+      http.get(`${tokens}/verify`, () =>
         envelope({ id: "tok1", status: "active" }),
       ),
-      http.get("https://api.cloudflare.com/client/v4/user/tokens/tok1", () =>
+      http.get(`${tokens}/tok1`, () =>
         envelope({
           policies: permissions.map((grant) =>
             policy(typeof grant === "string" ? { name: grant } : grant),
@@ -339,6 +353,37 @@ describe("against recorded fakes", () => {
         (finding) => finding.severity === "ok",
       ),
     ).toBe(true);
+  });
+
+  it("accepts an account-owned token, whose Containers permission the API names Cloudchamber Write", async () => {
+    cloudflareApi({
+      owner: "account",
+      permissions: [
+        "DNS Write",
+        "Workers Scripts Write",
+        "Workers Routes Write",
+        "Cloudchamber Write",
+      ],
+    });
+    expect(
+      (await cloudflare(context(container, cloudflareEnv))).every(
+        (finding) => finding.severity === "ok",
+      ),
+    ).toBe(true);
+  });
+
+  it("points a missing permission on an account-owned token to the account's token page", async () => {
+    cloudflareApi({
+      owner: "account",
+      permissions: ["Workers Scripts Write", "Workers Routes Write"],
+    });
+    const findings = await cloudflare(context(vercelSite, cloudflareEnv));
+    expect(findings).toContainEqual(
+      expect.objectContaining({
+        severity: "fail",
+        fix: "edit the token in Cloudflare → Manage Account → Account API Tokens and add DNS Write for zone turbovibe.ai",
+      }),
+    );
   });
 
   it("tells the owner to move the nameservers when the zone is still pending", async () => {
