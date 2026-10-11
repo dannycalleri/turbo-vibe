@@ -85,6 +85,11 @@ describe("deploy to staging", () => {
     ]);
     expect(calls.mock.calls[0]?.[2].env).toEqual({ BUILD_ID: "abc123" });
     expect(calls.mock.calls[2]?.[1]).toContain("BUILD_ID=abc123");
+    const deployArgs =
+      calls.mock.calls.find((call) => call[1][1] === "deploy")?.[1] ?? [];
+    expect(deployArgs[deployArgs.indexOf("--containers-rollout") + 1]).toBe(
+      "immediate",
+    );
 
     const config = await workerConfig(cwd, "staging", "acme-api-staging");
     expect(config.containers[0]).toEqual({
