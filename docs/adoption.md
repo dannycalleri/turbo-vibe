@@ -141,17 +141,17 @@ A project with a database needs Supabase's paid plan for previews, because each 
 
 ## 4. Create the accounts, tokens, and GitHub environments
 
-Do this once per project. The [bootstrap checklist](bootstrap.md) walks through every step and the plan it needs; this is the short version. The README's [Credentials](../README.md#credentials) table says which command reads each one. When you are done, `npx @turbo-vibe/cli@1 check --env staging` names anything still missing.
+Do this once per project. The [bootstrap checklist](bootstrap.md) walks through every step and the plan it needs; this is the short version. The README's [Credentials](../README.md#credentials) table says which command reads each one.
 
-1. **Cloudflare:** the domain's zone on Cloudflare, and the Workers Paid plan (required for Containers).
-   - An API token with *Workers Scripts: Edit*, *Workers Containers: Edit*, *Workers Routes: Edit* and *DNS: Edit* on the zone.
-   - An R2 bucket for state and build records, plus an R2 API token with *Object Read & Write* on it.
-2. **GitHub → Settings → Environments:** create `staging` and `production`. On `production`, add required reviewers if your GitHub plan offers them; that is the approval step, on top of the typed build-ID confirmation every promotion asks for. Give each environment these secrets, using that environment's values:
-   - `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`
-   - `TURBO_VIBE_STATE_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (the R2 token)
-   - with a database: `SUPABASE_ACCESS_TOKEN`, and `SUPABASE_ORGANIZATION` unless `turbo-vibe.yaml` sets `organization`
-   - with sign-in: `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` (the staging environment's keys on `staging`, the production keys on `production`)
-   - with a `vercel-static` frontend: `VERCEL_API_TOKEN`, `VERCEL_TEAM_ID`
+1. **Accounts and plans:** the domain registered, and a Cloudflare account, with Workers Paid for Containers and R2 enabled. Add the Supabase organization, WorkOS workspace and Vercel team that your targets need.
+2. **Tokens that only you can create:** a Cloudflare bootstrap token with *Account API Tokens: Edit*, a Supabase access token, each WorkOS environment's API key and client ID, and a Vercel access token, as your targets need them.
+3. **Run `setup`** in a terminal, with the [GitHub CLI](https://cli.github.com) signed in:
+
+   ```sh
+   npx @turbo-vibe/cli@1 setup
+   ```
+
+   It creates `staging` and `production`, adds you as a required reviewer on `production` where your GitHub plan offers it, finds or creates the Cloudflare zone and state bucket and creates the per-environment tokens from the bootstrap token, and stores every secret in its environment. It ends with the checks. A `FAIL` on a value you entered is fixed with `setup --replace <SECRET>`; a plain second run asks only for what is missing.
 
 ## 5. Merge, then promote
 

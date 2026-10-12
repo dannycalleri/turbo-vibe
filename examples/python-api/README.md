@@ -4,7 +4,7 @@ A standard-library Python API in a container on Cloudflare. Requests with `?sess
 
 ## Walkthrough: from `init` to production
 
-You need the GitHub repository, accounts, tokens and GitHub environments from the [bootstrap checklist](../../docs/bootstrap.md), sections 1 and 2, and Node 24 and [OpenTofu](https://opentofu.org/docs/intro/install/) on your machine (`plan --env` runs it). Below, `you/my-api` stands for that repository and `app.example.com` for your domain.
+You need the GitHub repository, accounts and tokens from the [bootstrap checklist](../../docs/bootstrap.md), sections 1 and 2, and Node 24, a signed-in [GitHub CLI](https://cli.github.com) and [OpenTofu](https://opentofu.org/docs/intro/install/) on your machine (`setup` runs the checks, which need OpenTofu). Below, `you/my-api` stands for that repository and `app.example.com` for your domain.
 
 1. Clone your repository and copy the example into it, without its config:
 
@@ -40,12 +40,13 @@ You need the GitHub repository, accounts, tokens and GitHub environments from th
    npx @turbo-vibe/cli@1 plan
    ```
 
-4. Export the staging environment's secrets in your shell, plus `GITHUB_TOKEN` (a token that can read the repository's environments) and `GITHUB_REPOSITORY=you/my-api`. Then check the accounts and see what the first apply will create:
+4. Set up the GitHub environments and their secrets. In a terminal, in the repository:
 
    ```sh
-   npx @turbo-vibe/cli@1 check --env staging
-   npx @turbo-vibe/cli@1 plan --env staging
+   npx @turbo-vibe/cli@1 setup
    ```
+
+   It asks for each token the checklist had you create, without echoing it, and stores every value in the `staging` and `production` GitHub environments. It ends with a check of each environment. A `FAIL` on a value you entered is fixed with `setup --replace <SECRET>`, which asks for it again and checks it; a plain second run asks only for what is still missing.
 
 5. Commit and push to `main`. The **Staging** workflow tests, applies, builds and deploys, and smoke-tests.
    Check: `https://staging-app.example.com/api/health` returns the pushed commit's SHA as `build_id`, with or without `?session=a`. The run's summary names the build to promote.

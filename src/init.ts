@@ -255,7 +255,7 @@ export async function init(
   }
   if (!onlyAssistant) {
     io.stdout(
-      "next: add .turbo-vibe/ to .gitignore, then follow docs/bootstrap.md and run `turbo-vibe check --env staging`\n",
+      "next: add .turbo-vibe/ to .gitignore, create the accounts in docs/bootstrap.md, then run `turbo-vibe setup` in a terminal\n",
     );
   }
   return 0;
