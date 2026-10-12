@@ -74,6 +74,18 @@ export function granted(
   );
 }
 
+export interface Subscription {
+  rate_plan?: { id?: string; public_name?: string };
+}
+
+export function onWorkersPaid(subscriptions: readonly Subscription[]): boolean {
+  return subscriptions.some((subscription) => {
+    const plan =
+      `${subscription.rate_plan?.id ?? ""} ${subscription.rate_plan?.public_name ?? ""}`.toLowerCase();
+    return plan.includes("workers") && plan.includes("paid");
+  });
+}
+
 export function requiredPermissions(
   context: Pick<CheckContext, "config">,
 ): string[] {
@@ -220,11 +232,9 @@ export const cloudflare: Check = async (context) => {
       (service) => service.target === "cloudflare-container",
     )
   ) {
-    const subscriptions = await get<
-      { rate_plan?: { id?: string; public_name?: string } }[]
-    >(context, `/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}/subscriptions`);
-    const plans = (subscriptions.body?.result ?? []).map((subscription) =>
-      `${subscription.rate_plan?.id ?? ""} ${subscription.rate_plan?.public_name ?? ""}`.toLowerCase(),
+    const subscriptions = await get<Subscription[]>(
+      context,
+      `/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}/subscriptions`,
     );
     if (!subscriptions.body?.success) {
       findings.push(
@@ -236,7 +246,7 @@ export const cloudflare: Check = async (context) => {
       );
     } else {
       findings.push(
-        plans.some((plan) => plan.includes("workers") && plan.includes("paid"))
+        onWorkersPaid(subscriptions.body.result)
           ? ok(
               "cloudflare",
               "the account is on Workers Paid, which Containers need",

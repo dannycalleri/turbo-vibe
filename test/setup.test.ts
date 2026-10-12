@@ -91,7 +91,9 @@ interface FakeCloudflare {
   }[];
   buckets?: string[];
   bootstrapPermissions?: string[];
-  r2Enabled?: boolean;
+  refusedBuckets?: number;
+  unpaidReads?: number;
+  billingReadable?: boolean;
   groups?: string[];
   existingTokens?: string[];
 }
@@ -113,7 +115,9 @@ function fakeCloudflare({
   zones = [],
   buckets = [],
   bootstrapPermissions = ["Account API Tokens Write"],
-  r2Enabled = true,
+  refusedBuckets = 0,
+  unpaidReads = 0,
+  billingReadable = true,
   groups = groupNames,
   existingTokens = [],
 }: FakeCloudflare = {}) {
@@ -178,6 +182,21 @@ function fakeCloudflare({
       tokens.delete(path.split("/").pop() ?? "");
       return json(null);
     }
+    if (path === `${accounts}/subscriptions`)
+      if (!billingReadable) return json(null, false, 403);
+      else
+        return json(
+          unpaidReads-- > 0
+            ? [{ rate_plan: { id: "free", public_name: "Workers Free" } }]
+            : [
+                {
+                  rate_plan: {
+                    id: "workers_paid",
+                    public_name: "Workers Paid",
+                  },
+                },
+              ],
+        );
     if (path.startsWith("/zones?")) {
       const name = url.searchParams.get("name");
       return json(zones.filter((zone) => zone.name === name));
@@ -193,7 +212,7 @@ function fakeCloudflare({
       return json(zone);
     }
     if (path.startsWith(`${accounts}/r2/buckets`)) {
-      if (!r2Enabled)
+      if (method === "POST" && refusedBuckets-- > 0)
         return Response.json(
           {
             success: false,
@@ -632,12 +651,124 @@ describe("setup on Cloudflare", () => {
     expect(gh.stored).toEqual([]);
   });
 
-  it("tells the person to enable R2 when Cloudflare refuses the bucket", async () => {
-    const cloudflare = fakeCloudflare({ r2Enabled: false });
-    const result = await setup([], fakeGh(), true, cloudflare);
+  it("waits for the person to enable R2 and tries the bucket again", async () => {
+    const cloudflare = fakeCloudflare({ refusedBuckets: 2 });
+    const asked = vi.fn(ask);
+    const result = await run(
+      ["setup", "--env", "staging"],
+      { "turbo-vibe.yaml": project },
+      {},
+      undefined,
+      cloudflare.fetch,
+      { capture: fakeGh().capture, ask: asked, askSecret },
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "R2 is not enabled on this account; enable it in R2 Object Storage: https://dash.cloudflare.com/acc123/r2/overview",
+    );
+    expect(
+      asked.mock.calls.filter(([q]) => q.startsWith("Press Enter")),
+    ).toHaveLength(2);
+    expect(result.stdout).toContain("bucket acme-turbo-vibe-state created");
+  });
+
+  it("stops when the person gives up on R2, and leaves no setup token", async () => {
+    const cloudflare = fakeCloudflare({
+      refusedBuckets: Number.POSITIVE_INFINITY,
+    });
+    const result = await run(
+      ["setup"],
+      { "turbo-vibe.yaml": project },
+      {},
+      undefined,
+      cloudflare.fetch,
+      {
+        capture: fakeGh().capture,
+        ask: async (q: string) => (q.startsWith("Press Enter") ? "q" : ask(q)),
+        askSecret,
+      },
+    );
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("R2 is not enabled on this account");
+    expect(result.stderr).toContain("stopped: R2 is not enabled");
     expect(cloudflare.live()).toEqual(["bootstrap"]);
+  });
+
+  it("waits for Workers Paid before it creates anything for a container backend", async () => {
+    const cloudflare = fakeCloudflare({ unpaidReads: 1 });
+    const result = await setup(
+      ["--env", "staging"],
+      fakeGh(),
+      true,
+      cloudflare,
+    );
+    expect(result.code).toBe(0);
+    const out = result.stdout;
+    expect(out).toContain(
+      "Containers need the Workers Paid plan; subscribe in Workers & Pages → Plans: https://dash.cloudflare.com/acc123/workers/plans",
+    );
+    expect(out.indexOf("the account is on Workers Paid")).toBeLessThan(
+      out.indexOf("zone example.com created"),
+    );
+  });
+
+  it("stops before creating anything when the person gives up on Workers Paid", async () => {
+    const cloudflare = fakeCloudflare({
+      unpaidReads: Number.POSITIVE_INFINITY,
+    });
+    const result = await run(
+      ["setup"],
+      { "turbo-vibe.yaml": project },
+      {},
+      undefined,
+      cloudflare.fetch,
+      {
+        capture: fakeGh().capture,
+        ask: async (q: string) => (q.startsWith("Press Enter") ? "q" : ask(q)),
+        askSecret,
+      },
+    );
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "stopped: the account is not on Workers Paid",
+    );
+    expect(
+      cloudflare.requests.some(
+        (r) => r.method === "POST" && r.path === "/zones",
+      ),
+    ).toBe(false);
+    expect(cloudflare.live()).toEqual(["bootstrap"]);
+  });
+
+  it("continues when the plan cannot be read, leaving Workers Paid to the checks", async () => {
+    const cloudflare = fakeCloudflare({ billingReadable: false });
+    const result = await setup(
+      ["--env", "staging"],
+      fakeGh(),
+      true,
+      cloudflare,
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "cannot read the account's plan; check confirms Workers Paid at the end",
+    );
+  });
+
+  it("does not wait for Workers Paid without a container backend", async () => {
+    const cloudflare = fakeCloudflare({ unpaidReads: 99 });
+    const staticOnly = `version: 1
+project: acme
+domain: acme.example.com
+services:
+  web:
+    kind: frontend
+    target: cloudflare-static
+    build: { command: "pnpm build", output: dist }
+`;
+    const result = await setupWith(staticOnly, cloudflare.fetch, fakeGh());
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain("Workers Paid");
+    const setupToken = cloudflare.created("turbo-vibe-acme-setup");
+    expect(JSON.stringify(setupToken?.body)).not.toContain("Billing Read");
   });
 
   it("asks for no bootstrap token when every environment has the Cloudflare secrets", async () => {

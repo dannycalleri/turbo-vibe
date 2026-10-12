@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import {
   granted,
+  onWorkersPaid,
   requiredPermissions,
+  type Subscription,
   zoneScoped,
 } from "../checks/cloudflare.js";
 import type { Config, EnvironmentName } from "../config/schema.js";
@@ -60,13 +62,10 @@ const r2Permission = "Workers R2 Storage Bucket Item Write";
 
 // check reads the token's own policies and the account's plan, so the CI token can read both.
 function ciPermissions(config: Config): string[] {
-  const container = Object.values(config.services).some(
-    (service) => service.target === "cloudflare-container",
-  );
   return [
     ...requiredPermissions({ config }),
     "Account API Tokens Read",
-    ...(container ? ["Billing Read"] : []),
+    ...(hasContainer(config) ? ["Billing Read"] : []),
   ];
 }
 
@@ -185,7 +184,19 @@ async function untilActive(
   return false;
 }
 
-const setupPermissions = ["Zone Write", "Workers R2 Storage Write"];
+function hasContainer(config: Config): boolean {
+  return Object.values(config.services).some(
+    (service) => service.target === "cloudflare-container",
+  );
+}
+
+function setupPermissions(config: Config): string[] {
+  return [
+    "Zone Write",
+    "Workers R2 Storage Write",
+    ...(hasContainer(config) ? ["Billing Read"] : []),
+  ];
+}
 
 // The bootstrap token may only create tokens, so a short-lived token does the zone and bucket work.
 async function withSetupToken<T>(
@@ -218,7 +229,9 @@ async function withSetupToken<T>(
         {
           effect: "allow",
           resources: { [accountKey]: "*" },
-          permission_groups: [{ id: groups.get("Workers R2 Storage Write") }],
+          permission_groups: setupPermissions(config)
+            .filter((permission) => permission !== "Zone Write")
+            .map((permission) => ({ id: groups.get(permission) })),
         },
       ],
     },
@@ -300,6 +313,20 @@ async function zone(
   return result.id;
 }
 
+async function waitForPerson(
+  instruction: string,
+  url: string,
+  io: Io,
+): Promise<boolean> {
+  io.stdout(`cloudflare: ${instruction}: ${url}\n`);
+  const answer = (
+    (await io.ask?.("Press Enter when done, or type q to stop")) ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  return answer !== "q";
+}
+
 async function bucket(
   cloudflare: CloudflareApi,
   name: string,
@@ -307,22 +334,67 @@ async function bucket(
   io: Io,
 ): Promise<boolean> {
   const path = `/accounts/${account}/r2/buckets`;
-  const found = await cloudflare.call("GET", `${path}/${name}`);
-  if (found.body?.success) {
-    io.stdout(`cloudflare: bucket ${name} exists\n`);
-    return true;
+  for (;;) {
+    const found = await cloudflare.call("GET", `${path}/${name}`);
+    if (found.body?.success) {
+      io.stdout(`cloudflare: bucket ${name} exists\n`);
+      return true;
+    }
+    const created = await cloudflare.call("POST", path, { name });
+    if (created.body?.success) {
+      io.stdout(`cloudflare: bucket ${name} created\n`);
+      return true;
+    }
+    if (!created.body?.errors?.some((error) => error.code === 10042)) {
+      io.stderr(
+        `cannot create bucket ${name}: ${created.body?.errors?.map((error) => error.message).join("; ") ?? `HTTP ${created.status}`}\n`,
+      );
+      return false;
+    }
+    if (
+      !(await waitForPerson(
+        "R2 is not enabled on this account; enable it in R2 Object Storage",
+        `https://dash.cloudflare.com/${account}/r2/overview`,
+        io,
+      ))
+    ) {
+      io.stderr("stopped: R2 is not enabled, so there is no state bucket\n");
+      return false;
+    }
   }
-  const created = await cloudflare.call("POST", path, { name });
-  if (created.body?.success) {
-    io.stdout(`cloudflare: bucket ${name} created\n`);
-    return true;
+}
+
+async function workersPaid(
+  cloudflare: CloudflareApi,
+  account: string,
+  io: Io,
+): Promise<boolean> {
+  for (;;) {
+    const subscriptions = await cloudflare.call<Subscription[]>(
+      "GET",
+      `/accounts/${account}/subscriptions`,
+    );
+    if (!subscriptions.body?.success) {
+      io.stdout(
+        "cloudflare: cannot read the account's plan; check confirms Workers Paid at the end\n",
+      );
+      return true;
+    }
+    if (onWorkersPaid(subscriptions.body.result)) {
+      io.stdout("cloudflare: the account is on Workers Paid\n");
+      return true;
+    }
+    if (
+      !(await waitForPerson(
+        "Containers need the Workers Paid plan; subscribe in Workers & Pages → Plans",
+        `https://dash.cloudflare.com/${account}/workers/plans`,
+        io,
+      ))
+    ) {
+      io.stderr("stopped: the account is not on Workers Paid\n");
+      return false;
+    }
   }
-  io.stderr(
-    created.body?.errors?.some((error) => error.code === 10042)
-      ? `R2 is not enabled on this account; enable it in Cloudflare → R2 Object Storage, then run setup again\n`
-      : `cannot create bucket ${name}: ${created.body?.errors?.map((error) => error.message).join("; ") ?? `HTTP ${created.status}`}\n`,
-  );
-  return false;
 }
 
 async function createToken(
@@ -496,7 +568,7 @@ export async function setupCloudflare(
   const groups = await permissionGroups(
     bootstrap,
     account,
-    [...setupPermissions, ...ciPermissions(config), r2Permission],
+    [...setupPermissions(config), ...ciPermissions(config), r2Permission],
     io,
   );
   if (!groups) return undefined;
@@ -508,6 +580,8 @@ export async function setupCloudflare(
     groups,
     io,
     async (cloudflare) => {
+      if (hasContainer(config) && !(await workersPaid(cloudflare, account, io)))
+        return undefined;
       const id = await zone(cloudflare, config, account, io);
       return id && (await bucket(cloudflare, bucketName, account, io))
         ? id
