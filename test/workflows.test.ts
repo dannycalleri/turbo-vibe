@@ -1,4 +1,7 @@
-import { readdir, readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { productionWorkflow, stagingWorkflow } from "../src/init.js";
@@ -357,6 +360,62 @@ describe("the live tests workflow", () => {
     expect(job.if).toBe("github.ref == 'refs/heads/main'");
     expect(job.environment).toBe("live");
     expect(live.env.BRANCH).toMatch(/^live-/);
+  });
+
+  describe("commits COMPATIBILITY.md alone", () => {
+    async function commitStep(): Promise<string> {
+      const { steps } = (await workflow("live-tests.yml")).jobs.live;
+      return steps.find(
+        (step: { name?: string }) =>
+          step.name === "Commit COMPATIBILITY.md when it changed",
+      ).run;
+    }
+
+    async function repository() {
+      const dir = await mkdtemp(join(tmpdir(), "turbo-vibe-live-"));
+      const git = (cwd: string, ...args: string[]) =>
+        execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+      const origin = join(dir, "origin.git");
+      const work = join(dir, "work");
+      git(dir, "init", "--quiet", "--bare", "--initial-branch=main", origin);
+      git(dir, "clone", "--quiet", origin, work);
+      git(work, "config", "user.name", "test");
+      git(work, "config", "user.email", "test@example.com");
+      await writeFile(join(work, "COMPATIBILITY.md"), "old\n");
+      await writeFile(join(work, "built.txt"), "clean\n");
+      git(work, "add", ".");
+      git(work, "commit", "--quiet", "-m", "start");
+      git(work, "push", "--quiet", "origin", "HEAD:main");
+      return { git, origin, work };
+    }
+
+    const run = (script: string, cwd: string) =>
+      execFileSync("bash", ["-e", "-c", script], { cwd, encoding: "utf8" });
+
+    it("pushes the new results while a build has left another tracked file changed", async () => {
+      const { git, origin, work } = await repository();
+      await writeFile(join(work, "COMPATIBILITY.md"), "new\n");
+      await writeFile(join(work, "built.txt"), "changed by a build\n");
+      run(await commitStep(), work);
+      expect(git(origin, "show", "main:COMPATIBILITY.md")).toBe("new");
+      expect(git(origin, "show", "main:built.txt")).toBe("clean");
+    });
+
+    it("warns and pushes nothing when main changed COMPATIBILITY.md during the run", async () => {
+      const { git, origin, work } = await repository();
+      const other = join(work, "..", "other");
+      git(work, "clone", "--quiet", origin, other);
+      git(other, "config", "user.name", "test");
+      git(other, "config", "user.email", "test@example.com");
+      await writeFile(join(other, "COMPATIBILITY.md"), "from main\n");
+      git(other, "commit", "--quiet", "-am", "meanwhile");
+      git(other, "push", "--quiet", "origin", "HEAD:main");
+      await writeFile(join(work, "COMPATIBILITY.md"), "new\n");
+      expect(run(await commitStep(), work)).toContain(
+        "::warning::main changed COMPATIBILITY.md during the run",
+      );
+      expect(git(origin, "show", "main:COMPATIBILITY.md")).toBe("from main");
+    });
   });
 
   it("removes every preview it deploys, whatever the deploy's outcome", async () => {
