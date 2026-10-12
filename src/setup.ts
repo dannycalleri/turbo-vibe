@@ -8,6 +8,11 @@ import {
   type Provided,
   setupCloudflare,
 } from "./setup/cloudflare.js";
+import {
+  supabaseSecrets,
+  vercelSecrets,
+  workosKeyProblem,
+} from "./setup/vendors.js";
 
 export interface SetupOptions {
   env: readonly EnvironmentName[];
@@ -158,6 +163,15 @@ async function presentSecrets(
   return new Set(listed.value.map((secret) => secret.name));
 }
 
+function question(environment: EnvironmentName, name: string): string {
+  const workos = environment === "production" ? "production" : "staging";
+  if (name === "WORKOS_API_KEY")
+    return `${environment} WORKOS_API_KEY (API Keys of the WorkOS ${workos} environment)`;
+  if (name === "WORKOS_CLIENT_ID")
+    return `${environment} WORKOS_CLIENT_ID (on the application page linked from the API key's row)`;
+  return `${environment} ${name}`;
+}
+
 async function storeSecrets(
   config: Config,
   repo: string,
@@ -174,9 +188,16 @@ async function storeSecrets(
   const entered: Record<string, string> = {};
   if (kept.length > 0) io.stdout(`${environment}: kept ${kept.join(", ")}\n`);
   for (const name of needed.filter(store)) {
-    const value = (
-      provided.values[name] ?? (await askSecret(`${environment} ${name}`))
-    ).trim();
+    let value = provided.values[name]?.trim();
+    while (value === undefined) {
+      const answer = (await askSecret(question(environment, name))).trim();
+      const problem =
+        name === "WORKOS_API_KEY" && answer
+          ? workosKeyProblem(environment, answer)
+          : undefined;
+      if (problem) io.stdout(`${problem}\n`);
+      else value = answer;
+    }
     if (!value) {
       io.stdout(`${environment}: ${name} skipped, nothing entered\n`);
       continue;
@@ -314,6 +335,21 @@ export async function setup(
     if (!created) return 1;
     provided = created.provided;
     afterStoring = created.offerToDeleteBootstrap;
+  }
+  const shared: Record<string, string> = {};
+  if (lacking(["SUPABASE_ACCESS_TOKEN", "SUPABASE_ORGANIZATION"])) {
+    const values = await supabaseSecrets(config, askSecret, io);
+    if (!values) return 1;
+    Object.assign(shared, values);
+  }
+  if (lacking(["VERCEL_API_TOKEN", "VERCEL_TEAM_ID"])) {
+    const values = await vercelSecrets(askSecret, io);
+    if (!values) return 1;
+    Object.assign(shared, values);
+  }
+  for (const name of present.keys()) {
+    const own = provided.get(name) ?? { values: {}, replace: [] };
+    provided.set(name, { ...own, values: { ...shared, ...own.values } });
   }
   const stored = new Map<EnvironmentName, Stored>();
   for (const [name, names] of present) {

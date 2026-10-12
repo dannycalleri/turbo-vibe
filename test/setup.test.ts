@@ -4,6 +4,7 @@ import { stateBucket } from "../src/checks/state.js";
 import type { Check } from "../src/checks/types.js";
 import { fail, missing, ok } from "../src/checks/types.js";
 import { parseConfig } from "../src/config/load.js";
+import type { Io } from "../src/io.js";
 import type { Capturer } from "../src/run.js";
 import { project, run } from "./harness.js";
 
@@ -389,7 +390,7 @@ describe("setup", () => {
       {
         env: "staging",
         name: "SUPABASE_ACCESS_TOKEN",
-        value: "value of staging SUPABASE_ACCESS_TOKEN",
+        value: "value of Supabase access token (Account → Access Tokens)",
       },
     ]);
     expect(result.stdout).toContain(
@@ -435,7 +436,7 @@ describe("setup", () => {
     );
     expect(result.code).toBe(0);
     expect(seen.SUPABASE_ACCESS_TOKEN).toBe(
-      "value of staging SUPABASE_ACCESS_TOKEN",
+      "value of Supabase access token (Account → Access Tokens)",
     );
     expect(seen).toMatchObject({
       GITHUB_REPOSITORY: "acme/app",
@@ -852,5 +853,163 @@ describe("setup on Cloudflare", () => {
     expect(
       ask.mock.calls.some(([question]) => question.startsWith("Delete")),
     ).toBe(false);
+  });
+});
+
+function vendors(
+  cloudflare: ReturnType<typeof fakeCloudflare>,
+  {
+    organizations = [{ id: "acme-org", name: "Acme" }],
+    teams = [{ id: "team_1", name: "Acme" }],
+  }: {
+    organizations?: { id: string; name: string }[];
+    teams?: { id: string; name: string }[];
+  } = {},
+) {
+  return vi.fn<typeof globalThis.fetch>(async (input, init) => {
+    const url = String(input);
+    if (url === "https://api.supabase.com/v1/organizations")
+      return Response.json(organizations);
+    if (url === "https://api.vercel.com/v2/teams")
+      return Response.json({ teams });
+    return cloudflare.fetch(input, init);
+  });
+}
+
+const noOrganization = withDatabase.replace("    organization: acme\n", "");
+const onVercel = `version: 1
+project: acme
+domain: acme.example.com
+services:
+  api:
+    kind: backend
+    target: cloudflare-container
+    build: { dockerfile: Dockerfile }
+  web:
+    kind: frontend
+    target: vercel-static
+    build: { command: "pnpm build", output: dist }
+`;
+const withSignIn = `${project}  auth:
+    kind: identity
+    target: workos
+`;
+
+function setupWith(
+  config: string,
+  fetch: typeof globalThis.fetch,
+  gh: ReturnType<typeof fakeGh>,
+  overrides: Partial<Io> = {},
+) {
+  return run(["setup"], { "turbo-vibe.yaml": config }, {}, undefined, fetch, {
+    capture: gh.capture,
+    ask,
+    askSecret,
+    ...overrides,
+  });
+}
+
+const storedValue = (
+  gh: ReturnType<typeof fakeGh>,
+  env: string,
+  name: string,
+) => gh.stored.find((s) => s.env === env && s.name === name)?.value;
+
+describe("setup with vendor tokens", () => {
+  const allKept = { staging: cloudflareKept, production: cloudflareKept };
+
+  it("stores the only Supabase organization the token sees, without a question", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    const asked = vi.fn(ask);
+    const fetch = vendors(fakeCloudflare());
+    const result = await setupWith(noOrganization, fetch, gh, { ask: asked });
+    expect(result.code).toBe(0);
+    expect(storedValue(gh, "staging", "SUPABASE_ORGANIZATION")).toBe(
+      "acme-org",
+    );
+    expect(storedValue(gh, "production", "SUPABASE_ORGANIZATION")).toBe(
+      "acme-org",
+    );
+    expect(
+      asked.mock.calls.some(([q]) => q.startsWith("Supabase organization")),
+    ).toBe(false);
+  });
+
+  it("asks which organization when the token sees two", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    const fetch = vendors(fakeCloudflare(), {
+      organizations: [
+        { id: "first", name: "First" },
+        { id: "second", name: "Second" },
+      ],
+    });
+    const result = await setupWith(noOrganization, fetch, gh, {
+      ask: async (q: string) =>
+        q.startsWith("Supabase organization") ? "2" : ask(q),
+    });
+    expect(result.code).toBe(0);
+    expect(storedValue(gh, "staging", "SUPABASE_ORGANIZATION")).toBe("second");
+  });
+
+  it("stores no organization when the config names one", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    const fetch = vendors(fakeCloudflare());
+    await setupWith(withDatabase, fetch, gh);
+    expect(gh.stored.map((s) => s.name)).not.toContain("SUPABASE_ORGANIZATION");
+    expect(
+      fetch.mock.calls.some(([url]) => String(url).includes("supabase")),
+    ).toBe(false);
+  });
+
+  it("stores the only Vercel team the token sees, without a question", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    const result = await setupWith(onVercel, vendors(fakeCloudflare()), gh);
+    expect(result.code).toBe(0);
+    expect(storedValue(gh, "staging", "VERCEL_TEAM_ID")).toBe("team_1");
+    expect(storedValue(gh, "production", "VERCEL_API_TOKEN")).toBe(
+      "value of Vercel access token (Account Settings → Tokens)",
+    );
+  });
+
+  it("refuses the other environment's WorkOS key and asks again", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    const answers: Record<string, string[]> = {
+      staging: ["sk_live_wrong", "sk_test_right"],
+      production: ["sk_test_wrong", "sk_live_right"],
+    };
+    const result = await setupWith(withSignIn, vendors(fakeCloudflare()), gh, {
+      askSecret: async (q: string) => {
+        const env = q.split(" ")[0] ?? "";
+        if (q.includes("WORKOS_API_KEY")) return answers[env]?.shift() ?? "";
+        return `value of ${q}`;
+      },
+    });
+    expect(result.code).toBe(0);
+    expect(storedValue(gh, "staging", "WORKOS_API_KEY")).toBe("sk_test_right");
+    expect(storedValue(gh, "production", "WORKOS_API_KEY")).toBe(
+      "sk_live_right",
+    );
+    expect(result.stdout).toContain(
+      "staging needs the WorkOS staging environment's key, which starts with sk_test_",
+    );
+    expect(result.stdout).toContain(
+      "production needs the WorkOS production environment's key, which starts with sk_live_",
+    );
+  });
+
+  it("leaves the organization to its own prompt when the person chooses none of two", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    const fetch = vendors(fakeCloudflare(), {
+      organizations: [
+        { id: "first", name: "First" },
+        { id: "second", name: "Second" },
+      ],
+    });
+    const result = await setupWith(noOrganization, fetch, gh);
+    expect(result.code).toBe(0);
+    expect(result.stderr).not.toContain("sees no organization");
+    expect(storedValue(gh, "staging", "SUPABASE_ORGANIZATION")).toBe(
+      "value of staging SUPABASE_ORGANIZATION",
+    );
   });
 });
