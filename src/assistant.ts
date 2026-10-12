@@ -2,7 +2,7 @@ export const assistants = ["claude", "cursor", "both", "none"] as const;
 export type Assistant = (typeof assistants)[number];
 
 const description =
-  "Deploying this project with turbo-vibe: editing turbo-vibe.yaml, checking a plan, fixing missing setup, and leaving production promotion to a person.";
+  "Deploying this project with turbo-vibe: editing turbo-vibe.yaml, checking a plan, guiding a person through account setup, and leaving production promotion to a person.";
 
 const guidance = (version: string) => `# turbo-vibe
 
@@ -16,9 +16,16 @@ This project is deployed by turbo-vibe ${version}. \`turbo-vibe.yaml\` at the re
 - When credentials are available, run \`plan --env staging\` before proposing a change and show the person its summary. Point out every line under "Deletions and replacements": those destroy data or traffic.
 - Never pass \`--allow-deletions\`, or tick the workflows' allow-deletions input, unless the person has agreed to the specific deletions \`plan\` listed.
 
-## When something is missing
+## Setting up the accounts
 
-Run \`check --env staging\` (or \`--env production\`). It names each missing account, token, permission or secret with its fix, and changes nothing. Relay the fixes; never invent tokens, and never print or commit a secret value. Secrets belong in the GitHub environments \`staging\` and \`production\`.
+When the person asks to set up the project's accounts, or a run fails on a missing account, token or secret:
+
+1. Run \`npx @turbo-vibe/cli@${version.split(".")[0]} setup --list\`. It reads only \`turbo-vibe.yaml\` and prints the accounts, the plans, and the steps only a person can do, each with a link. Walk the person through those steps one at a time.
+2. Tell the person to run \`npx @turbo-vibe/cli@${version.split(".")[0]} setup\` in their own terminal. It asks for each token without echoing it, creates the Cloudflare resources, and stores every secret in the GitHub environments. Never run \`setup\` yourself: it needs a person at the terminal.
+3. Never ask for a secret value, and never accept one in the chat. If the person pastes a token, do not use it, store it or repeat it. Tell them to revoke it and create a new one, because the conversation keeps a copy.
+4. Read \`setup\`'s final report with the person, and explain each \`FAIL\` line with its fix. A \`FAIL\` on a value \`setup\` stored is fixed with \`setup --replace <SECRET>\`; a plain second run keeps what exists.
+
+Never invent tokens, and never print or commit a secret value. Secrets belong in the GitHub environments \`staging\` and \`production\`. \`check --env staging\` names what is missing without changing anything, but it needs that environment's values, which only GitHub holds once \`setup\` has stored them.
 
 ## Production is promoted by a person
 
