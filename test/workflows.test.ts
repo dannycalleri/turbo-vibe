@@ -348,19 +348,19 @@ describe("confirm-build", () => {
   });
 });
 
-describe("the evidence workflow", () => {
+describe("the live tests workflow", () => {
   it("runs weekly and on demand, from main only, in its own environment", async () => {
-    const evidence = await workflow("evidence.yml");
-    expect(evidence.on.schedule).toEqual([{ cron: "0 6 * * 1" }]);
-    expect(evidence.on).toHaveProperty("workflow_dispatch");
-    const job = evidence.jobs.evidence;
+    const live = await workflow("live-tests.yml");
+    expect(live.on.schedule).toEqual([{ cron: "0 6 * * 1" }]);
+    expect(live.on).toHaveProperty("workflow_dispatch");
+    const job = live.jobs.live;
     expect(job.if).toBe("github.ref == 'refs/heads/main'");
-    expect(job.environment).toBe("evidence");
-    expect(evidence.env.BRANCH).toMatch(/^evidence-/);
+    expect(job.environment).toBe("live");
+    expect(live.env.BRANCH).toMatch(/^live-/);
   });
 
   it("removes every preview it deploys, whatever the deploy's outcome", async () => {
-    const { steps } = (await workflow("evidence.yml")).jobs.evidence;
+    const { steps } = (await workflow("live-tests.yml")).jobs.live;
     const loop = steps.find((step: { run?: string }) =>
       step.run?.includes("preview deploy"),
     ).run as string;

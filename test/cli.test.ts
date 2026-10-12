@@ -101,7 +101,7 @@ describe("turbo-vibe apply", () => {
     const dir = join(cwd, ".turbo-vibe", "tofu", "staging");
     expect(code).toBe(0);
     expect(runner.mock.calls).toEqual([
-      ["tofu", ["init", "-input=false"], { cwd: dir, env }],
+      ["tofu", ["init", "-input=false", "-reconfigure"], { cwd: dir, env }],
       [
         "tofu",
         ["apply", "-input=false", join(dir, "tfplan")],
@@ -145,7 +145,7 @@ describe("turbo-vibe apply", () => {
     const dir = join(cwd, ".turbo-vibe", "tofu", "staging");
     expect(code).toBe(0);
     expect(runner.mock.calls).toEqual([
-      ["tofu", ["init", "-input=false"], { cwd: dir, env }],
+      ["tofu", ["init", "-input=false", "-reconfigure"], { cwd: dir, env }],
     ]);
     expect(capture.mock.calls.map(([, args]) => args)).toEqual([
       ["plan", "-input=false", "-json", `-out=${join(dir, "tfplan")}`],
@@ -402,7 +402,7 @@ services:
     const tofuDir = join(cwd, ".turbo-vibe", "tofu", "staging");
     expect(runner.mock.calls[0]).toEqual([
       "tofu",
-      ["init", "-input=false"],
+      ["init", "-input=false", "-reconfigure"],
       { cwd: tofuDir, env },
     ]);
     expect(capture).toHaveBeenCalledWith("tofu", ["output", "-json"], {

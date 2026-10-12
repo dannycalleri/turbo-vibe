@@ -137,7 +137,7 @@ describe("turbo-vibe preview deploy", () => {
     expect(code).toBe(0);
     expect(calls.mock.calls[0]).toEqual([
       "tofu",
-      ["init", "-input=false"],
+      ["init", "-input=false", "-reconfigure"],
       expect.objectContaining({
         cwd: join(cwd, ".turbo-vibe", "tofu", "preview-feature-x"),
       }),
@@ -227,7 +227,7 @@ describe("turbo-vibe preview remove", () => {
     expect(calls.mock.calls).toEqual([
       [
         "tofu",
-        ["init", "-input=false"],
+        ["init", "-input=false", "-reconfigure"],
         expect.objectContaining({ cwd: previewRoot }),
       ],
       [
