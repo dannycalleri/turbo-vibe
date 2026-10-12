@@ -12,7 +12,7 @@ test:
 	pnpm exec vitest run
 
 build:
-	pnpm exec tsup
+	pnpm build
 
 .PHONY: compatibility
 compatibility: build
