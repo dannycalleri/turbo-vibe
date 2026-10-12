@@ -19,6 +19,7 @@ import type { Io } from "./io.js";
 import { migrate } from "./migrate.js";
 import { derivePlan, formatPlan } from "./plan.js";
 import { deployPreview, removePreview } from "./preview.js";
+import { setup } from "./setup.js";
 import { major, version } from "./version.js";
 
 export type { Io } from "./io.js";
@@ -180,6 +181,22 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     .action(async (options: { env: EnvironmentName }) => {
       const project = await loadProject();
       if (project) exitCode = await check(project.config, options.env, io);
+    });
+
+  program
+    .command("setup")
+    .description(
+      "create the GitHub environments, with a required reviewer on production",
+    )
+    .addOption(
+      new Option("-e, --env <environment...>", "environments to set up")
+        .choices(environmentNames)
+        .default([...environmentNames]),
+    )
+    .option("--repo <owner/name>", "GitHub repository (default: this one)")
+    .action(async (options: { env: EnvironmentName[]; repo?: string }) => {
+      const project = await loadProject();
+      if (project) exitCode = await setup(options, io);
     });
 
   program
