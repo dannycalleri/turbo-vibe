@@ -1,5 +1,10 @@
-import { granted } from "../checks/cloudflare.js";
-import type { Config } from "../config/schema.js";
+import { createHash } from "node:crypto";
+import {
+  granted,
+  requiredPermissions,
+  zoneScoped,
+} from "../checks/cloudflare.js";
+import type { Config, EnvironmentName } from "../config/schema.js";
 import type { Io } from "../io.js";
 
 const api = "https://api.cloudflare.com/client/v4";
@@ -37,11 +42,33 @@ function cloudflareApi(token: string, io: Io): CloudflareApi {
   };
 }
 
-export const createdSecrets = [
+export const cloudflareSecrets = [
   "CLOUDFLARE_ACCOUNT_ID",
   "CLOUDFLARE_ZONE_ID",
   "TURBO_VIBE_STATE_BUCKET",
+  "CLOUDFLARE_API_TOKEN",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
 ] as const;
+
+export interface Provided {
+  values: Record<string, string>;
+  replace: string[];
+}
+
+const r2Permission = "Workers R2 Storage Bucket Item Write";
+
+// check reads the token's own policies and the account's plan, so the CI token can read both.
+function ciPermissions(config: Config): string[] {
+  const container = Object.values(config.services).some(
+    (service) => service.target === "cloudflare-container",
+  );
+  return [
+    ...requiredPermissions({ config }),
+    "Account API Tokens Read",
+    ...(container ? ["Billing Read"] : []),
+  ];
+}
 
 function stateBucketName(config: Config): string {
   return `${config.project}-turbo-vibe-state`;
@@ -62,7 +89,7 @@ async function canCreateTokens(
   cloudflare: CloudflareApi,
   account: string,
   io: Io,
-): Promise<boolean> {
+): Promise<{ id: string; name: string } | undefined> {
   const tokens = `/accounts/${account}/tokens`;
   const verified = await cloudflare.call<{ id: string; status: string }>(
     "GET",
@@ -72,9 +99,10 @@ async function canCreateTokens(
     io.stderr(
       "the bootstrap token is not an active token of this account; create it in Cloudflare → Manage Account → Account API Tokens\n",
     );
-    return false;
+    return undefined;
   }
   const own = await cloudflare.call<{
+    name?: string;
     policies?: Parameters<typeof granted>[0];
   }>("GET", `${tokens}/${verified.body.result.id}`);
   const policies = own.body?.result?.policies;
@@ -85,9 +113,12 @@ async function canCreateTokens(
     io.stderr(
       "the bootstrap token lacks Account API Tokens Write, so it cannot create the CI tokens; add that permission and run setup again\n",
     );
-    return false;
+    return undefined;
   }
-  return true;
+  return {
+    id: verified.body.result.id,
+    name: own.body?.result?.name ?? verified.body.result.id,
+  };
 }
 
 interface PermissionGroup {
@@ -123,16 +154,19 @@ async function deleteTokensNamed(
   account: string,
   name: string,
 ): Promise<void> {
-  const listed = await cloudflare.call<{ id: string; name: string }[]>(
-    "GET",
-    `/accounts/${account}/tokens?per_page=50`,
-  );
-  for (const token of listed.body?.result ?? [])
-    if (token.name === name)
-      await cloudflare.call(
-        "DELETE",
-        `/accounts/${account}/tokens/${token.id}`,
-      );
+  const matching: string[] = [];
+  for (let page = 1; ; page++) {
+    const listed = await cloudflare.call<{ id: string; name: string }[]>(
+      "GET",
+      `/accounts/${account}/tokens?per_page=50&page=${page}`,
+    );
+    const tokens = listed.body?.result ?? [];
+    for (const token of tokens)
+      if (token.name === name) matching.push(token.id);
+    if (tokens.length < 50) break;
+  }
+  for (const id of matching)
+    await cloudflare.call("DELETE", `/accounts/${account}/tokens/${id}`);
 }
 
 async function untilActive(
@@ -158,16 +192,10 @@ async function withSetupToken<T>(
   bootstrap: CloudflareApi,
   config: Config,
   account: string,
+  groups: ReadonlyMap<string, string>,
   io: Io,
   work: (cloudflare: CloudflareApi) => Promise<T | undefined>,
 ): Promise<T | undefined> {
-  const groups = await permissionGroups(
-    bootstrap,
-    account,
-    setupPermissions,
-    io,
-  );
-  if (!groups) return undefined;
   const name = `turbo-vibe-${config.project}-setup`;
   await deleteTokensNamed(bootstrap, account, name);
   const accountKey = `com.cloudflare.api.account.${account}`;
@@ -297,11 +325,161 @@ async function bucket(
   return false;
 }
 
+async function createToken(
+  bootstrap: CloudflareApi,
+  account: string,
+  name: string,
+  policies: unknown[],
+  io: Io,
+): Promise<{ id: string; value: string } | undefined> {
+  await deleteTokensNamed(bootstrap, account, name);
+  const created = await bootstrap.call<{ id: string; value: string }>(
+    "POST",
+    `/accounts/${account}/tokens`,
+    { name, policies },
+  );
+  if (!created.body?.result?.value) {
+    io.stderr(
+      `cannot create the Cloudflare token ${name} (HTTP ${created.status})\n`,
+    );
+    return undefined;
+  }
+  io.stdout(`cloudflare: token ${name} created\n`);
+  return created.body.result;
+}
+
+function ciPolicies(
+  config: Config,
+  account: string,
+  zoneId: string,
+  groups: ReadonlyMap<string, string>,
+): unknown[] {
+  const names = ciPermissions(config);
+  const ids = (scoped: boolean) =>
+    names
+      .filter((name) => zoneScoped.has(name) === scoped)
+      .map((name) => ({ id: groups.get(name) }));
+  const zone = ids(true);
+  return [
+    {
+      effect: "allow",
+      resources: { [`com.cloudflare.api.account.${account}`]: "*" },
+      permission_groups: ids(false),
+    },
+    ...(zone.length > 0
+      ? [
+          {
+            effect: "allow",
+            resources: { [`com.cloudflare.api.account.zone.${zoneId}`]: "*" },
+            permission_groups: zone,
+          },
+        ]
+      : []),
+  ];
+}
+
+async function environmentTokens(
+  bootstrap: CloudflareApi,
+  config: Config,
+  account: string,
+  zoneId: string,
+  bucketName: string,
+  environment: EnvironmentName,
+  present: ReadonlySet<string>,
+  groups: ReadonlyMap<string, string>,
+  io: Io,
+): Promise<Provided | undefined> {
+  const provided: Provided = {
+    values: {
+      CLOUDFLARE_ACCOUNT_ID: account,
+      CLOUDFLARE_ZONE_ID: zoneId,
+      TURBO_VIBE_STATE_BUCKET: bucketName,
+    },
+    replace: [],
+  };
+  const name = `turbo-vibe-${config.project}-${environment}`;
+  // Cloudflare shows a token's value only once, so a token whose secret is gone is replaced.
+  if (!present.has("CLOUDFLARE_API_TOKEN")) {
+    const ci = await createToken(
+      bootstrap,
+      account,
+      name,
+      ciPolicies(config, account, zoneId, groups),
+      io,
+    );
+    if (!ci) return undefined;
+    provided.values.CLOUDFLARE_API_TOKEN = ci.value;
+  }
+  if (
+    !present.has("AWS_ACCESS_KEY_ID") ||
+    !present.has("AWS_SECRET_ACCESS_KEY")
+  ) {
+    const r2 = await createToken(
+      bootstrap,
+      account,
+      `${name}-r2`,
+      [
+        {
+          effect: "allow",
+          resources: {
+            [`com.cloudflare.edge.r2.bucket.${account}_default_${bucketName}`]:
+              "*",
+          },
+          permission_groups: [{ id: groups.get(r2Permission) }],
+        },
+      ],
+      io,
+    );
+    if (!r2) return undefined;
+    provided.values.AWS_ACCESS_KEY_ID = r2.id;
+    provided.values.AWS_SECRET_ACCESS_KEY = createHash("sha256")
+      .update(r2.value)
+      .digest("hex");
+    provided.replace.push("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY");
+  }
+  return provided;
+}
+
+async function offerToDelete(
+  bootstrap: CloudflareApi,
+  account: string,
+  token: { id: string; name: string },
+  io: Io,
+): Promise<void> {
+  const answer = (
+    (await io.ask?.(
+      `Delete the Cloudflare bootstrap token ${token.name} now? setup does not need it again until you add an environment [y/N]`,
+    )) ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  if (answer === "y" || answer === "yes") {
+    const deleted = await bootstrap.call(
+      "DELETE",
+      `/accounts/${account}/tokens/${token.id}`,
+    );
+    if (deleted.body?.success) {
+      io.stdout(`cloudflare: bootstrap token ${token.name} deleted\n`);
+      return;
+    }
+  }
+  io.stdout(
+    `cloudflare: the bootstrap token ${token.name} still exists; delete it at https://dash.cloudflare.com/${account}/api-tokens when you no longer need it\n`,
+  );
+}
+
 export async function setupCloudflare(
   config: Config,
+  present: ReadonlyMap<EnvironmentName, ReadonlySet<string>>,
   askSecret: (question: string) => Promise<string>,
   io: Io,
-): Promise<Record<(typeof createdSecrets)[number], string> | undefined> {
+): Promise<
+  | {
+      provided: Map<EnvironmentName, Provided>;
+      offerToDeleteBootstrap: () => Promise<void>;
+    }
+  | undefined
+> {
   const account = ((await io.ask?.("Cloudflare account ID")) ?? "").trim();
   const token = (
     await askSecret(
@@ -313,16 +491,49 @@ export async function setupCloudflare(
     return undefined;
   }
   const bootstrap = cloudflareApi(token, io);
-  if (!(await canCreateTokens(bootstrap, account, io))) return undefined;
-  const name = stateBucketName(config);
-  return withSetupToken(bootstrap, config, account, io, async (cloudflare) => {
-    const zoneId = await zone(cloudflare, config, account, io);
-    if (!zoneId || !(await bucket(cloudflare, name, account, io)))
-      return undefined;
-    return {
-      CLOUDFLARE_ACCOUNT_ID: account,
-      CLOUDFLARE_ZONE_ID: zoneId,
-      TURBO_VIBE_STATE_BUCKET: name,
-    };
-  });
+  const bootstrapToken = await canCreateTokens(bootstrap, account, io);
+  if (!bootstrapToken) return undefined;
+  const groups = await permissionGroups(
+    bootstrap,
+    account,
+    [...setupPermissions, ...ciPermissions(config), r2Permission],
+    io,
+  );
+  if (!groups) return undefined;
+  const bucketName = stateBucketName(config);
+  const zoneId = await withSetupToken(
+    bootstrap,
+    config,
+    account,
+    groups,
+    io,
+    async (cloudflare) => {
+      const id = await zone(cloudflare, config, account, io);
+      return id && (await bucket(cloudflare, bucketName, account, io))
+        ? id
+        : undefined;
+    },
+  );
+  if (!zoneId) return undefined;
+  const provided = new Map<EnvironmentName, Provided>();
+  for (const [environment, names] of present) {
+    const tokens = await environmentTokens(
+      bootstrap,
+      config,
+      account,
+      zoneId,
+      bucketName,
+      environment,
+      names,
+      groups,
+      io,
+    );
+    if (!tokens) return undefined;
+    provided.set(environment, tokens);
+  }
+  return {
+    provided,
+    offerToDeleteBootstrap: () =>
+      offerToDelete(bootstrap, account, bootstrapToken, io),
+  };
 }

@@ -28,7 +28,10 @@ interface Policy {
   permission_groups?: { name: string }[];
 }
 
-const zoneScoped = new Set(["DNS Write", "Workers Routes Write"]);
+export const zoneScoped: ReadonlySet<string> = new Set([
+  "DNS Write",
+  "Workers Routes Write",
+]);
 
 export function covers(
   resources: Record<string, unknown>,
@@ -71,7 +74,9 @@ export function granted(
   );
 }
 
-export function requiredPermissions(context: CheckContext): string[] {
+export function requiredPermissions(
+  context: Pick<CheckContext, "config">,
+): string[] {
   const targets = new Set(
     Object.values(context.config.services).map((service) => service.target),
   );

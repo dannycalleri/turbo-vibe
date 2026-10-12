@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { granted, requiredPermissions } from "../src/checks/cloudflare.js";
 import { stateBucket } from "../src/checks/state.js";
 import type { Check } from "../src/checks/types.js";
 import { fail, missing, ok } from "../src/checks/types.js";
+import { parseConfig } from "../src/config/load.js";
 import type { Capturer } from "../src/run.js";
 import { project, run } from "./harness.js";
 
@@ -89,12 +91,21 @@ interface FakeCloudflare {
   buckets?: string[];
   bootstrapPermissions?: string[];
   r2Enabled?: boolean;
+  groups?: string[];
+  existingTokens?: string[];
 }
 
 const groupNames = [
+  "Account API Tokens Read",
   "Account API Tokens Write",
-  "Zone Write",
+  "Billing Read",
+  "DNS Write",
+  "Workers Containers Write",
+  "Workers R2 Storage Bucket Item Write",
   "Workers R2 Storage Write",
+  "Workers Routes Write",
+  "Workers Scripts Write",
+  "Zone Write",
 ];
 
 function fakeCloudflare({
@@ -102,10 +113,20 @@ function fakeCloudflare({
   buckets = [],
   bootstrapPermissions = ["Account API Tokens Write"],
   r2Enabled = true,
+  groups = groupNames,
+  existingTokens = [],
 }: FakeCloudflare = {}) {
   const tokens = new Map<string, { id: string; name: string; value: string }>([
     ["boot", { id: "boot", name: "bootstrap", value: "BOOTSTRAP" }],
+    ...existingTokens.map(
+      (name, index) =>
+        [
+          `old${index}`,
+          { id: `old${index}`, name, value: `old-${index}` },
+        ] as const,
+    ),
   ]);
+  let issued = 0;
   const requests: {
     method: string;
     path: string;
@@ -129,9 +150,10 @@ function fakeCloudflare({
     if (path === `${accounts}/tokens/verify`)
       return json({ id: caller.id, status: "active" });
     if (path === `${accounts}/tokens/permission_groups`)
-      return json(groupNames.map((name) => ({ id: `id-${name}`, name })));
-    if (path === `${accounts}/tokens/boot`)
+      return json(groups.map((name) => ({ id: `id-${name}`, name })));
+    if (path === `${accounts}/tokens/boot` && method === "GET")
       return json({
+        name: "bootstrap",
         policies: [
           {
             effect: "allow",
@@ -140,10 +162,14 @@ function fakeCloudflare({
           },
         ],
       });
-    if (path.startsWith(`${accounts}/tokens?`))
-      return json([...tokens.values()].map(({ id, name }) => ({ id, name })));
+    if (path.startsWith(`${accounts}/tokens?`)) {
+      const page = Number(url.searchParams.get("page") ?? 1);
+      const all = [...tokens.values()].map(({ id, name }) => ({ id, name }));
+      return json(all.slice((page - 1) * 50, page * 50));
+    }
     if (path === `${accounts}/tokens` && method === "POST") {
-      const id = `t${tokens.size}`;
+      issued += 1;
+      const id = `t${issued}`;
       tokens.set(id, { id, name: body.name, value: `value-${id}` });
       return json({ id, value: `value-${id}` });
     }
@@ -185,7 +211,14 @@ function fakeCloudflare({
     throw new Error(`unexpected Cloudflare request: ${method} ${path}`);
   });
   const live = () => [...tokens.values()].map((t) => t.name);
-  return { fetch, requests, live };
+  const created = (name: string) =>
+    requests.find(
+      (r) =>
+        r.method === "POST" &&
+        r.path.endsWith("/tokens") &&
+        (r.body as { name: string }).name === name,
+    );
+  return { fetch, requests, live, created };
 }
 
 const ask = async (question: string) =>
@@ -195,20 +228,30 @@ const askSecret = async (question: string) =>
     ? "BOOTSTRAP"
     : `value of ${question}\n`;
 const cloudflareKept = [
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
   "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_API_TOKEN",
   "CLOUDFLARE_ZONE_ID",
   "TURBO_VIBE_STATE_BUCKET",
 ];
+const withDatabase = `${project}  db:
+    kind: database
+    target: supabase
+    organization: acme
+    region: eu-central-1
+`;
 
 function setup(
   argv: string[],
   gh: ReturnType<typeof fakeGh>,
   withAsk = true,
   cloudflare = fakeCloudflare(),
+  config = project,
 ) {
   return run(
     ["setup", ...argv],
-    { "turbo-vibe.yaml": project },
+    { "turbo-vibe.yaml": config },
     {},
     undefined,
     cloudflare.fetch,
@@ -332,27 +375,27 @@ describe("setup", () => {
   });
 
   it("asks only for the missing secrets and gives each value to gh on stdin, trimmed", async () => {
-    const gh = fakeGh({
-      secrets: {
-        staging: ["CLOUDFLARE_ACCOUNT_ID", "TURBO_VIBE_STATE_BUCKET"],
-      },
-    });
-    const result = await setup(["--env", "staging"], gh);
-    expect(result.code).toBe(0);
-    expect(gh.stored.map((secret) => secret.name)).toEqual([
-      "AWS_ACCESS_KEY_ID",
-      "AWS_SECRET_ACCESS_KEY",
-      "CLOUDFLARE_API_TOKEN",
-      "CLOUDFLARE_ZONE_ID",
-    ]);
-    expect(gh.stored[2]).toEqual({
-      env: "staging",
-      name: "CLOUDFLARE_API_TOKEN",
-      value: "value of staging CLOUDFLARE_API_TOKEN",
-    });
-    expect(result.stdout).toContain(
-      "staging: kept CLOUDFLARE_ACCOUNT_ID, TURBO_VIBE_STATE_BUCKET",
+    const gh = fakeGh({ secrets: { staging: cloudflareKept } });
+    const cloudflare = fakeCloudflare();
+    const result = await setup(
+      ["--env", "staging"],
+      gh,
+      true,
+      cloudflare,
+      withDatabase,
     );
+    expect(result.code).toBe(0);
+    expect(gh.stored).toEqual([
+      {
+        env: "staging",
+        name: "SUPABASE_ACCESS_TOKEN",
+        value: "value of staging SUPABASE_ACCESS_TOKEN",
+      },
+    ]);
+    expect(result.stdout).toContain(
+      `staging: kept ${cloudflareKept.join(", ")}`,
+    );
+    expect(cloudflare.fetch).not.toHaveBeenCalled();
     for (const call of gh.calls()) expect(call).not.toContain("value of");
     expect(result.stdout + result.stderr).not.toContain("value of");
   });
@@ -361,7 +404,7 @@ describe("setup", () => {
     const gh = fakeGh({ secrets: { staging: cloudflareKept } });
     const result = await run(
       ["setup", "--env", "staging"],
-      { "turbo-vibe.yaml": project },
+      { "turbo-vibe.yaml": withDatabase },
       {},
       undefined,
       fakeCloudflare().fetch,
@@ -370,7 +413,7 @@ describe("setup", () => {
     expect(result.code).toBe(0);
     expect(gh.stored).toEqual([]);
     expect(result.stdout).toContain(
-      "staging: CLOUDFLARE_API_TOKEN skipped, nothing entered",
+      "staging: SUPABASE_ACCESS_TOKEN skipped, nothing entered",
     );
   });
 
@@ -379,14 +422,20 @@ describe("setup", () => {
     checks.list = [
       async ({ io }) => {
         seen = { ...io.env };
-        return [ok("cloudflare", "token works")];
+        return [ok("supabase", "token works")];
       },
     ];
-    const gh = fakeGh({ secrets: { staging: ["CLOUDFLARE_ACCOUNT_ID"] } });
-    const result = await setup(["--env", "staging"], gh);
+    const gh = fakeGh({ secrets: { staging: cloudflareKept } });
+    const result = await setup(
+      ["--env", "staging"],
+      gh,
+      true,
+      fakeCloudflare(),
+      withDatabase,
+    );
     expect(result.code).toBe(0);
-    expect(seen.CLOUDFLARE_API_TOKEN).toBe(
-      "value of staging CLOUDFLARE_API_TOKEN",
+    expect(seen.SUPABASE_ACCESS_TOKEN).toBe(
+      "value of staging SUPABASE_ACCESS_TOKEN",
     );
     expect(seen).toMatchObject({
       GITHUB_REPOSITORY: "acme/app",
@@ -394,7 +443,7 @@ describe("setup", () => {
     });
     expect(result.stdout).toContain("staging is ready");
     expect(result.stdout).toContain(
-      "staging: kept CLOUDFLARE_ACCOUNT_ID, verified by check in the environment's workflow",
+      `staging: kept ${cloudflareKept.join(", ")}, verified by check in the environment's workflow`,
     );
   });
 
@@ -412,14 +461,14 @@ describe("setup", () => {
   it("does not report a kept secret as missing, but does report one left empty", async () => {
     checks.list = [
       async ({ io }) =>
-        ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"]
+        ["CLOUDFLARE_ACCOUNT_ID", "SUPABASE_ACCESS_TOKEN"]
           .filter((name) => !io.env[name])
-          .map((name) => missing("cloudflare", name, "set it")),
+          .map((name) => missing("supabase", name, "set it")),
     ];
     const gh = fakeGh({ secrets: { staging: cloudflareKept } });
     const result = await run(
       ["setup", "--env", "staging"],
-      { "turbo-vibe.yaml": project },
+      { "turbo-vibe.yaml": withDatabase },
       {},
       undefined,
       fakeCloudflare().fetch,
@@ -427,7 +476,7 @@ describe("setup", () => {
     );
     expect(result.code).toBe(1);
     expect(result.stdout).not.toContain("CLOUDFLARE_ACCOUNT_ID is not set");
-    expect(result.stdout).toContain("CLOUDFLARE_API_TOKEN is not set");
+    expect(result.stdout).toContain("SUPABASE_ACCESS_TOKEN is not set");
   });
 
   it("hides the shell's own values for the project's secrets from the checks", async () => {
@@ -468,16 +517,20 @@ describe("setup", () => {
     expect(result.stdout).toContain("staging is ready");
   });
 
-  it("names only the skipped secrets when the state check finds kept and skipped ones", async () => {
-    checks.list = [stateBucket];
-    const gh = fakeGh({
-      secrets: {
-        staging: [...cloudflareKept, "AWS_ACCESS_KEY_ID"],
-      },
-    });
+  it("names only the skipped secrets when one finding names kept and skipped ones", async () => {
+    checks.list = [
+      async () => [
+        {
+          ...fail("vendors", "x", "set them"),
+          message: "CLOUDFLARE_ACCOUNT_ID, SUPABASE_ACCESS_TOKEN are not set",
+          unset: ["CLOUDFLARE_ACCOUNT_ID", "SUPABASE_ACCESS_TOKEN"],
+        },
+      ],
+    ];
+    const gh = fakeGh({ secrets: { staging: cloudflareKept } });
     const result = await run(
       ["setup", "--env", "staging"],
-      { "turbo-vibe.yaml": project },
+      { "turbo-vibe.yaml": withDatabase },
       {},
       undefined,
       fakeCloudflare().fetch,
@@ -485,7 +538,7 @@ describe("setup", () => {
     );
     expect(result.code).toBe(1);
     expect(result.stdout).toContain(
-      "FAIL  state bucket: AWS_SECRET_ACCESS_KEY is not set",
+      "FAIL  vendors: SUPABASE_ACCESS_TOKEN is not set",
     );
   });
 });
@@ -496,37 +549,33 @@ describe("setup on Cloudflare", () => {
     const cloudflare = fakeCloudflare();
     const result = await setup([], gh, true, cloudflare);
     expect(result.code).toBe(0);
-    const writes = cloudflare.requests.filter((r) => r.method === "POST");
+    const writes = cloudflare.requests.filter(
+      (r) => r.method === "POST" && !r.path.endsWith("/tokens"),
+    );
     expect(writes.map((r) => [r.path, r.token])).toEqual([
-      ["/accounts/acc123/tokens", "BOOTSTRAP"],
       ["/zones", "value-t1"],
       ["/accounts/acc123/r2/buckets", "value-t1"],
     ]);
-    expect(writes[1]?.body).toMatchObject({
+    expect(writes[0]?.body).toMatchObject({
       name: "example.com",
       account: { id: "acc123" },
     });
-    expect(cloudflare.live()).toEqual(["bootstrap"]);
+    expect(cloudflare.live()).not.toContain("turbo-vibe-acme-setup");
     expect(result.stdout).toContain(
       "set the nameservers of example.com to ada.ns.cloudflare.com and bob.ns.cloudflare.com",
     );
     for (const env of ["staging", "production"])
-      expect(
-        gh.stored.filter(
-          (secret) =>
-            secret.env === env &&
-            secret.name !== "CLOUDFLARE_API_TOKEN" &&
-            !secret.name.startsWith("AWS"),
-        ),
-      ).toEqual([
-        { env, name: "CLOUDFLARE_ACCOUNT_ID", value: "acc123" },
-        { env, name: "CLOUDFLARE_ZONE_ID", value: "zone-new" },
-        {
-          env,
-          name: "TURBO_VIBE_STATE_BUCKET",
-          value: "acme-turbo-vibe-state",
-        },
-      ]);
+      expect(gh.stored.filter((secret) => secret.env === env)).toEqual(
+        expect.arrayContaining([
+          { env, name: "CLOUDFLARE_ACCOUNT_ID", value: "acc123" },
+          { env, name: "CLOUDFLARE_ZONE_ID", value: "zone-new" },
+          {
+            env,
+            name: "TURBO_VIBE_STATE_BUCKET",
+            value: "acme-turbo-vibe-state",
+          },
+        ]),
+      );
   });
 
   it("repeats the nameservers for an existing zone that is still pending", async () => {
@@ -561,8 +610,10 @@ describe("setup on Cloudflare", () => {
       0,
     );
     expect(
-      cloudflare.requests.filter((r) => r.method === "POST").map((r) => r.path),
-    ).toEqual(["/accounts/acc123/tokens"]);
+      cloudflare.requests
+        .filter((r) => r.method === "POST" && !r.path.endsWith("/tokens"))
+        .map((r) => r.path),
+    ).toEqual([]);
     expect(gh.stored).toContainEqual({
       env: "staging",
       name: "CLOUDFLARE_ZONE_ID",
@@ -595,5 +646,211 @@ describe("setup on Cloudflare", () => {
     });
     expect((await setup([], gh, true, cloudflare)).code).toBe(0);
     expect(cloudflare.fetch).not.toHaveBeenCalled();
+  });
+
+  it("gives each environment its own CI token with exactly what check needs, and R2 keys derived from its own R2 token", async () => {
+    const gh = fakeGh();
+    const cloudflare = fakeCloudflare();
+    expect((await setup([], gh, true, cloudflare)).code).toBe(0);
+    const ci = cloudflare.created("turbo-vibe-acme-staging");
+    if (!ci) throw new Error("no staging CI token was created");
+    const policies = (
+      ci.body as {
+        policies: { permission_groups: { id: string }[] }[];
+      }
+    ).policies.map((policy) => ({
+      ...policy,
+      permission_groups: policy.permission_groups.map((group) => ({
+        name: group.id.replace(/^id-/, ""),
+      })),
+    }));
+    const parsed = parseConfig(project);
+    if (!parsed.ok) throw new Error("fixture does not parse");
+    const needed = [
+      ...requiredPermissions({ config: parsed.config }),
+      "Account API Tokens Read",
+      "Billing Read",
+    ];
+    for (const permission of needed)
+      expect(
+        granted(policies, permission, { account: "acc123", zone: "zone-new" }),
+      ).toBe(true);
+    expect(policies.flatMap((p) => p.permission_groups).length).toBe(
+      needed.length,
+    );
+
+    const r2 = cloudflare.created("turbo-vibe-acme-staging-r2");
+    expect(r2?.body).toMatchObject({
+      policies: [
+        {
+          resources: {
+            "com.cloudflare.edge.r2.bucket.acc123_default_acme-turbo-vibe-state":
+              "*",
+          },
+          permission_groups: [
+            { id: "id-Workers R2 Storage Bucket Item Write" },
+          ],
+        },
+      ],
+    });
+    const staging = Object.fromEntries(
+      gh.stored
+        .filter((secret) => secret.env === "staging")
+        .map((secret) => [secret.name, secret.value]),
+    );
+    expect(staging).toMatchObject({
+      CLOUDFLARE_API_TOKEN: "value-t2",
+      AWS_ACCESS_KEY_ID: "t3",
+      // SHA-256 of the R2 token's value, "value-t3".
+      AWS_SECRET_ACCESS_KEY:
+        "0d1ae4afc983b09f1315916493ef7e16e69daddc9c65d78377065535ed06030e",
+    });
+    const production = gh.stored.find(
+      (secret) =>
+        secret.env === "production" && secret.name === "CLOUDFLARE_API_TOKEN",
+    );
+    expect(production?.value).toBe("value-t4");
+  });
+
+  it("stops and names a permission group Cloudflare does not have, before creating anything", async () => {
+    const cloudflare = fakeCloudflare({
+      groups: groupNames.filter((name) => name !== "Workers Containers Write"),
+    });
+    const result = await setup([], fakeGh(), true, cloudflare);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "Cloudflare has no permission group named Workers Containers Write",
+    );
+    expect(cloudflare.requests.some((r) => r.method === "POST")).toBe(false);
+  });
+
+  it("keeps a token whose secret exists, and replaces one whose secret is gone", async () => {
+    const cloudflare = fakeCloudflare({
+      existingTokens: ["turbo-vibe-acme-staging", "turbo-vibe-acme-production"],
+    });
+    const gh = fakeGh({
+      secrets: {
+        staging: cloudflareKept.filter(
+          (name) => name !== "CLOUDFLARE_API_TOKEN",
+        ),
+        production: cloudflareKept.filter(
+          (name) => name !== "CLOUDFLARE_ZONE_ID",
+        ),
+      },
+    });
+    expect((await setup([], gh, true, cloudflare)).code).toBe(0);
+    expect(cloudflare.requests).toContainEqual(
+      expect.objectContaining({
+        method: "DELETE",
+        path: "/accounts/acc123/tokens/old0",
+      }),
+    );
+    expect(cloudflare.live()).toContain("turbo-vibe-acme-staging");
+    expect(cloudflare.created("turbo-vibe-acme-staging")).toBeDefined();
+    expect(cloudflare.created("turbo-vibe-acme-production")).toBeUndefined();
+    expect(
+      gh.stored
+        .filter((secret) => secret.env === "production")
+        .map((s) => s.name),
+    ).toEqual(["CLOUDFLARE_ZONE_ID"]);
+  });
+
+  it("replaces both R2 keys when one of them is gone", async () => {
+    const gh = fakeGh({
+      secrets: {
+        staging: cloudflareKept.filter(
+          (name) => name !== "AWS_SECRET_ACCESS_KEY",
+        ),
+      },
+    });
+    const cloudflare = fakeCloudflare();
+    expect((await setup(["--env", "staging"], gh, true, cloudflare)).code).toBe(
+      0,
+    );
+    expect(gh.stored.map((secret) => secret.name)).toEqual([
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+    ]);
+    expect(cloudflare.created("turbo-vibe-acme-staging")).toBeUndefined();
+  });
+
+  it("deletes the bootstrap token only when the person says yes", async () => {
+    const kept = fakeCloudflare();
+    const declined = await setup(["--env", "staging"], fakeGh(), true, kept);
+    expect(kept.live()).toContain("bootstrap");
+    expect(declined.stdout).toContain(
+      "the bootstrap token bootstrap still exists; delete it at https://dash.cloudflare.com/acc123/api-tokens",
+    );
+
+    const removed = fakeCloudflare();
+    const result = await run(
+      ["setup", "--env", "staging"],
+      { "turbo-vibe.yaml": project },
+      {},
+      undefined,
+      removed.fetch,
+      {
+        capture: fakeGh().capture,
+        ask: async (question: string) =>
+          question.startsWith("Delete the Cloudflare bootstrap token")
+            ? "y"
+            : ask(question),
+        askSecret,
+      },
+    );
+    expect(removed.live()).not.toContain("bootstrap");
+    expect(result.stdout).toContain(
+      "cloudflare: bootstrap token bootstrap deleted",
+    );
+  });
+
+  it("deletes every old token of that name, also beyond the first page", async () => {
+    const others = Array.from({ length: 49 }, (_, index) => `other-${index}`);
+    const cloudflare = fakeCloudflare({
+      existingTokens: [
+        "turbo-vibe-acme-staging",
+        ...others,
+        "turbo-vibe-acme-staging",
+      ],
+    });
+    const gh = fakeGh({
+      secrets: {
+        staging: cloudflareKept.filter(
+          (name) => name !== "CLOUDFLARE_API_TOKEN",
+        ),
+      },
+    });
+    expect((await setup(["--env", "staging"], gh, true, cloudflare)).code).toBe(
+      0,
+    );
+    expect(
+      cloudflare.live().filter((name) => name === "turbo-vibe-acme-staging"),
+    ).toHaveLength(1);
+  });
+
+  it("keeps the bootstrap token when a secret cannot be stored", async () => {
+    const gh = fakeGh();
+    const failing = vi.fn<Capturer>(async (command, args, options) =>
+      args[0] === "secret" && args[1] === "set"
+        ? { code: 1, stdout: "" }
+        : gh.capture(command, args, options),
+    );
+    const cloudflare = fakeCloudflare();
+    const ask = vi.fn(async (question: string) =>
+      question.startsWith("Cloudflare account ID") ? "acc123" : "y",
+    );
+    const result = await run(
+      ["setup", "--env", "staging"],
+      { "turbo-vibe.yaml": project },
+      {},
+      undefined,
+      cloudflare.fetch,
+      { capture: failing, ask, askSecret },
+    );
+    expect(result.code).toBe(1);
+    expect(cloudflare.live()).toContain("bootstrap");
+    expect(
+      ask.mock.calls.some(([question]) => question.startsWith("Delete")),
+    ).toBe(false);
   });
 });

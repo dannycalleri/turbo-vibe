@@ -3,7 +3,11 @@ import type { Finding } from "./checks/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import { environmentSecrets } from "./deploy.js";
 import type { Io } from "./io.js";
-import { createdSecrets, setupCloudflare } from "./setup/cloudflare.js";
+import {
+  cloudflareSecrets,
+  type Provided,
+  setupCloudflare,
+} from "./setup/cloudflare.js";
 
 export interface SetupOptions {
   env: readonly EnvironmentName[];
@@ -159,17 +163,19 @@ async function storeSecrets(
   repo: string,
   environment: EnvironmentName,
   present: ReadonlySet<string>,
-  provided: Readonly<Record<string, string>>,
+  provided: Provided,
   askSecret: (question: string) => Promise<string>,
   io: Io,
 ): Promise<Stored | undefined> {
   const needed = environmentSecrets(config);
-  const kept = needed.filter((name) => present.has(name));
+  const store = (name: string) =>
+    !present.has(name) || provided.replace.includes(name);
+  const kept = needed.filter((name) => !store(name));
   const entered: Record<string, string> = {};
   if (kept.length > 0) io.stdout(`${environment}: kept ${kept.join(", ")}\n`);
-  for (const name of needed.filter((name) => !present.has(name))) {
+  for (const name of needed.filter(store)) {
     const value = (
-      provided[name] ?? (await askSecret(`${environment} ${name}`))
+      provided.values[name] ?? (await askSecret(`${environment} ${name}`))
     ).trim();
     if (!value) {
       io.stdout(`${environment}: ${name} skipped, nothing entered\n`);
@@ -301,11 +307,13 @@ export async function setup(
     [...present.values()].some((existing) =>
       names.some((name) => needed.includes(name) && !existing.has(name)),
     );
-  let provided: Record<string, string> = {};
-  if (needed.includes("CLOUDFLARE_ZONE_ID") && lacking(createdSecrets)) {
-    const created = await setupCloudflare(config, askSecret, io);
+  let provided = new Map<EnvironmentName, Provided>();
+  let afterStoring = async () => {};
+  if (needed.includes("CLOUDFLARE_ZONE_ID") && lacking(cloudflareSecrets)) {
+    const created = await setupCloudflare(config, present, askSecret, io);
     if (!created) return 1;
-    provided = created;
+    provided = created.provided;
+    afterStoring = created.offerToDeleteBootstrap;
   }
   const stored = new Map<EnvironmentName, Stored>();
   for (const [name, names] of present) {
@@ -314,13 +322,15 @@ export async function setup(
       repo,
       name,
       names,
-      provided,
+      provided.get(name) ?? { values: {}, replace: [] },
       askSecret,
       io,
     );
     if (!result) return 1;
     stored.set(name, result);
   }
+  // The new tokens' values exist only in GitHub now, so the bootstrap token may go only after every store succeeded.
+  await afterStoring();
   const token = await gh(["auth", "token"], io);
   const github = {
     GITHUB_REPOSITORY: repo,
