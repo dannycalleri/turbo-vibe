@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import { main } from "./main.js";
 import { spawnCapturer, spawnRunner } from "./run.js";

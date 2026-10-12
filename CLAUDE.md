@@ -5,7 +5,7 @@ An open-source kit that deploys a project's services from one `turbo-vibe.yaml`.
 ## Commands
 
 - `make check` — the gate for every commit: `biome ci .`, `tsc --noEmit`, `vitest run`.
-- `make build` — bundles `src/cli.ts` into `dist/cli.js` with `tsup`.
+- `make build` — runs `pnpm build`, which empties `dist/` and compiles `src/` into it with `tsc -p tsconfig.build.json` (one `.js` per source file, no bundler; the runtime dependencies are installed with the package). `dist/cli.js` keeps the `#!/usr/bin/env node` line of `src/cli.ts`.
 - `make compatibility` — regenerates `COMPATIBILITY.md` (pinned versions per adapter, last live pass) through the hidden `turbo-vibe compatibility` command; a test fails when a pin changed and the file was not regenerated.
 - `make schema` — regenerates `schema/turbo-vibe.schema.json` (shipped in the npm package) from the zod schema through the hidden `turbo-vibe schema` command; a test fails when the committed file is stale.
 - `make integration` — `validate-infra`, `lint-workflows` (`actionlint`, local or the pinned Docker image), `integration-tests` (`test/integration/`, against real Postgres in Docker), and `dry-run-example` (a real `wrangler deploy --dry-run` of each example under `examples/` that deploys to Cloudflare, building their images with Docker). Not part of `make check`.
