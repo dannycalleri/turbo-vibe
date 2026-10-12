@@ -1,6 +1,6 @@
 # Bootstrap checklist
 
-`turbo-vibe setup` does most of the one-time setup. It creates the GitHub environments, the Cloudflare zone, the state bucket and the Cloudflare tokens, and it stores every secret in its GitHub environment. This page lists what it leaves to you: accounts, plans, and the tokens that no API can create. Do only the sections for the targets your `turbo-vibe.yaml` uses, then [run `setup`](#6-run-setup). Every paid plan is named at the step that needs it, before anything is created.
+`turbo-vibe setup` does most of the one-time setup. It creates the GitHub environments, the Cloudflare zone, the state bucket and the Cloudflare tokens, and it stores every secret in its GitHub environment. This page lists what it leaves to you: accounts, plans, and the tokens that no API can create. Do only the sections for the targets your `turbo-vibe.yaml` uses, then [run `setup`](#6-run-setup). `setup --list` prints the list for your file, with a link for each step, and changes nothing. Every paid plan is named at the step that needs it, before anything is created.
 
 ## 1. GitHub
 

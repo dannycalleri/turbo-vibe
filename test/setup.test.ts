@@ -1240,3 +1240,61 @@ describe("setup on re-runs and other environments", () => {
     expect(gh.capture).not.toHaveBeenCalled();
   });
 });
+
+describe("setup --list", () => {
+  it("names the accounts, plans and person steps for the project's targets, and changes nothing", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const runner = vi.fn(async () => 0);
+    const capture = vi.fn<Capturer>();
+    const result = await run(
+      ["setup", "--list"],
+      {
+        "turbo-vibe.yaml": `${withSignIn}  db:\n    kind: database\n    target: supabase\n    region: eu-central-1\n`,
+      },
+      {},
+      runner,
+      fetch,
+      { capture },
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Subscribe to Workers Paid");
+    expect(result.stdout).toContain("Create the Supabase organization");
+    expect(result.stdout).toContain("production needs billing");
+    expect(result.stdout).not.toContain("Vercel");
+    expect(result.stdout).toContain(
+      "staging: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, CLOUDFLARE_ACCOUNT_ID",
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(runner).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("names the Vercel token and the Pro plan, and no Workers Paid, for a static site on Vercel", async () => {
+    const site = `version: 1
+project: acme
+domain: acme.example.com
+services:
+  web:
+    kind: frontend
+    target: vercel-static
+    build: { command: "pnpm build", output: dist }
+`;
+    const result = await run(["setup", "--list"], { "turbo-vibe.yaml": site });
+    expect(result.stdout).toContain("Create a Vercel access token");
+    expect(result.stdout).toContain("a commercial project needs the Pro plan");
+    expect(result.stdout).not.toContain("Workers Paid");
+  });
+
+  it("names Supabase Pro when the project has previews, which run on a database branch", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": withDatabase.replace(
+        "services:",
+        "previews: true\nservices:",
+      ),
+    });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "on the Pro plan (the config asks for plan: paid, staging: branch or previews)",
+    );
+  });
+});
