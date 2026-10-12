@@ -5,10 +5,10 @@ Every week, and on demand, the kit's live tests (`live-tests.yml`) deploy each e
 | Adapter | Stability | Pinned versions | Last live pass |
 |---|---|---|---|
 | `cloudflare-container` | stable | wrangler 4.148.0, @cloudflare/containers 0.3.7, OpenTofu 1.13.1, cloudflare provider 5.27.0 | 2026-10-12 |
-| `cloudflare-static` | stable | wrangler 4.148.0, OpenTofu 1.13.1, cloudflare provider 5.27.0 | 2026-10-11 |
-| `supabase` | stable | Supabase CLI 2.120.0, OpenTofu 1.13.1, supabase provider 1.11.0, random provider 3.9.1 | 2026-10-11 |
-| `workos` | stable | OpenTofu 1.13.1, workos provider 2.5.0 | 2026-10-11 |
-| `vercel-static` | beta | Vercel CLI 63.1.0, OpenTofu 1.13.1, vercel provider 5.21.0, cloudflare provider 5.27.0 | not yet |
-| `vercel-nextjs` | beta | Vercel CLI 63.1.0, OpenTofu 1.13.1, vercel provider 5.21.0, cloudflare provider 5.27.0 | not yet |
+| `cloudflare-static` | stable | wrangler 4.148.0, OpenTofu 1.13.1, cloudflare provider 5.27.0 | 2026-10-12 |
+| `supabase` | stable | Supabase CLI 2.120.0, OpenTofu 1.13.1, supabase provider 1.11.0, random provider 3.9.1 | 2026-10-12 |
+| `workos` | stable | OpenTofu 1.13.1, workos provider 2.5.0 | 2026-10-12 |
+| `vercel-static` | beta | Vercel CLI 63.1.0, OpenTofu 1.13.1, vercel provider 5.21.0, cloudflare provider 5.27.0 | 2026-10-12 |
+| `vercel-nextjs` | beta | Vercel CLI 63.1.0, OpenTofu 1.13.1, vercel provider 5.21.0, cloudflare provider 5.27.0 | 2026-10-12 |
 
-<!-- turbo-vibe-compatibility: {"cloudflare-container":"2026-10-12","cloudflare-static":"2026-10-11","supabase":"2026-10-11","workos":"2026-10-11"} -->
+<!-- turbo-vibe-compatibility: {"cloudflare-container":"2026-10-12","cloudflare-static":"2026-10-12","supabase":"2026-10-12","vercel-nextjs":"2026-10-12","vercel-static":"2026-10-12","workos":"2026-10-12"} -->
