@@ -1,4 +1,5 @@
-import type { EnvironmentName } from "./config/schema.js";
+import type { Config, EnvironmentName } from "./config/schema.js";
+import { environmentSecrets } from "./deploy.js";
 import type { Io } from "./io.js";
 
 export interface SetupOptions {
@@ -23,9 +24,14 @@ type Read<T> =
 async function gh(
   args: readonly string[],
   io: Io,
+  input?: string,
 ): Promise<{ code: number; stdout: string } | undefined> {
   try {
-    return await io.capture("gh", args, { cwd: io.cwd, env: io.env });
+    return await io.capture("gh", args, {
+      cwd: io.cwd,
+      env: io.env,
+      ...(input === undefined ? {} : { input }),
+    });
   } catch {
     return undefined;
   }
@@ -124,8 +130,52 @@ async function requireReviewer(
   );
 }
 
-export async function setup(options: SetupOptions, io: Io): Promise<number> {
-  if (!io.ask) {
+async function storeSecrets(
+  config: Config,
+  repo: string,
+  environment: EnvironmentName,
+  askSecret: (question: string) => Promise<string>,
+  io: Io,
+): Promise<boolean> {
+  const listed = await ghRead<{ name: string }[]>(
+    ["secret", "list", "--env", environment, "--repo", repo, "--json", "name"],
+    io,
+  );
+  if (listed.status !== "found") {
+    io.stderr(`cannot list the secrets of ${environment} in ${repo}\n`);
+    return false;
+  }
+  const present = new Set(listed.value.map((secret) => secret.name));
+  const needed = environmentSecrets(config);
+  const kept = needed.filter((name) => present.has(name));
+  if (kept.length > 0) io.stdout(`${environment}: kept ${kept.join(", ")}\n`);
+  for (const name of needed.filter((name) => !present.has(name))) {
+    const value = (await askSecret(`${environment} ${name}`)).trim();
+    if (!value) {
+      io.stdout(`${environment}: ${name} skipped, nothing entered\n`);
+      continue;
+    }
+    const stored = await gh(
+      ["secret", "set", name, "--env", environment, "--repo", repo],
+      io,
+      value,
+    );
+    if (stored?.code !== 0) {
+      io.stderr(`cannot store ${name} in ${environment}\n`);
+      return false;
+    }
+    io.stdout(`${environment}: stored ${name}\n`);
+  }
+  return true;
+}
+
+export async function setup(
+  config: Config,
+  options: SetupOptions,
+  io: Io,
+): Promise<number> {
+  const { askSecret } = io;
+  if (!io.ask || !askSecret) {
     io.stderr(
       "setup asks for secrets, so it needs a terminal; run it in one\n",
     );
@@ -170,6 +220,9 @@ export async function setup(options: SetupOptions, io: Io): Promise<number> {
       return 1;
     }
     if (name === "production") await requireReviewer(repo, found.value, io);
+  }
+  for (const name of options.env) {
+    if (!(await storeSecrets(config, repo, name, askSecret, io))) return 1;
   }
   return 0;
 }

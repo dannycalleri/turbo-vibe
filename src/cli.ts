@@ -3,6 +3,38 @@ import { main } from "./main.js";
 import { spawnCapturer, spawnRunner } from "./run.js";
 import { postgresSession } from "./sql.js";
 
+function readHidden(prompt: string): Promise<string> {
+  const stdin = process.stdin;
+  process.stdout.write(prompt);
+  stdin.setRawMode(true);
+  stdin.setEncoding("utf8");
+  stdin.resume();
+  return new Promise((resolve) => {
+    let value = "";
+    const finish = () => {
+      stdin.off("data", onData);
+      stdin.setRawMode(false);
+      stdin.pause();
+      process.stdout.write("\n");
+    };
+    const onData = (chunk: string) => {
+      for (const char of chunk) {
+        if (char === "\r" || char === "\n" || char === "\u0004") {
+          finish();
+          resolve(value);
+          return;
+        }
+        if (char === "\u0003") {
+          finish();
+          process.exit(130);
+        }
+        value = char === "\u007f" ? value.slice(0, -1) : value + char;
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
 process.exitCode = await main(process.argv.slice(2), {
   cwd: process.cwd(),
   env: process.env,
@@ -24,6 +56,7 @@ process.exitCode = await main(process.argv.slice(2), {
             prompt.close();
           }
         },
+        askSecret: (question: string) => readHidden(`${question}: `),
       }
     : {}),
   fetch: globalThis.fetch,

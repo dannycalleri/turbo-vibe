@@ -186,7 +186,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
   program
     .command("setup")
     .description(
-      "create the GitHub environments, with a required reviewer on production",
+      "create the GitHub environments, with a required reviewer on production, and store each missing secret, asked for in a terminal",
     )
     .addOption(
       new Option("-e, --env <environment...>", "environments to set up")
@@ -196,7 +196,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     .option("--repo <owner/name>", "GitHub repository (default: this one)")
     .action(async (options: { env: EnvironmentName[]; repo?: string }) => {
       const project = await loadProject();
-      if (project) exitCode = await setup(options, io);
+      if (project) exitCode = await setup(project.config, options, io);
     });
 
   program
