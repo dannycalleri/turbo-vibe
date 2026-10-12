@@ -1,6 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { stateBucket } from "../src/checks/state.js";
+import type { Check } from "../src/checks/types.js";
+import { fail, missing, ok } from "../src/checks/types.js";
 import type { Capturer } from "../src/run.js";
 import { project, run } from "./harness.js";
+
+const checks = vi.hoisted(() => ({ list: [] as Check[] }));
+vi.mock("../src/check.js", async (original) => ({
+  ...(await original<typeof import("../src/check.js")>()),
+  checksFor: () => checks.list,
+}));
+
+beforeEach(() => {
+  checks.list = [];
+});
 
 interface FakeGitHub {
   signedIn?: boolean;
@@ -37,6 +50,8 @@ function fakeGh({
       stored.push({ env, name: rest[1] ?? "", value: options.input });
       return { code: 0, stdout: "" };
     }
+    if (first === "auth" && rest[0] === "token")
+      return { code: 0, stdout: "gho_t0ken\n" };
     if (first === "auth") return { code: signedIn ? 0 : 1, stdout: "" };
     if (first === "repo") return { code: 0, stdout: "acme/app\n" };
     if (rest[0] === "user")
@@ -233,6 +248,125 @@ describe("setup", () => {
     expect(gh.stored).toEqual([]);
     expect(result.stdout).toContain(
       "staging: CLOUDFLARE_API_TOKEN skipped, nothing entered",
+    );
+  });
+
+  it("ends with the checks, given the values entered in this run", async () => {
+    let seen: Record<string, string | undefined> = {};
+    checks.list = [
+      async ({ io }) => {
+        seen = { ...io.env };
+        return [ok("cloudflare", "token works")];
+      },
+    ];
+    const gh = fakeGh({ secrets: { staging: ["CLOUDFLARE_ACCOUNT_ID"] } });
+    const result = await setup(["--env", "staging"], gh);
+    expect(result.code).toBe(0);
+    expect(seen.CLOUDFLARE_API_TOKEN).toBe(
+      "value of staging CLOUDFLARE_API_TOKEN",
+    );
+    expect(seen).toMatchObject({
+      GITHUB_REPOSITORY: "acme/app",
+      GITHUB_TOKEN: "gho_t0ken",
+    });
+    expect(result.stdout).toContain("staging is ready");
+    expect(result.stdout).toContain(
+      "staging: kept CLOUDFLARE_ACCOUNT_ID, verified by check in the environment's workflow",
+    );
+  });
+
+  it("exits non-zero when a check fails", async () => {
+    checks.list = [
+      async () => [
+        fail("cloudflare", "zone is pending", "set the nameservers"),
+      ],
+    ];
+    const result = await setup(["--env", "staging"], fakeGh());
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("FAIL  cloudflare: zone is pending");
+  });
+
+  it("does not report a kept secret as missing, but does report one left empty", async () => {
+    checks.list = [
+      async ({ io }) =>
+        ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ZONE_ID"]
+          .filter((name) => !io.env[name])
+          .map((name) => missing("cloudflare", name, "set it")),
+    ];
+    const gh = fakeGh({ secrets: { staging: ["CLOUDFLARE_ACCOUNT_ID"] } });
+    const result = await run(
+      ["setup", "--env", "staging"],
+      { "turbo-vibe.yaml": project },
+      {},
+      undefined,
+      undefined,
+      { capture: gh.capture, ask, askSecret: async () => "" },
+    );
+    expect(result.code).toBe(1);
+    expect(result.stdout).not.toContain("CLOUDFLARE_ACCOUNT_ID is not set");
+    expect(result.stdout).toContain("CLOUDFLARE_ZONE_ID is not set");
+  });
+
+  it("hides the shell's own values for the project's secrets from the checks", async () => {
+    let seen: Record<string, string | undefined> = {};
+    checks.list = [
+      async ({ io }) => {
+        seen = { ...io.env };
+        return [];
+      },
+    ];
+    const gh = fakeGh({ secrets: { staging: ["CLOUDFLARE_API_TOKEN"] } });
+    await run(
+      ["setup", "--env", "staging"],
+      { "turbo-vibe.yaml": project },
+      { CLOUDFLARE_API_TOKEN: "shell-token", HOME: "/home/ada" },
+      undefined,
+      undefined,
+      { capture: gh.capture, ask, askSecret },
+    );
+    expect(seen.CLOUDFLARE_API_TOKEN).toBeUndefined();
+    expect(seen.HOME).toBe("/home/ada");
+  });
+
+  it("drops the state check's not-set failure when every named secret is kept", async () => {
+    checks.list = [stateBucket];
+    const gh = fakeGh({
+      secrets: {
+        staging: [
+          "AWS_ACCESS_KEY_ID",
+          "AWS_SECRET_ACCESS_KEY",
+          "CLOUDFLARE_ACCOUNT_ID",
+          "TURBO_VIBE_STATE_BUCKET",
+        ],
+      },
+    });
+    const result = await setup(["--env", "staging"], gh);
+    expect(result.stdout).not.toContain("not set");
+    expect(result.stdout).toContain("staging is ready");
+  });
+
+  it("names only the skipped secrets when the state check finds kept and skipped ones", async () => {
+    checks.list = [stateBucket];
+    const gh = fakeGh({
+      secrets: {
+        staging: [
+          "AWS_ACCESS_KEY_ID",
+          "AWS_SECRET_ACCESS_KEY",
+          "CLOUDFLARE_ACCOUNT_ID",
+        ],
+      },
+    });
+    const result = await run(
+      ["setup", "--env", "staging"],
+      { "turbo-vibe.yaml": project },
+      {},
+      undefined,
+      undefined,
+      { capture: gh.capture, ask, askSecret: async () => "" },
+    );
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(
+      "FAIL  state bucket: TURBO_VIBE_STATE_BUCKET is not set",
     );
   });
 });

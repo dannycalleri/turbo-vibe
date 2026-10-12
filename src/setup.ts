@@ -1,3 +1,5 @@
+import { checksFor, formatFindings, runChecks } from "./check.js";
+import type { Finding } from "./checks/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import { environmentSecrets } from "./deploy.js";
 import type { Io } from "./io.js";
@@ -14,6 +16,11 @@ interface GitHubEnvironment {
     protected_branches: boolean;
     custom_branch_policies: boolean;
   } | null;
+}
+
+interface Stored {
+  entered: Record<string, string>;
+  kept: string[];
 }
 
 type Read<T> =
@@ -136,18 +143,19 @@ async function storeSecrets(
   environment: EnvironmentName,
   askSecret: (question: string) => Promise<string>,
   io: Io,
-): Promise<boolean> {
+): Promise<Stored | undefined> {
   const listed = await ghRead<{ name: string }[]>(
     ["secret", "list", "--env", environment, "--repo", repo, "--json", "name"],
     io,
   );
   if (listed.status !== "found") {
     io.stderr(`cannot list the secrets of ${environment} in ${repo}\n`);
-    return false;
+    return undefined;
   }
   const present = new Set(listed.value.map((secret) => secret.name));
   const needed = environmentSecrets(config);
   const kept = needed.filter((name) => present.has(name));
+  const entered: Record<string, string> = {};
   if (kept.length > 0) io.stdout(`${environment}: kept ${kept.join(", ")}\n`);
   for (const name of needed.filter((name) => !present.has(name))) {
     const value = (await askSecret(`${environment} ${name}`)).trim();
@@ -162,11 +170,60 @@ async function storeSecrets(
     );
     if (stored?.code !== 0) {
       io.stderr(`cannot store ${name} in ${environment}\n`);
-      return false;
+      return undefined;
     }
+    entered[name] = value;
     io.stdout(`${environment}: stored ${name}\n`);
   }
-  return true;
+  return { entered, kept };
+}
+
+// A kept secret has no value in this run, so its check can only say it is not set.
+function withoutKept(
+  finding: Finding,
+  kept: readonly string[],
+): Finding | undefined {
+  if (!finding.unset) return finding;
+  const unset = finding.unset.filter((name) => !kept.includes(name));
+  if (unset.length === 0) return undefined;
+  if (unset.length === finding.unset.length) return finding;
+  return {
+    ...finding,
+    message: `${unset.join(", ")} ${unset.length === 1 ? "is" : "are"} not set`,
+    unset,
+  };
+}
+
+async function verify(
+  config: Config,
+  environment: EnvironmentName,
+  { entered, kept }: Stored,
+  github: Record<string, string>,
+  io: Io,
+): Promise<boolean> {
+  const secrets = new Set(environmentSecrets(config));
+  // The shell can hold its own values for these names; the checks must see only what this run stored.
+  const env = {
+    ...Object.fromEntries(
+      Object.entries(io.env).filter(([name]) => !secrets.has(name)),
+    ),
+    ...entered,
+    ...github,
+  };
+  const findings = (
+    await runChecks(checksFor(config), {
+      config,
+      environment,
+      io: { ...io, env },
+      nodeVersion: process.versions.node,
+    })
+  ).flatMap((finding) => withoutKept(finding, kept) ?? []);
+  io.stdout(formatFindings(environment, findings));
+  if (kept.length > 0)
+    io.stdout(
+      `${environment}: kept ${kept.join(", ")}, verified by check in the environment's workflow\n`,
+    );
+  return !findings.some((finding) => finding.severity === "fail");
 }
 
 export async function setup(
@@ -221,8 +278,19 @@ export async function setup(
     }
     if (name === "production") await requireReviewer(repo, found.value, io);
   }
+  const stored = new Map<EnvironmentName, Stored>();
   for (const name of options.env) {
-    if (!(await storeSecrets(config, repo, name, askSecret, io))) return 1;
+    const result = await storeSecrets(config, repo, name, askSecret, io);
+    if (!result) return 1;
+    stored.set(name, result);
   }
-  return 0;
+  const token = await gh(["auth", "token"], io);
+  const github = {
+    GITHUB_REPOSITORY: repo,
+    ...(token?.code === 0 ? { GITHUB_TOKEN: token.stdout.trim() } : {}),
+  };
+  let ready = true;
+  for (const [name, result] of stored)
+    ready = (await verify(config, name, result, github, io)) && ready;
+  return ready ? 0 : 1;
 }

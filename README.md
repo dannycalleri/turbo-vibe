@@ -8,6 +8,7 @@ You describe the services in one `turbo-vibe.yaml`: a backend, a frontend, a dat
 npx @turbo-vibe/cli init
 npx @turbo-vibe/cli plan
 npx @turbo-vibe/cli plan --env staging
+npx @turbo-vibe/cli setup
 npx @turbo-vibe/cli check --env staging
 npx @turbo-vibe/cli test
 npx @turbo-vibe/cli apply --env staging
@@ -20,6 +21,8 @@ npx @turbo-vibe/cli promote --env production
 `init` asks for the project's name, domain, and the target of each service, then writes `turbo-vibe.yaml` and the staging and production workflows. It never replaces existing files unless given `--force`. Every answer has a flag (`--name`, `--domain`, `--backend`, `--frontend`, `--database`, `--identity`, `--assistant`) for running it non-interactively. `--assistant claude`, `cursor` or `both` also writes guidance for coding assistants (`.claude/skills/turbo-vibe/SKILL.md`, `.cursor/rules/turbo-vibe.mdc`), stamped with the CLI's version. It teaches them to change infrastructure only through `turbo-vibe.yaml`, to show `plan --env` before proposing a change, to use `check` for missing setup, and to leave production promotion to a person. In a project that already has `turbo-vibe.yaml`, `init --only-assistant --assistant claude` writes just the guidance. It treats a two-label domain (`example.com`) as the zone apex and anything longer as one level below the zone. For a domain on a multi-part suffix, such as `example.co.uk`, edit the hostnames it writes. Build commands, output directories and the Supabase region it fills in are marked as defaults to replace.
 
 `plan` lists the services each environment runs and where, from the file alone. `plan --env <env>` asks OpenTofu what applying that environment would do and prints it per service: what it would create, change, replace or delete, with deletions and replacements listed apart. It prints resource addresses and actions only, never values, and changes nothing.
+
+`setup` creates the GitHub environments `staging` and `production`, adds you as a required reviewer on `production` where GitHub offers it, and asks for each secret an environment still lacks. It needs a terminal and a signed-in [GitHub CLI](https://cli.github.com): it reads each value without echoing it and gives it to `gh secret set` on standard input, so a value never reaches the disk, a command line or the output. Secrets already in an environment are kept. It ends with the checks that `check` runs.
 
 `check` verifies an environment's accounts, tokens, and tools for the targets the project uses, and changes nothing. It lists every problem with its fix, and exits non-zero until the environment is ready.
 
