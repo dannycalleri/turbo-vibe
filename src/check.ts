@@ -49,7 +49,7 @@ export async function runChecks(
 const labels = { ok: "ok  ", warn: "warn", fail: "FAIL" } as const;
 
 export function formatFindings(
-  environment: EnvironmentName,
+  environment: string,
   findings: readonly Finding[],
 ): string {
   const lines: string[] = [environment];

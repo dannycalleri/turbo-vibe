@@ -7,11 +7,14 @@ export const stateBucket: Check = async ({ config, io }) => {
   const absent = stateSecrets.filter((name) => !io.env[name]);
   if (absent.length > 0) {
     return [
-      fail(
-        "state bucket",
-        `${absent.join(", ")} ${absent.length === 1 ? "is" : "are"} not set`,
-        "create the R2 bucket and an R2 API token with Object Read & Write on it, then set TURBO_VIBE_STATE_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and CLOUDFLARE_ACCOUNT_ID",
-      ),
+      {
+        ...fail(
+          "state bucket",
+          `${absent.join(", ")} ${absent.length === 1 ? "is" : "are"} not set`,
+          "create the R2 bucket and an R2 API token with Object Read & Write on it, then set TURBO_VIBE_STATE_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and CLOUDFLARE_ACCOUNT_ID",
+        ),
+        unset: absent,
+      },
     ];
   }
   const bucket = io.env.TURBO_VIBE_STATE_BUCKET;

@@ -20,6 +20,7 @@ const publicFiles = async () => [
   ...(await markdownUnder("docs")),
   ...(await markdownUnder("examples")),
   "src/check.ts",
+  "src/setup/list.ts",
   ...(await readdir(join(root, "src/checks"))).map((file) =>
     join("src/checks", file),
   ),

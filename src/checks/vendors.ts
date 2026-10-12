@@ -1,5 +1,4 @@
-import { deploySecrets } from "../deploy.js";
-import { requiredSecrets } from "../infrastructure.js";
+import { environmentSecrets } from "../deploy.js";
 import type { Check, CheckContext, Finding } from "./types.js";
 import { fail, missing, ok, warn } from "./types.js";
 
@@ -304,9 +303,7 @@ export const github: Check = async (context) => {
     return findings;
   }
   const present = new Set(secrets.body.secrets.map((secret) => secret.name));
-  const needed = [
-    ...new Set([...requiredSecrets(config), ...deploySecrets(config)]),
-  ].sort();
+  const needed = environmentSecrets(config);
   const absent = needed.filter((name) => !present.has(name));
   findings.push(
     absent.length === 0

@@ -9,7 +9,7 @@ import {
   runtimeUrl,
   transactionPoolerProblem,
 } from "./database.js";
-import { stateSecrets } from "./infrastructure.js";
+import { requiredSecrets, stateSecrets } from "./infrastructure.js";
 import type { Io } from "./io.js";
 import { callbackUrl, hostOf, layout, originSettings } from "./origins.js";
 
@@ -146,6 +146,12 @@ export function deploySecrets(config: Config): string[] {
     for (const name of adapter.secrets) names.add(name);
   }
   return [...names];
+}
+
+export function environmentSecrets(config: Config): string[] {
+  return [
+    ...new Set([...requiredSecrets(config), ...deploySecrets(config)]),
+  ].sort();
 }
 
 interface DeployRun {

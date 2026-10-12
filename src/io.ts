@@ -12,4 +12,5 @@ export interface Io {
   sleep: (ms: number) => Promise<void>;
   sql: (url: string) => SqlSession;
   ask?: (question: string) => Promise<string>;
+  askSecret?: (question: string) => Promise<string>;
 }

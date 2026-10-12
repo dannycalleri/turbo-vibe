@@ -8,6 +8,7 @@ export interface Finding {
   severity: Severity;
   message: string;
   fix?: string;
+  unset?: readonly string[];
 }
 
 export interface CheckContext {
@@ -32,5 +33,5 @@ export function warn(check: string, message: string, fix?: string): Finding {
 }
 
 export function missing(check: string, variable: string, fix: string): Finding {
-  return fail(check, `${variable} is not set`, fix);
+  return { ...fail(check, `${variable} is not set`, fix), unset: [variable] };
 }

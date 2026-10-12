@@ -19,6 +19,8 @@ import type { Io } from "./io.js";
 import { migrate } from "./migrate.js";
 import { derivePlan, formatPlan } from "./plan.js";
 import { deployPreview, removePreview } from "./preview.js";
+import { setupSteps } from "./setup/list.js";
+import { setup } from "./setup.js";
 import { major, version } from "./version.js";
 
 export type { Io } from "./io.js";
@@ -181,6 +183,39 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
       const project = await loadProject();
       if (project) exitCode = await check(project.config, options.env, io);
     });
+
+  program
+    .command("setup")
+    .description(
+      "create the GitHub environments, with a required reviewer on production, and store each missing secret, creating the Cloudflare ones from one bootstrap token",
+    )
+    .option(
+      "-e, --env <environment...>",
+      "GitHub environments to set up; any name other than production is set up like staging",
+      [...environmentNames],
+    )
+    .option("--repo <owner/name>", "GitHub repository (default: this one)")
+    .option(
+      "--replace <secret...>",
+      "ask for these secrets again, and create their Cloudflare tokens again",
+    )
+    .option(
+      "--list",
+      "print the accounts, plans and steps a person must do, and the secrets setup stores; changes nothing",
+    )
+    .action(
+      async (options: {
+        env: string[];
+        repo?: string;
+        replace?: string[];
+        list?: boolean;
+      }) => {
+        const project = await loadProject();
+        if (!project) return;
+        if (options.list) io.stdout(setupSteps(project.config, options.env));
+        else exitCode = await setup(project.config, options, io);
+      },
+    );
 
   program
     .command("migrate")

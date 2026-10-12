@@ -2,12 +2,13 @@
 
 The production step after the prototype. turbo-vibe takes an app that works on your laptop and runs it for real users: a staging copy and a production copy, each with its own database, sign-in settings and address; every merge deployed to staging and smoke-tested; and the exact build that passed staging promoted to production after a person approves. Nothing is rebuilt on the way.
 
-You describe the services in one `turbo-vibe.yaml`: a backend, a frontend, a database, sign-in. The kit sets them up on Cloudflare or Vercel, Supabase and WorkOS, in your own accounts. To add it to an existing repository, follow the [adoption guide](docs/adoption.md). For the accounts, plans and tokens it needs, follow the [bootstrap checklist](docs/bootstrap.md). Every field of the file is described in the [file format](docs/file-format.md). Three examples walk from `init` to production step by step: a [Go API with a page, a database and sign-in](examples/go-api/README.md), a [Python API](examples/python-api/README.md), and [Next.js on Vercel](examples/nextjs/README.md) (beta).
+You describe the services in one `turbo-vibe.yaml`: a backend, a frontend, a database, sign-in. The kit sets them up on Cloudflare or Vercel, Supabase and WorkOS, in your own accounts. To add it to an existing repository, follow the [adoption guide](docs/adoption.md). For the accounts, plans and tokens it needs, follow the [bootstrap checklist](docs/bootstrap.md); `setup` does the rest. Every field of the file is described in the [file format](docs/file-format.md). Three examples walk from `init` to production step by step: a [Go API with a page, a database and sign-in](examples/go-api/README.md), a [Python API](examples/python-api/README.md), and [Next.js on Vercel](examples/nextjs/README.md) (beta).
 
 ```sh
 npx @turbo-vibe/cli init
 npx @turbo-vibe/cli plan
 npx @turbo-vibe/cli plan --env staging
+npx @turbo-vibe/cli setup
 npx @turbo-vibe/cli check --env staging
 npx @turbo-vibe/cli test
 npx @turbo-vibe/cli apply --env staging
@@ -17,9 +18,11 @@ npx @turbo-vibe/cli smoke --env staging --build-id "$(git rev-parse --short HEAD
 npx @turbo-vibe/cli promote --env production
 ```
 
-`init` asks for the project's name, domain, and the target of each service, then writes `turbo-vibe.yaml` and the staging and production workflows. It never replaces existing files unless given `--force`. Every answer has a flag (`--name`, `--domain`, `--backend`, `--frontend`, `--database`, `--identity`, `--assistant`) for running it non-interactively. `--assistant claude`, `cursor` or `both` also writes guidance for coding assistants (`.claude/skills/turbo-vibe/SKILL.md`, `.cursor/rules/turbo-vibe.mdc`), stamped with the CLI's version. It teaches them to change infrastructure only through `turbo-vibe.yaml`, to show `plan --env` before proposing a change, to use `check` for missing setup, and to leave production promotion to a person. In a project that already has `turbo-vibe.yaml`, `init --only-assistant --assistant claude` writes just the guidance. It treats a two-label domain (`example.com`) as the zone apex and anything longer as one level below the zone. For a domain on a multi-part suffix, such as `example.co.uk`, edit the hostnames it writes. Build commands, output directories and the Supabase region it fills in are marked as defaults to replace.
+`init` asks for the project's name, domain, and the target of each service, then writes `turbo-vibe.yaml` and the staging and production workflows. It never replaces existing files unless given `--force`. Every answer has a flag (`--name`, `--domain`, `--backend`, `--frontend`, `--database`, `--identity`, `--assistant`) for running it non-interactively. `--assistant claude`, `cursor` or `both` also writes guidance for coding assistants (`.claude/skills/turbo-vibe/SKILL.md`, `.cursor/rules/turbo-vibe.mdc`), stamped with the CLI's version. It teaches them to change infrastructure only through `turbo-vibe.yaml`, to show `plan --env` before proposing a change, to walk a person through `setup --list` and send them to a terminal for `setup` without ever handling a secret, and to leave production promotion to a person. In a project that already has `turbo-vibe.yaml`, `init --only-assistant --assistant claude` writes just the guidance. It treats a two-label domain (`example.com`) as the zone apex and anything longer as one level below the zone. For a domain on a multi-part suffix, such as `example.co.uk`, edit the hostnames it writes. Build commands, output directories and the Supabase region it fills in are marked as defaults to replace.
 
 `plan` lists the services each environment runs and where, from the file alone. `plan --env <env>` asks OpenTofu what applying that environment would do and prints it per service: what it would create, change, replace or delete, with deletions and replacements listed apart. It prints resource addresses and actions only, never values, and changes nothing.
+
+`setup` creates the GitHub environments `staging` and `production`, adds you as a required reviewer on `production` where GitHub offers it, and stores every secret each environment needs. From one Cloudflare bootstrap token, it finds or creates the zone and the state bucket and creates each environment's CI and R2 tokens. It finds the Supabase organization and the Vercel team from their tokens, and asks for the rest. It needs a terminal and a signed-in [GitHub CLI](https://cli.github.com): it reads each value without echoing it and gives it to `gh secret set` on standard input, so a value never reaches the disk, a command line or the output. A second run keeps what each environment already has. `--replace <SECRET>` asks for a secret again and creates its Cloudflare token again, and `--env <name>` sets up other environments, such as `live`, like `staging`. It ends with the checks that `check` runs. `setup --list` prints, from the file alone, the accounts, plans and steps a person must do first, and the secrets each environment will get; it changes nothing.
 
 `check` verifies an environment's accounts, tokens, and tools for the targets the project uses, and changes nothing. It lists every problem with its fix, and exits non-zero until the environment is ready.
 
@@ -195,11 +198,11 @@ A `workos` identity service registers each environment's callback as a WorkOS re
 
 | Variable | What it is |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | API token with Workers Scripts: Edit and Workers Containers: Edit (account), Workers Routes: Edit and DNS: Edit (zone), Account API Tokens: Read (User API Tokens: Read on a user token) so `check` can confirm the token's own permissions, and, with a container backend, Account → Billing: Read so `check` can confirm the Workers Paid plan |
+| `CLOUDFLARE_API_TOKEN` | API token, which `setup` creates per environment, with Workers Scripts: Edit and Workers Containers: Edit (account), Workers Routes: Edit and DNS: Edit (zone), Account API Tokens: Read (User API Tokens: Read on a user token) so `check` can confirm the token's own permissions, and, with a container backend, Account → Billing: Read so `check` can confirm the Workers Paid plan |
 | `CLOUDFLARE_ACCOUNT_ID` | the Cloudflare account that runs the Workers and holds the state bucket |
 | `CLOUDFLARE_ZONE_ID` | the zone of the project's `domain` |
-| `TURBO_VIBE_STATE_BUCKET` | an R2 bucket for OpenTofu state, created once by hand |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | an R2 API token with Object Read & Write on that bucket |
+| `TURBO_VIBE_STATE_BUCKET` | an R2 bucket for OpenTofu state, which `setup` creates |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | an R2 API token with Object Read & Write on that bucket, which `setup` creates per environment |
 | `SUPABASE_ACCESS_TOKEN` | a Supabase personal access token, for projects with a `supabase` database (`apply` and `migrate`) |
 | `SUPABASE_ORGANIZATION` | the Supabase organization's slug, when the database leaves `organization` out of `turbo-vibe.yaml` (`apply`) |
 | `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` | the WorkOS environment's API key and client ID; set the staging ones on the `staging` GitHub environment and the production ones on `production` (`apply` and `deploy`) |

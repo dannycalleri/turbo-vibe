@@ -28,7 +28,10 @@ interface Policy {
   permission_groups?: { name: string }[];
 }
 
-const zoneScoped = new Set(["DNS Write", "Workers Routes Write"]);
+export const zoneScoped: ReadonlySet<string> = new Set([
+  "DNS Write",
+  "Workers Routes Write",
+]);
 
 export function covers(
   resources: Record<string, unknown>,
@@ -71,7 +74,21 @@ export function granted(
   );
 }
 
-export function requiredPermissions(context: CheckContext): string[] {
+export interface Subscription {
+  rate_plan?: { id?: string; public_name?: string };
+}
+
+export function onWorkersPaid(subscriptions: readonly Subscription[]): boolean {
+  return subscriptions.some((subscription) => {
+    const plan =
+      `${subscription.rate_plan?.id ?? ""} ${subscription.rate_plan?.public_name ?? ""}`.toLowerCase();
+    return plan.includes("workers") && plan.includes("paid");
+  });
+}
+
+export function requiredPermissions(
+  context: Pick<CheckContext, "config">,
+): string[] {
   const targets = new Set(
     Object.values(context.config.services).map((service) => service.target),
   );
@@ -215,11 +232,9 @@ export const cloudflare: Check = async (context) => {
       (service) => service.target === "cloudflare-container",
     )
   ) {
-    const subscriptions = await get<
-      { rate_plan?: { id?: string; public_name?: string } }[]
-    >(context, `/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}/subscriptions`);
-    const plans = (subscriptions.body?.result ?? []).map((subscription) =>
-      `${subscription.rate_plan?.id ?? ""} ${subscription.rate_plan?.public_name ?? ""}`.toLowerCase(),
+    const subscriptions = await get<Subscription[]>(
+      context,
+      `/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}/subscriptions`,
     );
     if (!subscriptions.body?.success) {
       findings.push(
@@ -231,7 +246,7 @@ export const cloudflare: Check = async (context) => {
       );
     } else {
       findings.push(
-        plans.some((plan) => plan.includes("workers") && plan.includes("paid"))
+        onWorkersPaid(subscriptions.body.result)
           ? ok(
               "cloudflare",
               "the account is on Workers Paid, which Containers need",
