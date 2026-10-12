@@ -67,7 +67,7 @@ Run each with that environment's values in your shell, or as a workflow step in 
 
 ## The kit's own repository
 
-Only turbo-vibe's repository needs this. Its weekly `evidence` workflow deploys the examples as previews, smoke-tests them, removes them, and records the results in `COMPATIBILITY.md`.
+Only turbo-vibe's repository needs this. Its weekly live tests (`live-tests.yml`) deploys the examples as previews, smoke-tests them, removes them, and records the results in `COMPATIBILITY.md`.
 
-1. Create a GitHub environment named `evidence`, with the same secrets as `staging`. It needs no reviewers: it only creates and removes preview environments.
+1. Create a GitHub environment named `live`, with the same secrets as `staging`. It needs no reviewers: it only creates and removes preview environments.
 2. Let the workflow push to `main`: it commits `COMPATIBILITY.md` when a run changes it. If `main` is protected, allow GitHub Actions to bypass the rule, or the commit is rejected and the run fails.

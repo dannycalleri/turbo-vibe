@@ -46,7 +46,7 @@ async function initRoot(
 ): Promise<{ dir: string; code: number }> {
   const dir = await writeRoot(config, environment, io);
   // The backend is regenerated from the config on every run, so a backend cached in .terraform by another
-  // project's config in the same directory (a monorepo, or the evidence run) must not stop init.
+  // project's config in the same directory (a monorepo, or the live tests) must not stop init.
   const code = await io.run("tofu", ["init", "-input=false", "-reconfigure"], {
     cwd: dir,
     env: io.env,

@@ -1,4 +1,4 @@
-name: Evidence
+name: Live tests
 
 on:
   schedule:
@@ -9,21 +9,21 @@ permissions:
   contents: read
 
 concurrency:
-  group: turbo-vibe-evidence
+  group: turbo-vibe-live-tests
   cancel-in-progress: false
 
 env:
   NODE_VERSION: "24"
   TOFU_VERSION: "1.13.1"
   BUILD_ID: ${{ github.sha }}
-  BRANCH: evidence-${{ github.run_number }}
+  BRANCH: live-${{ github.run_number }}
 
 jobs:
-  evidence:
+  live:
     name: Deploy, smoke-test and remove every example
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: evidence
+    environment: live
     permissions:
       contents: write
     env:
@@ -105,5 +105,5 @@ jobs:
       - name: Fail when a preview could not be removed
         if: always() && env.removal == 'failed'
         run: |
-          echo "::error::a preview-evidence-${{ github.run_number }} environment was not removed; run turbo-vibe preview remove --branch $BRANCH for it"
+          echo "::error::a preview-live-${{ github.run_number }} environment was not removed; run turbo-vibe preview remove --branch $BRANCH for it"
           exit 1
