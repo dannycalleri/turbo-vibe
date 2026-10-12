@@ -186,18 +186,24 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
   program
     .command("setup")
     .description(
-      "create the GitHub environments, with a required reviewer on production, and store each missing secret, asked for in a terminal",
+      "create the GitHub environments, with a required reviewer on production, and store each missing secret, creating the Cloudflare ones from one bootstrap token",
     )
-    .addOption(
-      new Option("-e, --env <environment...>", "environments to set up")
-        .choices(environmentNames)
-        .default([...environmentNames]),
+    .option(
+      "-e, --env <environment...>",
+      "GitHub environments to set up; any name other than production is set up like staging",
+      [...environmentNames],
     )
     .option("--repo <owner/name>", "GitHub repository (default: this one)")
-    .action(async (options: { env: EnvironmentName[]; repo?: string }) => {
-      const project = await loadProject();
-      if (project) exitCode = await setup(project.config, options, io);
-    });
+    .option(
+      "--replace <secret...>",
+      "ask for these secrets again, and create their Cloudflare tokens again",
+    )
+    .action(
+      async (options: { env: string[]; repo?: string; replace?: string[] }) => {
+        const project = await loadProject();
+        if (project) exitCode = await setup(project.config, options, io);
+      },
+    );
 
   program
     .command("migrate")

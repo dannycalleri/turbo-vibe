@@ -15,8 +15,13 @@ import {
 } from "./setup/vendors.js";
 
 export interface SetupOptions {
-  env: readonly EnvironmentName[];
+  env: readonly string[];
   repo?: string;
+  replace?: readonly string[];
+}
+
+function kindOf(environment: string): EnvironmentName {
+  return environment === "production" ? "production" : "staging";
 }
 
 interface GitHubEnvironment {
@@ -149,7 +154,7 @@ async function requireReviewer(
 
 async function presentSecrets(
   repo: string,
-  environment: EnvironmentName,
+  environment: string,
   io: Io,
 ): Promise<Set<string> | undefined> {
   const listed = await ghRead<{ name: string }[]>(
@@ -163,8 +168,8 @@ async function presentSecrets(
   return new Set(listed.value.map((secret) => secret.name));
 }
 
-function question(environment: EnvironmentName, name: string): string {
-  const workos = environment === "production" ? "production" : "staging";
+function question(environment: string, name: string): string {
+  const workos = kindOf(environment);
   if (name === "WORKOS_API_KEY")
     return `${environment} WORKOS_API_KEY (API Keys of the WorkOS ${workos} environment)`;
   if (name === "WORKOS_CLIENT_ID")
@@ -175,7 +180,7 @@ function question(environment: EnvironmentName, name: string): string {
 async function storeSecrets(
   config: Config,
   repo: string,
-  environment: EnvironmentName,
+  environment: string,
   present: ReadonlySet<string>,
   provided: Provided,
   askSecret: (question: string) => Promise<string>,
@@ -235,7 +240,7 @@ function withoutKept(
 
 async function verify(
   config: Config,
-  environment: EnvironmentName,
+  environment: string,
   { entered, kept }: Stored,
   github: Record<string, string>,
   io: Io,
@@ -252,7 +257,7 @@ async function verify(
   const findings = (
     await runChecks(checksFor(config), {
       config,
-      environment,
+      environment: kindOf(environment),
       io: { ...io, env },
       nodeVersion: process.versions.node,
     })
@@ -274,6 +279,23 @@ export async function setup(
   if (!io.ask || !askSecret) {
     io.stderr(
       "setup asks for secrets, so it needs a terminal; run it in one\n",
+    );
+    return 1;
+  }
+  const invalid = options.env.filter((name) => !/^[A-Za-z0-9._-]+$/.test(name));
+  if (invalid.length > 0) {
+    io.stderr(
+      `${invalid.join(", ")} cannot name a GitHub environment; use letters, digits, ".", "-" and "_"\n`,
+    );
+    return 1;
+  }
+  const needed = environmentSecrets(config);
+  const unknown = (options.replace ?? []).filter(
+    (name) => !needed.includes(name),
+  );
+  if (unknown.length > 0) {
+    io.stderr(
+      `--replace ${unknown.join(", ")}: this project does not use ${unknown.length === 1 ? "that secret" : "those secrets"}; it uses ${needed.join(", ")}\n`,
     );
     return 1;
   }
@@ -317,18 +339,18 @@ export async function setup(
     }
     if (name === "production") await requireReviewer(repo, found.value, io);
   }
-  const present = new Map<EnvironmentName, Set<string>>();
+  const present = new Map<string, Set<string>>();
   for (const name of options.env) {
     const names = await presentSecrets(repo, name, io);
     if (!names) return 1;
+    for (const replaced of options.replace ?? []) names.delete(replaced);
     present.set(name, names);
   }
-  const needed = environmentSecrets(config);
   const lacking = (names: readonly string[]) =>
     [...present.values()].some((existing) =>
       names.some((name) => needed.includes(name) && !existing.has(name)),
     );
-  let provided = new Map<EnvironmentName, Provided>();
+  let provided = new Map<string, Provided>();
   let afterStoring = async () => {};
   if (needed.includes("CLOUDFLARE_ZONE_ID") && lacking(cloudflareSecrets)) {
     const created = await setupCloudflare(config, present, askSecret, io);
@@ -351,7 +373,7 @@ export async function setup(
     const own = provided.get(name) ?? { values: {}, replace: [] };
     provided.set(name, { ...own, values: { ...shared, ...own.values } });
   }
-  const stored = new Map<EnvironmentName, Stored>();
+  const stored = new Map<string, Stored>();
   for (const [name, names] of present) {
     const result = await storeSecrets(
       config,

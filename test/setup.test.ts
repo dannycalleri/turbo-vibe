@@ -1144,3 +1144,99 @@ describe("setup with vendor tokens", () => {
     );
   });
 });
+
+describe("setup on re-runs and other environments", () => {
+  const everything = [...cloudflareKept, "SUPABASE_ACCESS_TOKEN"];
+
+  it("asks again only for a secret named by --replace, in every environment", async () => {
+    const gh = fakeGh({
+      secrets: { staging: everything, production: everything },
+    });
+    const cloudflare = fakeCloudflare();
+    const result = await setup(
+      ["--replace", "SUPABASE_ACCESS_TOKEN"],
+      gh,
+      true,
+      cloudflare,
+      withDatabase,
+    );
+    expect(result.code).toBe(0);
+    expect(gh.stored.map((s) => [s.env, s.name])).toEqual([
+      ["staging", "SUPABASE_ACCESS_TOKEN"],
+      ["production", "SUPABASE_ACCESS_TOKEN"],
+    ]);
+    expect(cloudflare.fetch).not.toHaveBeenCalled();
+  });
+
+  it("creates the Cloudflare token again for --replace CLOUDFLARE_API_TOKEN", async () => {
+    const gh = fakeGh({
+      secrets: { staging: cloudflareKept, production: cloudflareKept },
+    });
+    const cloudflare = fakeCloudflare({
+      existingTokens: ["turbo-vibe-acme-staging", "turbo-vibe-acme-production"],
+    });
+    const result = await setup(
+      ["--replace", "CLOUDFLARE_API_TOKEN"],
+      gh,
+      true,
+      cloudflare,
+    );
+    expect(result.code).toBe(0);
+    expect(gh.stored.map((s) => [s.env, s.name])).toEqual([
+      ["staging", "CLOUDFLARE_API_TOKEN"],
+      ["production", "CLOUDFLARE_API_TOKEN"],
+    ]);
+    expect(cloudflare.created("turbo-vibe-acme-staging")).toBeDefined();
+    expect(
+      cloudflare.live().filter((name) => name === "turbo-vibe-acme-staging"),
+    ).toHaveLength(1);
+  });
+
+  it("refuses a --replace name the project does not use, before any change", async () => {
+    const gh = fakeGh();
+    const result = await setup(["--replace", "VERCEL_API_TOKEN"], gh);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "--replace VERCEL_API_TOKEN: this project does not use that secret",
+    );
+    expect(gh.capture).not.toHaveBeenCalled();
+  });
+
+  it("sets up an environment such as live like staging: no reviewer, a staging WorkOS key", async () => {
+    let checkedAs = "";
+    checks.list = [
+      async ({ environment }) => {
+        checkedAs = environment;
+        return [];
+      },
+    ];
+    const gh = fakeGh({ secrets: { live: cloudflareKept } });
+    const result = await run(
+      ["setup", "--env", "live"],
+      { "turbo-vibe.yaml": withSignIn },
+      {},
+      undefined,
+      fakeCloudflare().fetch,
+      {
+        capture: gh.capture,
+        ask,
+        askSecret: async (q: string) =>
+          q.includes("WORKOS_API_KEY") ? "sk_test_live" : `value of ${q}`,
+      },
+    );
+    expect(result.code).toBe(0);
+    expect(gh.calls()).toContain("api -X PUT repos/acme/app/environments/live");
+    expect(gh.calls().some((call) => call.includes("reviewers"))).toBe(false);
+    expect(storedValue(gh, "live", "WORKOS_API_KEY")).toBe("sk_test_live");
+    expect(checkedAs).toBe("staging");
+    expect(result.stdout).toContain("live is ready");
+  });
+
+  it("refuses an environment name GitHub cannot use", async () => {
+    const gh = fakeGh();
+    const result = await setup(["--env", "my env"], gh);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("my env cannot name a GitHub environment");
+    expect(gh.capture).not.toHaveBeenCalled();
+  });
+});

@@ -1,4 +1,4 @@
-import type { Config, EnvironmentName } from "../config/schema.js";
+import type { Config } from "../config/schema.js";
 import type { Io } from "../io.js";
 
 async function getJson<T>(
@@ -116,7 +116,7 @@ export async function vercelSecrets(
 }
 
 export function workosKeyProblem(
-  environment: EnvironmentName,
+  environment: string,
   key: string,
 ): string | undefined {
   const production = environment === "production";

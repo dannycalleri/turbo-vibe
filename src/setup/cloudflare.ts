@@ -6,7 +6,7 @@ import {
   type Subscription,
   zoneScoped,
 } from "../checks/cloudflare.js";
-import type { Config, EnvironmentName } from "../config/schema.js";
+import type { Config } from "../config/schema.js";
 import type { Io } from "../io.js";
 
 const api = "https://api.cloudflare.com/client/v4";
@@ -456,7 +456,7 @@ async function environmentTokens(
   account: string,
   zoneId: string,
   bucketName: string,
-  environment: EnvironmentName,
+  environment: string,
   present: ReadonlySet<string>,
   groups: ReadonlyMap<string, string>,
   io: Io,
@@ -542,12 +542,12 @@ async function offerToDelete(
 
 export async function setupCloudflare(
   config: Config,
-  present: ReadonlyMap<EnvironmentName, ReadonlySet<string>>,
+  present: ReadonlyMap<string, ReadonlySet<string>>,
   askSecret: (question: string) => Promise<string>,
   io: Io,
 ): Promise<
   | {
-      provided: Map<EnvironmentName, Provided>;
+      provided: Map<string, Provided>;
       offerToDeleteBootstrap: () => Promise<void>;
     }
   | undefined
@@ -589,7 +589,7 @@ export async function setupCloudflare(
     },
   );
   if (!zoneId) return undefined;
-  const provided = new Map<EnvironmentName, Provided>();
+  const provided = new Map<string, Provided>();
   for (const [environment, names] of present) {
     const tokens = await environmentTokens(
       bootstrap,
