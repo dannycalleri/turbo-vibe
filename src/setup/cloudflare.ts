@@ -1,0 +1,328 @@
+import { granted } from "../checks/cloudflare.js";
+import type { Config } from "../config/schema.js";
+import type { Io } from "../io.js";
+
+const api = "https://api.cloudflare.com/client/v4";
+
+interface Envelope<T> {
+  success: boolean;
+  result: T;
+  errors?: { code: number; message: string }[];
+}
+
+interface CloudflareApi {
+  call<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; body?: Envelope<T> }>;
+}
+
+function cloudflareApi(token: string, io: Io): CloudflareApi {
+  return {
+    async call<T>(method: string, path: string, body?: unknown) {
+      const response = await io.fetch(`${api}${path}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${token}`,
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      const parsed = (await response.json().catch(() => undefined)) as
+        | Envelope<T>
+        | undefined;
+      return { status: response.status, ...(parsed ? { body: parsed } : {}) };
+    },
+  };
+}
+
+export const createdSecrets = [
+  "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_ZONE_ID",
+  "TURBO_VIBE_STATE_BUCKET",
+] as const;
+
+function stateBucketName(config: Config): string {
+  return `${config.project}-turbo-vibe-state`;
+}
+
+function zoneCandidates(domain: string): string[] {
+  const labels = domain.split(".");
+  return labels.slice(0, -1).map((_, index) => labels.slice(index).join("."));
+}
+
+// The same rule init uses: a two-label domain is the apex, a longer one sits one level below it.
+function zoneGuess(domain: string): string {
+  const labels = domain.split(".");
+  return labels.length <= 2 ? domain : labels.slice(1).join(".");
+}
+
+async function canCreateTokens(
+  cloudflare: CloudflareApi,
+  account: string,
+  io: Io,
+): Promise<boolean> {
+  const tokens = `/accounts/${account}/tokens`;
+  const verified = await cloudflare.call<{ id: string; status: string }>(
+    "GET",
+    `${tokens}/verify`,
+  );
+  if (verified.body?.result?.status !== "active") {
+    io.stderr(
+      "the bootstrap token is not an active token of this account; create it in Cloudflare → Manage Account → Account API Tokens\n",
+    );
+    return false;
+  }
+  const own = await cloudflare.call<{
+    policies?: Parameters<typeof granted>[0];
+  }>("GET", `${tokens}/${verified.body.result.id}`);
+  const policies = own.body?.result?.policies;
+  if (
+    !policies ||
+    !granted(policies, "Account API Tokens Write", { account, zone: "" })
+  ) {
+    io.stderr(
+      "the bootstrap token lacks Account API Tokens Write, so it cannot create the CI tokens; add that permission and run setup again\n",
+    );
+    return false;
+  }
+  return true;
+}
+
+interface PermissionGroup {
+  id: string;
+  name: string;
+}
+
+async function permissionGroups(
+  cloudflare: CloudflareApi,
+  account: string,
+  names: readonly string[],
+  io: Io,
+): Promise<Map<string, string> | undefined> {
+  const listed = await cloudflare.call<PermissionGroup[]>(
+    "GET",
+    `/accounts/${account}/tokens/permission_groups`,
+  );
+  const ids = new Map(
+    (listed.body?.result ?? []).map((group) => [group.name, group.id]),
+  );
+  const unknown = names.filter((name) => !ids.has(name));
+  if (unknown.length > 0) {
+    io.stderr(
+      `Cloudflare has no permission group named ${unknown.join(", ")}; nothing was created\n`,
+    );
+    return undefined;
+  }
+  return ids;
+}
+
+async function deleteTokensNamed(
+  cloudflare: CloudflareApi,
+  account: string,
+  name: string,
+): Promise<void> {
+  const listed = await cloudflare.call<{ id: string; name: string }[]>(
+    "GET",
+    `/accounts/${account}/tokens?per_page=50`,
+  );
+  for (const token of listed.body?.result ?? [])
+    if (token.name === name)
+      await cloudflare.call(
+        "DELETE",
+        `/accounts/${account}/tokens/${token.id}`,
+      );
+}
+
+async function untilActive(
+  cloudflare: CloudflareApi,
+  account: string,
+  io: Io,
+): Promise<boolean> {
+  for (let waited = 0; waited <= 30_000; waited += 2_000) {
+    const verified = await cloudflare.call<{ status: string }>(
+      "GET",
+      `/accounts/${account}/tokens/verify`,
+    );
+    if (verified.body?.result?.status === "active") return true;
+    await io.sleep(2_000);
+  }
+  return false;
+}
+
+const setupPermissions = ["Zone Write", "Workers R2 Storage Write"];
+
+// The bootstrap token may only create tokens, so a short-lived token does the zone and bucket work.
+async function withSetupToken<T>(
+  bootstrap: CloudflareApi,
+  config: Config,
+  account: string,
+  io: Io,
+  work: (cloudflare: CloudflareApi) => Promise<T | undefined>,
+): Promise<T | undefined> {
+  const groups = await permissionGroups(
+    bootstrap,
+    account,
+    setupPermissions,
+    io,
+  );
+  if (!groups) return undefined;
+  const name = `turbo-vibe-${config.project}-setup`;
+  await deleteTokensNamed(bootstrap, account, name);
+  const accountKey = `com.cloudflare.api.account.${account}`;
+  const created = await bootstrap.call<{ id: string; value: string }>(
+    "POST",
+    `/accounts/${account}/tokens`,
+    {
+      name,
+      expires_on: new Date(Date.now() + 60 * 60_000)
+        .toISOString()
+        .replace(/\.\d+Z$/, "Z"),
+      policies: [
+        {
+          effect: "allow",
+          resources: {
+            [accountKey]: { "com.cloudflare.api.account.zone.*": "*" },
+          },
+          permission_groups: [{ id: groups.get("Zone Write") }],
+        },
+        {
+          effect: "allow",
+          resources: { [accountKey]: "*" },
+          permission_groups: [{ id: groups.get("Workers R2 Storage Write") }],
+        },
+      ],
+    },
+  );
+  const setup = created.body?.result;
+  if (!setup) {
+    io.stderr(`cannot create the setup token (HTTP ${created.status})\n`);
+    return undefined;
+  }
+  try {
+    const cloudflare = cloudflareApi(setup.value, io);
+    if (!(await untilActive(cloudflare, account, io))) {
+      io.stderr(
+        "the setup token did not become active within 30 seconds; run setup again\n",
+      );
+      return undefined;
+    }
+    return await work(cloudflare);
+  } finally {
+    await bootstrap.call("DELETE", `/accounts/${account}/tokens/${setup.id}`);
+  }
+}
+
+interface Zone {
+  id: string;
+  name: string;
+  status: string;
+  name_servers?: string[];
+}
+
+function nameservers(zone: Zone, io: Io): void {
+  if (zone.status !== "active")
+    io.stdout(
+      `cloudflare: at your registrar, set the nameservers of ${zone.name} to ${(zone.name_servers ?? []).join(" and ")}; until then check reports the zone as pending\n`,
+    );
+}
+
+async function zone(
+  cloudflare: CloudflareApi,
+  config: Config,
+  account: string,
+  io: Io,
+): Promise<string | undefined> {
+  for (const name of zoneCandidates(config.domain)) {
+    const found = await cloudflare.call<Zone[]>(
+      "GET",
+      `/zones?name=${encodeURIComponent(name)}&account.id=${account}`,
+    );
+    const existing = found.body?.result?.[0];
+    if (existing) {
+      io.stdout(
+        `cloudflare: zone ${existing.name} exists (${existing.status})\n`,
+      );
+      nameservers(existing, io);
+      return existing.id;
+    }
+  }
+  const guess = zoneGuess(config.domain);
+  const answer = (
+    (await io.ask?.(
+      `Cloudflare zone to create for ${config.domain}, the domain you registered [${guess}]`,
+    )) ?? ""
+  ).trim();
+  const name = answer || guess;
+  const created = await cloudflare.call<Zone>("POST", "/zones", {
+    name,
+    account: { id: account },
+    type: "full",
+  });
+  if (!created.body?.success) {
+    io.stderr(
+      `cannot create zone ${name}: ${created.body?.errors?.map((error) => error.message).join("; ") ?? `HTTP ${created.status}`}\n`,
+    );
+    return undefined;
+  }
+  const result = created.body.result;
+  io.stdout(`cloudflare: zone ${result.name} created\n`);
+  nameservers(result, io);
+  return result.id;
+}
+
+async function bucket(
+  cloudflare: CloudflareApi,
+  name: string,
+  account: string,
+  io: Io,
+): Promise<boolean> {
+  const path = `/accounts/${account}/r2/buckets`;
+  const found = await cloudflare.call("GET", `${path}/${name}`);
+  if (found.body?.success) {
+    io.stdout(`cloudflare: bucket ${name} exists\n`);
+    return true;
+  }
+  const created = await cloudflare.call("POST", path, { name });
+  if (created.body?.success) {
+    io.stdout(`cloudflare: bucket ${name} created\n`);
+    return true;
+  }
+  io.stderr(
+    created.body?.errors?.some((error) => error.code === 10042)
+      ? `R2 is not enabled on this account; enable it in Cloudflare → R2 Object Storage, then run setup again\n`
+      : `cannot create bucket ${name}: ${created.body?.errors?.map((error) => error.message).join("; ") ?? `HTTP ${created.status}`}\n`,
+  );
+  return false;
+}
+
+export async function setupCloudflare(
+  config: Config,
+  askSecret: (question: string) => Promise<string>,
+  io: Io,
+): Promise<Record<(typeof createdSecrets)[number], string> | undefined> {
+  const account = ((await io.ask?.("Cloudflare account ID")) ?? "").trim();
+  const token = (
+    await askSecret(
+      "Cloudflare bootstrap token (Manage Account → Account API Tokens, with Account API Tokens Write)",
+    )
+  ).trim();
+  if (!account || !token) {
+    io.stderr("setup needs the Cloudflare account ID and a bootstrap token\n");
+    return undefined;
+  }
+  const bootstrap = cloudflareApi(token, io);
+  if (!(await canCreateTokens(bootstrap, account, io))) return undefined;
+  const name = stateBucketName(config);
+  return withSetupToken(bootstrap, config, account, io, async (cloudflare) => {
+    const zoneId = await zone(cloudflare, config, account, io);
+    if (!zoneId || !(await bucket(cloudflare, name, account, io)))
+      return undefined;
+    return {
+      CLOUDFLARE_ACCOUNT_ID: account,
+      CLOUDFLARE_ZONE_ID: zoneId,
+      TURBO_VIBE_STATE_BUCKET: name,
+    };
+  });
+}

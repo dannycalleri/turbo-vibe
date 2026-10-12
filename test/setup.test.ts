@@ -79,16 +79,139 @@ function fakeGh({
   return { capture, calls, stored };
 }
 
-const ask = async () => "";
-const askSecret = async (question: string) => `value of ${question}\n`;
+interface FakeCloudflare {
+  zones?: {
+    id: string;
+    name: string;
+    status: string;
+    name_servers?: string[];
+  }[];
+  buckets?: string[];
+  bootstrapPermissions?: string[];
+  r2Enabled?: boolean;
+}
 
-function setup(argv: string[], gh: ReturnType<typeof fakeGh>, withAsk = true) {
+const groupNames = [
+  "Account API Tokens Write",
+  "Zone Write",
+  "Workers R2 Storage Write",
+];
+
+function fakeCloudflare({
+  zones = [],
+  buckets = [],
+  bootstrapPermissions = ["Account API Tokens Write"],
+  r2Enabled = true,
+}: FakeCloudflare = {}) {
+  const tokens = new Map<string, { id: string; name: string; value: string }>([
+    ["boot", { id: "boot", name: "bootstrap", value: "BOOTSTRAP" }],
+  ]);
+  const requests: {
+    method: string;
+    path: string;
+    token: string;
+    body?: unknown;
+  }[] = [];
+  const json = (result: unknown, success = true, status = 200) =>
+    Response.json({ success, result, errors: [] }, { status });
+  const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+    const url = new URL(String(input));
+    const path = url.pathname.replace("/client/v4", "") + url.search;
+    const method = init?.method ?? "GET";
+    const token =
+      new Headers(init?.headers).get("authorization")?.replace("Bearer ", "") ??
+      "";
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    requests.push({ method, path, token, ...(body ? { body } : {}) });
+    const caller = [...tokens.values()].find((t) => t.value === token);
+    if (!caller) return json(null, false, 401);
+    const accounts = "/accounts/acc123";
+    if (path === `${accounts}/tokens/verify`)
+      return json({ id: caller.id, status: "active" });
+    if (path === `${accounts}/tokens/permission_groups`)
+      return json(groupNames.map((name) => ({ id: `id-${name}`, name })));
+    if (path === `${accounts}/tokens/boot`)
+      return json({
+        policies: [
+          {
+            effect: "allow",
+            resources: { "com.cloudflare.api.account.acc123": "*" },
+            permission_groups: bootstrapPermissions.map((name) => ({ name })),
+          },
+        ],
+      });
+    if (path.startsWith(`${accounts}/tokens?`))
+      return json([...tokens.values()].map(({ id, name }) => ({ id, name })));
+    if (path === `${accounts}/tokens` && method === "POST") {
+      const id = `t${tokens.size}`;
+      tokens.set(id, { id, name: body.name, value: `value-${id}` });
+      return json({ id, value: `value-${id}` });
+    }
+    if (path.startsWith(`${accounts}/tokens/`) && method === "DELETE") {
+      tokens.delete(path.split("/").pop() ?? "");
+      return json(null);
+    }
+    if (path.startsWith("/zones?")) {
+      const name = url.searchParams.get("name");
+      return json(zones.filter((zone) => zone.name === name));
+    }
+    if (path === "/zones" && method === "POST") {
+      const zone = {
+        id: "zone-new",
+        name: body.name,
+        status: "pending",
+        name_servers: ["ada.ns.cloudflare.com", "bob.ns.cloudflare.com"],
+      };
+      zones.push(zone);
+      return json(zone);
+    }
+    if (path.startsWith(`${accounts}/r2/buckets`)) {
+      if (!r2Enabled)
+        return Response.json(
+          {
+            success: false,
+            result: null,
+            errors: [{ code: 10042, message: "enable R2" }],
+          },
+          { status: 403 },
+        );
+      if (method === "POST") {
+        buckets.push(body.name);
+        return json({ name: body.name });
+      }
+      const name = path.split("/").pop() ?? "";
+      return buckets.includes(name) ? json({ name }) : json(null, false, 404);
+    }
+    throw new Error(`unexpected Cloudflare request: ${method} ${path}`);
+  });
+  const live = () => [...tokens.values()].map((t) => t.name);
+  return { fetch, requests, live };
+}
+
+const ask = async (question: string) =>
+  question.startsWith("Cloudflare account ID") ? "acc123" : "";
+const askSecret = async (question: string) =>
+  question.startsWith("Cloudflare bootstrap token")
+    ? "BOOTSTRAP"
+    : `value of ${question}\n`;
+const cloudflareKept = [
+  "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_ZONE_ID",
+  "TURBO_VIBE_STATE_BUCKET",
+];
+
+function setup(
+  argv: string[],
+  gh: ReturnType<typeof fakeGh>,
+  withAsk = true,
+  cloudflare = fakeCloudflare(),
+) {
   return run(
     ["setup", ...argv],
     { "turbo-vibe.yaml": project },
     {},
     undefined,
-    undefined,
+    cloudflare.fetch,
     { capture: gh.capture, ...(withAsk ? { ask, askSecret } : {}) },
   );
 }
@@ -125,7 +248,7 @@ describe("setup", () => {
       { "turbo-vibe.yaml": "version: 1\n" },
       {},
       undefined,
-      undefined,
+      fakeCloudflare().fetch,
       { capture: gh.capture, ask, askSecret },
     );
     expect(result.code).toBe(1);
@@ -235,13 +358,13 @@ describe("setup", () => {
   });
 
   it("stores nothing for an empty answer", async () => {
-    const gh = fakeGh();
+    const gh = fakeGh({ secrets: { staging: cloudflareKept } });
     const result = await run(
       ["setup", "--env", "staging"],
       { "turbo-vibe.yaml": project },
       {},
       undefined,
-      undefined,
+      fakeCloudflare().fetch,
       { capture: gh.capture, ask, askSecret: async () => "  \n" },
     );
     expect(result.code).toBe(0);
@@ -289,22 +412,22 @@ describe("setup", () => {
   it("does not report a kept secret as missing, but does report one left empty", async () => {
     checks.list = [
       async ({ io }) =>
-        ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ZONE_ID"]
+        ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"]
           .filter((name) => !io.env[name])
           .map((name) => missing("cloudflare", name, "set it")),
     ];
-    const gh = fakeGh({ secrets: { staging: ["CLOUDFLARE_ACCOUNT_ID"] } });
+    const gh = fakeGh({ secrets: { staging: cloudflareKept } });
     const result = await run(
       ["setup", "--env", "staging"],
       { "turbo-vibe.yaml": project },
       {},
       undefined,
-      undefined,
+      fakeCloudflare().fetch,
       { capture: gh.capture, ask, askSecret: async () => "" },
     );
     expect(result.code).toBe(1);
     expect(result.stdout).not.toContain("CLOUDFLARE_ACCOUNT_ID is not set");
-    expect(result.stdout).toContain("CLOUDFLARE_ZONE_ID is not set");
+    expect(result.stdout).toContain("CLOUDFLARE_API_TOKEN is not set");
   });
 
   it("hides the shell's own values for the project's secrets from the checks", async () => {
@@ -321,7 +444,7 @@ describe("setup", () => {
       { "turbo-vibe.yaml": project },
       { CLOUDFLARE_API_TOKEN: "shell-token", HOME: "/home/ada" },
       undefined,
-      undefined,
+      fakeCloudflare().fetch,
       { capture: gh.capture, ask, askSecret },
     );
     expect(seen.CLOUDFLARE_API_TOKEN).toBeUndefined();
@@ -349,11 +472,7 @@ describe("setup", () => {
     checks.list = [stateBucket];
     const gh = fakeGh({
       secrets: {
-        staging: [
-          "AWS_ACCESS_KEY_ID",
-          "AWS_SECRET_ACCESS_KEY",
-          "CLOUDFLARE_ACCOUNT_ID",
-        ],
+        staging: [...cloudflareKept, "AWS_ACCESS_KEY_ID"],
       },
     });
     const result = await run(
@@ -361,12 +480,120 @@ describe("setup", () => {
       { "turbo-vibe.yaml": project },
       {},
       undefined,
-      undefined,
+      fakeCloudflare().fetch,
       { capture: gh.capture, ask, askSecret: async () => "" },
     );
     expect(result.code).toBe(1);
     expect(result.stdout).toContain(
-      "FAIL  state bucket: TURBO_VIBE_STATE_BUCKET is not set",
+      "FAIL  state bucket: AWS_SECRET_ACCESS_KEY is not set",
     );
+  });
+});
+
+describe("setup on Cloudflare", () => {
+  it("creates the zone and the bucket through a short-lived token, then deletes that token", async () => {
+    const gh = fakeGh();
+    const cloudflare = fakeCloudflare();
+    const result = await setup([], gh, true, cloudflare);
+    expect(result.code).toBe(0);
+    const writes = cloudflare.requests.filter((r) => r.method === "POST");
+    expect(writes.map((r) => [r.path, r.token])).toEqual([
+      ["/accounts/acc123/tokens", "BOOTSTRAP"],
+      ["/zones", "value-t1"],
+      ["/accounts/acc123/r2/buckets", "value-t1"],
+    ]);
+    expect(writes[1]?.body).toMatchObject({
+      name: "example.com",
+      account: { id: "acc123" },
+    });
+    expect(cloudflare.live()).toEqual(["bootstrap"]);
+    expect(result.stdout).toContain(
+      "set the nameservers of example.com to ada.ns.cloudflare.com and bob.ns.cloudflare.com",
+    );
+    for (const env of ["staging", "production"])
+      expect(
+        gh.stored.filter(
+          (secret) =>
+            secret.env === env &&
+            secret.name !== "CLOUDFLARE_API_TOKEN" &&
+            !secret.name.startsWith("AWS"),
+        ),
+      ).toEqual([
+        { env, name: "CLOUDFLARE_ACCOUNT_ID", value: "acc123" },
+        { env, name: "CLOUDFLARE_ZONE_ID", value: "zone-new" },
+        {
+          env,
+          name: "TURBO_VIBE_STATE_BUCKET",
+          value: "acme-turbo-vibe-state",
+        },
+      ]);
+  });
+
+  it("repeats the nameservers for an existing zone that is still pending", async () => {
+    const cloudflare = fakeCloudflare({
+      zones: [
+        {
+          id: "zone-1",
+          name: "example.com",
+          status: "pending",
+          name_servers: ["ada.ns.cloudflare.com", "bob.ns.cloudflare.com"],
+        },
+      ],
+    });
+    const result = await setup(
+      ["--env", "staging"],
+      fakeGh(),
+      true,
+      cloudflare,
+    );
+    expect(result.stdout).toContain(
+      "set the nameservers of example.com to ada.ns.cloudflare.com and bob.ns.cloudflare.com",
+    );
+  });
+
+  it("reuses an existing zone and bucket", async () => {
+    const cloudflare = fakeCloudflare({
+      zones: [{ id: "zone-1", name: "example.com", status: "active" }],
+      buckets: ["acme-turbo-vibe-state"],
+    });
+    const gh = fakeGh();
+    expect((await setup(["--env", "staging"], gh, true, cloudflare)).code).toBe(
+      0,
+    );
+    expect(
+      cloudflare.requests.filter((r) => r.method === "POST").map((r) => r.path),
+    ).toEqual(["/accounts/acc123/tokens"]);
+    expect(gh.stored).toContainEqual({
+      env: "staging",
+      name: "CLOUDFLARE_ZONE_ID",
+      value: "zone-1",
+    });
+  });
+
+  it("stops before creating anything when the bootstrap token cannot create tokens", async () => {
+    const cloudflare = fakeCloudflare({ bootstrapPermissions: ["Zone Read"] });
+    const gh = fakeGh();
+    const result = await setup([], gh, true, cloudflare);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("lacks Account API Tokens Write");
+    expect(cloudflare.requests.some((r) => r.method === "POST")).toBe(false);
+    expect(gh.stored).toEqual([]);
+  });
+
+  it("tells the person to enable R2 when Cloudflare refuses the bucket", async () => {
+    const cloudflare = fakeCloudflare({ r2Enabled: false });
+    const result = await setup([], fakeGh(), true, cloudflare);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("R2 is not enabled on this account");
+    expect(cloudflare.live()).toEqual(["bootstrap"]);
+  });
+
+  it("asks for no bootstrap token when every environment has the Cloudflare secrets", async () => {
+    const cloudflare = fakeCloudflare();
+    const gh = fakeGh({
+      secrets: { staging: cloudflareKept, production: cloudflareKept },
+    });
+    expect((await setup([], gh, true, cloudflare)).code).toBe(0);
+    expect(cloudflare.fetch).not.toHaveBeenCalled();
   });
 });

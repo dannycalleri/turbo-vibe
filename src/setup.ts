@@ -3,6 +3,7 @@ import type { Finding } from "./checks/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import { environmentSecrets } from "./deploy.js";
 import type { Io } from "./io.js";
+import { createdSecrets, setupCloudflare } from "./setup/cloudflare.js";
 
 export interface SetupOptions {
   env: readonly EnvironmentName[];
@@ -137,13 +138,11 @@ async function requireReviewer(
   );
 }
 
-async function storeSecrets(
-  config: Config,
+async function presentSecrets(
   repo: string,
   environment: EnvironmentName,
-  askSecret: (question: string) => Promise<string>,
   io: Io,
-): Promise<Stored | undefined> {
+): Promise<Set<string> | undefined> {
   const listed = await ghRead<{ name: string }[]>(
     ["secret", "list", "--env", environment, "--repo", repo, "--json", "name"],
     io,
@@ -152,13 +151,26 @@ async function storeSecrets(
     io.stderr(`cannot list the secrets of ${environment} in ${repo}\n`);
     return undefined;
   }
-  const present = new Set(listed.value.map((secret) => secret.name));
+  return new Set(listed.value.map((secret) => secret.name));
+}
+
+async function storeSecrets(
+  config: Config,
+  repo: string,
+  environment: EnvironmentName,
+  present: ReadonlySet<string>,
+  provided: Readonly<Record<string, string>>,
+  askSecret: (question: string) => Promise<string>,
+  io: Io,
+): Promise<Stored | undefined> {
   const needed = environmentSecrets(config);
   const kept = needed.filter((name) => present.has(name));
   const entered: Record<string, string> = {};
   if (kept.length > 0) io.stdout(`${environment}: kept ${kept.join(", ")}\n`);
   for (const name of needed.filter((name) => !present.has(name))) {
-    const value = (await askSecret(`${environment} ${name}`)).trim();
+    const value = (
+      provided[name] ?? (await askSecret(`${environment} ${name}`))
+    ).trim();
     if (!value) {
       io.stdout(`${environment}: ${name} skipped, nothing entered\n`);
       continue;
@@ -278,9 +290,34 @@ export async function setup(
     }
     if (name === "production") await requireReviewer(repo, found.value, io);
   }
-  const stored = new Map<EnvironmentName, Stored>();
+  const present = new Map<EnvironmentName, Set<string>>();
   for (const name of options.env) {
-    const result = await storeSecrets(config, repo, name, askSecret, io);
+    const names = await presentSecrets(repo, name, io);
+    if (!names) return 1;
+    present.set(name, names);
+  }
+  const needed = environmentSecrets(config);
+  const lacking = (names: readonly string[]) =>
+    [...present.values()].some((existing) =>
+      names.some((name) => needed.includes(name) && !existing.has(name)),
+    );
+  let provided: Record<string, string> = {};
+  if (needed.includes("CLOUDFLARE_ZONE_ID") && lacking(createdSecrets)) {
+    const created = await setupCloudflare(config, askSecret, io);
+    if (!created) return 1;
+    provided = created;
+  }
+  const stored = new Map<EnvironmentName, Stored>();
+  for (const [name, names] of present) {
+    const result = await storeSecrets(
+      config,
+      repo,
+      name,
+      names,
+      provided,
+      askSecret,
+      io,
+    );
     if (!result) return 1;
     stored.set(name, result);
   }
