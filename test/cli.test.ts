@@ -285,6 +285,104 @@ describe("turbo-vibe apply", () => {
   });
 });
 
+describe("turbo-vibe apply on a database branch", () => {
+  const branched = `version: 1
+project: acme
+domain: acme.example.com
+services:
+  api:
+    kind: backend
+    target: cloudflare-container
+    build: { dockerfile: Dockerfile }
+  db:
+    kind: database
+    target: supabase
+    organization: acme-org
+    region: eu-central-1
+    plan: paid
+    staging: branch
+`;
+  const env = {
+    TURBO_VIBE_STATE_BUCKET: "tv-state",
+    AWS_ACCESS_KEY_ID: "key-id",
+    AWS_SECRET_ACCESS_KEY: "s3cr3t-key",
+    CLOUDFLARE_ACCOUNT_ID: "acc123",
+    CLOUDFLARE_ZONE_ID: "zone456",
+    CLOUDFLARE_API_TOKEN: "s3cr3t-token",
+    SUPABASE_ACCESS_TOKEN: "sbp_t0ken",
+  };
+  const projects = (list: object[]) =>
+    vi.fn<typeof globalThis.fetch>(async () => Response.json(list));
+
+  it("stops before running tofu when the parent project does not exist", async () => {
+    const runner = vi.fn(async () => 0);
+    const { code, stderr } = await run(
+      ["apply", "--env", "staging"],
+      { "turbo-vibe.yaml": branched },
+      env,
+      runner,
+      projects([]),
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "the Supabase project acme-db-production does not exist yet; apply production first\n",
+    );
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("gives the branch only the parent's ref, found by name in the database's organization", async () => {
+    const fetch = projects([
+      {
+        id: "otherorgref",
+        name: "acme-db-production",
+        organization_id: "test-org",
+      },
+      {
+        id: "prodref123",
+        name: "acme-db-production",
+        organization_id: "acme-org",
+      },
+    ]);
+    const { cwd } = await run(
+      ["apply", "--env", "staging"],
+      { "turbo-vibe.yaml": branched },
+      env,
+      vi.fn(async () => 0),
+      fetch,
+    );
+    expect(fetch.mock.calls[0]?.[0]).toBe(
+      "https://api.supabase.com/v1/projects",
+    );
+    const root = await readFile(
+      join(cwd, ".turbo-vibe", "tofu", "staging", "main.tf.json"),
+      "utf8",
+    );
+    expect(JSON.parse(root).module.supabase_db.parent_project_ref).toBe(
+      "prodref123",
+    );
+    expect(root).not.toContain("terraform_remote_state");
+  });
+
+  it("refuses two projects with the parent's name in the same organization", async () => {
+    const runner = vi.fn(async () => 0);
+    const { code, stderr } = await run(
+      ["apply", "--env", "staging"],
+      { "turbo-vibe.yaml": branched },
+      env,
+      runner,
+      projects([
+        { id: "a1", name: "acme-db-production", organization_id: "acme-org" },
+        { id: "b2", name: "acme-db-production", organization_slug: "acme-org" },
+      ]),
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain(
+      "more than one Supabase project is named acme-db-production (a1, b2)",
+    );
+    expect(runner).not.toHaveBeenCalled();
+  });
+});
+
 describe("turbo-vibe test", () => {
   it("runs each service's test command in the config's directory", async () => {
     const runner = vi.fn<Runner>(async () => 0);

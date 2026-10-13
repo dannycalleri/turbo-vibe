@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { parseConfig } from "../src/config/load.js";
 import type { Config } from "../src/config/schema.js";
-import { rootModule } from "../src/infrastructure.js";
+import { branchedDatabases, rootModule } from "../src/infrastructure.js";
 import { layout } from "../src/origins.js";
 import { previewEnvironment, previewUrls } from "../src/preview.js";
 import { capturing, fakeR2, run, runner, stateEnv } from "./harness.js";
@@ -103,18 +103,26 @@ describe("preview hostnames", () => {
     const withDb = config(
       `${shop}  db:\n    kind: database\n    target: supabase\n    organization: acme\n    region: eu-central-1\n    plan: paid\n`,
     );
-    const root = rootModule(withDb, "preview-feature-x", {
-      TURBO_VIBE_STATE_BUCKET: "tv-state",
-    });
+    expect(branchedDatabases(withDb, "preview-feature-x")).toEqual([
+      {
+        module: "supabase_db",
+        parent: "staging",
+        parentName: "shop-db-staging",
+        organization: "acme",
+      },
+    ]);
+    const root = rootModule(
+      withDb,
+      "preview-feature-x",
+      { TURBO_VIBE_STATE_BUCKET: "tv-state" },
+      {},
+      { supabase_db: "stagingref" },
+    );
     expect(root.terraform.backend.s3.key).toBe(
       "shop/preview-feature-x/terraform.tfstate",
     );
-    expect(root.data?.terraform_remote_state.staging?.config.key).toBe(
-      "shop/staging/terraform.tfstate",
-    );
-    expect(root.module.supabase_db?.parent_project_ref).toBe(
-      "${data.terraform_remote_state.staging.outputs.supabase_db_project_ref}",
-    );
+    expect(root.module.supabase_db?.parent_project_ref).toBe("stagingref");
+    expect(JSON.stringify(root)).not.toContain("terraform_remote_state");
   });
 });
 
@@ -269,6 +277,51 @@ describe("turbo-vibe preview remove", () => {
     expect(root.terraform.backend.s3.key).toBe(
       "shop/preview-feature-x/terraform.tfstate",
     );
+  });
+
+  it("destroys a preview's database branch with its parent's ref, and still destroys when the parent is gone", async () => {
+    const withDb = `${shop}  db:\n    kind: database\n    target: supabase\n    organization: acme\n    region: eu-central-1\n    plan: paid\n`;
+    for (const [projects, expected] of [
+      [
+        [
+          {
+            id: "stagingref",
+            name: "shop-db-staging",
+            organization_id: "acme",
+          },
+        ],
+        "stagingref",
+      ],
+      [[], undefined],
+    ] as const) {
+      const calls = runner();
+      const { fetch: containers } = containersApi([]);
+      const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) =>
+        String(input) === "https://api.supabase.com/v1/projects"
+          ? Response.json(projects)
+          : containers(input, init),
+      );
+      const { code, cwd } = await run(
+        ["preview", "remove", "--branch", "feature-x"],
+        { "turbo-vibe.yaml": withDb },
+        { ...env, SUPABASE_ACCESS_TOKEN: "sbp_t0ken" },
+        calls,
+        fetch,
+      );
+      expect(code).toBe(0);
+      expect(calls.mock.calls.at(-1)?.[1]).toEqual([
+        "destroy",
+        "-input=false",
+        "-auto-approve",
+      ]);
+      const root = JSON.parse(
+        await readFile(
+          join(cwd, ".turbo-vibe", "tofu", "preview-feature-x", "main.tf.json"),
+          "utf8",
+        ),
+      );
+      expect(root.module.supabase_db.parent_project_ref).toBe(expected);
+    }
   });
 
   it("names missing credentials before deleting anything", async () => {

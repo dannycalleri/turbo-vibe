@@ -3,6 +3,7 @@ import { adapterFor } from "../src/adapters/index.js";
 import { parseConfig } from "../src/config/load.js";
 import type { Config } from "../src/config/schema.js";
 import {
+  branchedDatabases,
   composeInfrastructure,
   requiredSecrets,
   rootModule,
@@ -103,37 +104,40 @@ describe("databases", () => {
     });
   });
 
-  it("gives each environment its own project and exports its ref", () => {
+  it("gives each environment its own project", () => {
     const root = rootModule(config(api + db()), "staging", {});
     expect(root.module.supabase_db).toMatchObject({ name: "acme-db-staging" });
     expect(root.module.supabase_db).not.toHaveProperty("parent_project_ref");
     expect(root.output).toEqual({
-      supabase_db_project_ref: { value: "${module.supabase_db.project_ref}" },
       supabase_db_connection: {
         value: "${module.supabase_db.connection}",
         sensitive: true,
       },
     });
-    expect(root.data).toBeUndefined();
   });
 
-  it("runs staging as a branch of the production project read from production's state", () => {
+  it("runs staging as a branch of the production project, given only its ref", () => {
     const branched = config(api + db("    plan: paid\n    staging: branch\n"));
-    const staging = rootModule(branched, "staging", {
-      TURBO_VIBE_STATE_BUCKET: "tv-state",
-    });
-    expect(staging.module.supabase_db?.parent_project_ref).toBe(
-      "${data.terraform_remote_state.production.outputs.supabase_db_project_ref}",
+    expect(branchedDatabases(branched, "staging")).toEqual([
+      {
+        module: "supabase_db",
+        parent: "production",
+        parentName: "acme-db-production",
+        organization: "acme-org",
+      },
+    ]);
+    const staging = rootModule(
+      branched,
+      "staging",
+      {},
+      {},
+      {
+        supabase_db: "prodref123",
+      },
     );
-    expect(
-      staging.data?.terraform_remote_state.production?.config,
-    ).toMatchObject({
-      bucket: "tv-state",
-      key: "acme/production/terraform.tfstate",
-    });
-    expect(rootModule(branched, "production", {}).output).toHaveProperty(
-      "supabase_db_project_ref",
-    );
+    expect(staging.module.supabase_db?.parent_project_ref).toBe("prodref123");
+    expect(JSON.stringify(staging)).not.toContain("terraform_remote_state");
+    expect(branchedDatabases(branched, "production")).toEqual([]);
   });
 
   it("needs the Supabase token to apply", () => {
