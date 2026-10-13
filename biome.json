@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!schema/turbo-vibe.schema.json"]
+    "includes": ["**", "!schema/turbo-vibe.schema.json", "!npm-shrinkwrap.json"]
   },
   "formatter": {
     "enabled": true,
