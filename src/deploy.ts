@@ -52,11 +52,7 @@ function hasIdentity(config: Config): boolean {
 
 const identitySecrets = ["WORKOS_CLIENT_ID", "WORKOS_API_KEY"] as const;
 
-const originSecrets = [
-  "ALLOWED_ORIGINS",
-  "FRONTEND_URL",
-  "COOKIE_DOMAIN",
-] as const;
+const originSecrets = ["ALLOWED_ORIGINS", "FRONTEND_URL"] as const;
 
 export function runtimeSecretNames(config: Config): string[] {
   return [
@@ -104,7 +100,6 @@ function runtimeSecrets(
   if (origins) {
     secrets.ALLOWED_ORIGINS = origins.allowedOrigins.join(",");
     secrets.FRONTEND_URL = origins.frontendUrl;
-    secrets.COOKIE_DOMAIN = origins.cookieDomain ?? "";
   }
   const name = database(config);
   if (!name) return secrets;

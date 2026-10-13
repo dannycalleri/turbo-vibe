@@ -148,10 +148,9 @@ func TestMeRejectsATamperedOrExpiredSession(t *testing.T) {
 	}
 }
 
-func TestSignInOnASeparateAPIHostReturnsToTheFrontendWithASharedCookie(t *testing.T) {
+func TestSignInOnASeparateAPIHostReturnsToTheFrontendWithAHostOnlyCookie(t *testing.T) {
 	workos, _ := fakeWorkOS(t, "ada@example.com")
 	a := newAuth("client_123", "sk_test", "https://api-staging-example.turbovibe.ai/api/auth/callback", workos.URL)
-	a.cookieDomain = "turbovibe.ai"
 	a.afterSignIn = "https://staging-example.turbovibe.ai"
 
 	request := httptest.NewRequest(http.MethodGet, "/api/auth/callback?code=good-code&state=s1", nil)
@@ -161,8 +160,18 @@ func TestSignInOnASeparateAPIHostReturnsToTheFrontendWithASharedCookie(t *testin
 	if recorder.Header().Get("Location") != "https://staging-example.turbovibe.ai" {
 		t.Fatalf("location = %q", recorder.Header().Get("Location"))
 	}
-	if session := cookie(recorder, a.sessionName); session == nil || session.Domain != "turbovibe.ai" {
+	session := cookie(recorder, a.sessionName)
+	if session == nil || session.Domain != "" || session.Path != "/" || !session.Secure || !strings.HasPrefix(session.Name, "__Host-") {
 		t.Fatalf("session cookie = %+v", session)
+	}
+}
+
+func TestTheSignInStateCookieIsHostOnly(t *testing.T) {
+	a := newAuth("client_123", "sk_test", callbackURL, "")
+	recorder := serve(a, httptest.NewRequest(http.MethodGet, "/api/auth/login", nil))
+	state := cookie(recorder, stateCookie)
+	if state == nil || state.Domain != "" || state.Path != "/" || !state.Secure || !strings.HasPrefix(state.Name, "__Host-") {
+		t.Fatalf("state cookie = %+v", state)
 	}
 }
 
@@ -170,6 +179,6 @@ func TestEachEnvironmentNamesItsSessionCookieApart(t *testing.T) {
 	staging := newAuth("client_123", "sk_test_staging", callbackURL, "")
 	production := newAuth("client_456", "sk_live_production", callbackURL, "")
 	if staging.sessionName == production.sessionName {
-		t.Fatalf("both environments use %q, so a shared cookie domain would let one overwrite the other", staging.sessionName)
+		t.Fatalf("both environments use %q, so the two sessions would collide if an adopter gave the cookie a shared Domain", staging.sessionName)
 	}
 }

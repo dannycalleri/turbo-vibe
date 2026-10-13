@@ -36,7 +36,6 @@ describe("originSettings", () => {
     expect(originSettings(split, "staging")).toEqual({
       allowedOrigins: ["https://staging-example.turbovibe.ai"],
       frontendUrl: "https://staging-example.turbovibe.ai",
-      cookieDomain: "turbovibe.ai",
     });
     expect(originSettings(split, "production")?.allowedOrigins).toEqual([
       "https://example.turbovibe.ai",
@@ -69,14 +68,16 @@ describe("originSettings", () => {
     ).toBeUndefined();
   });
 
-  it("shares the cookie on the frontend's domain when the API is a subdomain of it", () => {
+  it("sets no cookie domain, so sign-in cookies stay on the API's own host", () => {
     const nested = config(`${base}services:\n${api}${web("vercel-static")}`);
-    expect(originSettings(nested, "production")).toMatchObject({
-      cookieDomain: "example.turbovibe.ai",
-    });
-    expect(layout(nested, "production").backendHostname).toBe(
-      "api.example.turbovibe.ai",
-    );
+    for (const environment of ["staging", "production"] as const) {
+      expect(originSettings(split, environment)).not.toHaveProperty(
+        "cookieDomain",
+      );
+      expect(originSettings(nested, environment)).not.toHaveProperty(
+        "cookieDomain",
+      );
+    }
   });
 });
 

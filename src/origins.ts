@@ -57,7 +57,6 @@ export function hostOf(layout: Layout, service: Service): string {
 export interface OriginSettings {
   allowedOrigins: string[];
   frontendUrl: string;
-  cookieDomain?: string;
 }
 
 export function originSettings(
@@ -70,29 +69,11 @@ export function originSettings(
   );
   if (!crossOrigin) return undefined;
   const frontendUrl = `https://${hostname}`;
-  const cookieDomain = sharedDomain(hostname, backendHostname);
-  return {
-    allowedOrigins: [frontendUrl],
-    frontendUrl,
-    ...(cookieDomain ? { cookieDomain } : {}),
-  };
+  return { allowedOrigins: [frontendUrl], frontendUrl };
 }
 
 export function parentDomain(hostname: string): string {
   return hostname.slice(hostname.indexOf(".") + 1);
-}
-
-function sharedDomain(a: string, b: string): string | undefined {
-  const left = a.split(".").reverse();
-  const right = b.split(".").reverse();
-  const shared: string[] = [];
-  while (
-    shared.length < left.length &&
-    left[shared.length] === right[shared.length]
-  ) {
-    shared.push(left[shared.length] as string);
-  }
-  return shared.length >= 2 ? shared.reverse().join(".") : undefined;
 }
 
 export function apiUrl(config: Config, environment: EnvironmentName): string {

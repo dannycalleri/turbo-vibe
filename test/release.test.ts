@@ -1092,7 +1092,7 @@ services:
     },
   });
 
-  it("gives the backend its exact allowed origin and cookie domain, and the page its backend URL", async () => {
+  it("gives the backend its exact allowed origin and no cookie domain, and the page its backend URL", async () => {
     const uploaded: unknown[] = [];
     const calls = runner(async (_command, args) => {
       const index = args.indexOf("--secrets-file");
@@ -1115,7 +1115,6 @@ services:
       {
         ALLOWED_ORIGINS: "https://staging.acme.example.com",
         FRONTEND_URL: "https://staging.acme.example.com",
-        COOKIE_DOMAIN: "staging.acme.example.com",
       },
     ]);
     const config = JSON.parse(
