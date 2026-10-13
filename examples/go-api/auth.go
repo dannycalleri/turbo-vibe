@@ -17,21 +17,21 @@ import (
 )
 
 const (
-	stateCookie   = "tv_state"
+	// Browsers accept a __Host- cookie only from HTTPS, with Path=/ and no Domain, so it never leaves this host.
+	stateCookie   = "__Host-tv_state"
 	sessionLength = 7 * 24 * time.Hour
 )
 
 type auth struct {
-	clientID     string
-	apiKey       string
-	redirectURI  string
-	apiBase      string
-	signingKey   []byte
-	sessionName  string
-	client       *http.Client
-	now          func() time.Time
-	cookieDomain string
-	afterSignIn  string
+	clientID    string
+	apiKey      string
+	redirectURI string
+	apiBase     string
+	signingKey  []byte
+	sessionName string
+	client      *http.Client
+	now         func() time.Time
+	afterSignIn string
 }
 
 func newAuth(clientID, apiKey, redirectURI, apiBase string) *auth {
@@ -43,7 +43,7 @@ func newAuth(clientID, apiKey, redirectURI, apiBase string) *auth {
 		redirectURI: redirectURI,
 		apiBase:     strings.TrimSuffix(apiBase, "/"),
 		signingKey:  mac.Sum(nil),
-		sessionName: "tv_session_" + hex.EncodeToString(mac.Sum(nil)[:4]),
+		sessionName: "__Host-tv_session_" + hex.EncodeToString(mac.Sum(nil)[:4]),
 		client:      &http.Client{Timeout: 10 * time.Second},
 		now:         time.Now,
 		afterSignIn: "/",
@@ -61,7 +61,7 @@ func (a *auth) login(w http.ResponseWriter, r *http.Request) {
 	rand.Read(nonce)
 	state := hex.EncodeToString(nonce)
 	http.SetCookie(w, &http.Cookie{
-		Name: stateCookie, Value: state, Path: "/api/auth", MaxAge: 600,
+		Name: stateCookie, Value: state, Path: "/", MaxAge: 600,
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
 	})
 	query := url.Values{
@@ -85,9 +85,9 @@ func (a *auth) callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "sign-in failed", http.StatusBadGateway)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: "/api/auth", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: "/", MaxAge: -1, Secure: true})
 	http.SetCookie(w, &http.Cookie{
-		Name: a.sessionName, Value: a.sign(email), Path: "/", Domain: a.cookieDomain, MaxAge: int(sessionLength.Seconds()),
+		Name: a.sessionName, Value: a.sign(email), Path: "/", MaxAge: int(sessionLength.Seconds()),
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, a.afterSignIn, http.StatusFound)

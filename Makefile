@@ -23,6 +23,13 @@ schema: build
 	mkdir -p schema
 	node dist/cli.js schema > schema/turbo-vibe.schema.json
 
+.PHONY: shrinkwrap
+shrinkwrap:
+	@tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/turbo-vibe-shrinkwrap.XXXXXX"); trap 'rm -rf "$$tmp"' EXIT; \
+	cp package.json "$$tmp/" && \
+	(cd "$$tmp" && npm install --package-lock-only --omit=dev --ignore-scripts --prefer-dedupe --no-audit --no-fund >/dev/null) && \
+	cp "$$tmp/package-lock.json" npm-shrinkwrap.json
+
 TOFU_IMAGE := ghcr.io/opentofu/opentofu:1.13.1
 
 .PHONY: validate-infra

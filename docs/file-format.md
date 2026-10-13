@@ -21,7 +21,7 @@ The schema checks each field on its own. The rules that relate fields to each ot
 | `version` | `1` | required | The file format version. |
 | `project` | name | required | The project's name, used in every resource the kit creates (`<project>-<service>-<environment>` for Workers). Lowercase letters, digits and hyphens, starting with a letter, at most 63 characters. |
 | `domain` | hostname | required | Production's hostname. |
-| `previews` | boolean | `false` | Allow `turbo-vibe preview deploy` for pull requests. A project with a database also needs `plan: paid`, because each preview's database is a Supabase branch. |
+| `previews` | boolean | `false` | Allow `turbo-vibe preview deploy` for pull requests, in the `preview` GitHub environment with its own state bucket and tokens. A project with a database also needs `plan: paid`, because each preview's database is a Supabase branch. Within one Cloudflare account, previews' tokens still reach production's Workers and DNS; see the bootstrap checklist's [What one account leaves shared](bootstrap.md#7-what-one-account-leaves-shared). |
 | `environments` | mapping | see below | Hostnames per environment. |
 | `services` | mapping of name → service | required, at least one | The services, keyed by a name (same rules as `project`). |
 
@@ -95,4 +95,4 @@ These need more than one field, or the list of adapters, so the JSON Schema cann
 - **Instance routing.** `instance_from` needs `max_instances` of 2 or more, and `max_instances` above 1 needs `instance_from`.
 - **`staging: branch`** needs `plan: paid`.
 - **Previews with a database** need `plan: paid`. `preview deploy` does not fail without it: it prints why there is no preview and exits successfully, so a pull request still passes.
-- **Hostnames.** No two environments share a hostname, nor an environment and an API hostname, and an API hostname must be under the frontend hostname's parent domain, so the two can share sign-in cookies.
+- **Hostnames.** No two environments share a hostname, nor an environment and an API hostname, and an API hostname must be under the frontend hostname's parent domain, so the browser treats the two as one site and sends the API's sign-in cookie with the frontend's requests.

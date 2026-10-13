@@ -66,7 +66,6 @@ func main() {
 			apiBase = "https://api.workos.com"
 		}
 		a := newAuth(clientID, os.Getenv("WORKOS_API_KEY"), os.Getenv("WORKOS_REDIRECT_URI"), apiBase)
-		a.cookieDomain = os.Getenv("COOKIE_DOMAIN")
 		if frontend := os.Getenv("FRONTEND_URL"); frontend != "" {
 			a.afterSignIn = frontend
 		}

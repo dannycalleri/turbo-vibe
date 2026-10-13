@@ -52,11 +52,7 @@ function hasIdentity(config: Config): boolean {
 
 const identitySecrets = ["WORKOS_CLIENT_ID", "WORKOS_API_KEY"] as const;
 
-const originSecrets = [
-  "ALLOWED_ORIGINS",
-  "FRONTEND_URL",
-  "COOKIE_DOMAIN",
-] as const;
+const originSecrets = ["ALLOWED_ORIGINS", "FRONTEND_URL"] as const;
 
 export function runtimeSecretNames(config: Config): string[] {
   return [
@@ -104,7 +100,6 @@ function runtimeSecrets(
   if (origins) {
     secrets.ALLOWED_ORIGINS = origins.allowedOrigins.join(",");
     secrets.FRONTEND_URL = origins.frontendUrl;
-    secrets.COOKIE_DOMAIN = origins.cookieDomain ?? "";
   }
   const name = database(config);
   if (!name) return secrets;
@@ -302,6 +297,13 @@ export async function promote(
       buildId
         ? `build ${buildId} has no record; production is unchanged\n`
         : "no staging build has passed its smoke test; production is unchanged\n",
+    );
+    return 1;
+  }
+  // The ID reaches the workflow's outputs and its checkout of that commit, so a record cannot inject anything there.
+  if (!/^[0-9a-f]{40}$/.test(chosen.buildId)) {
+    io.stderr(
+      `the build record names ${JSON.stringify(chosen.buildId)} as its build, which is not a full commit SHA; production is unchanged\n`,
     );
     return 1;
   }

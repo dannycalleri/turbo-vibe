@@ -13,8 +13,8 @@ npx @turbo-vibe/cli check --env staging
 npx @turbo-vibe/cli test
 npx @turbo-vibe/cli apply --env staging
 npx @turbo-vibe/cli migrate --env staging
-npx @turbo-vibe/cli deploy --env staging --build-id "$(git rev-parse --short HEAD)"
-npx @turbo-vibe/cli smoke --env staging --build-id "$(git rev-parse --short HEAD)"
+npx @turbo-vibe/cli deploy --env staging --build-id "$(git rev-parse HEAD)"
+npx @turbo-vibe/cli smoke --env staging --build-id "$(git rev-parse HEAD)"
 npx @turbo-vibe/cli promote --env production
 ```
 
@@ -108,7 +108,7 @@ npx @turbo-vibe/cli preview remove --branch "$BRANCH"
 - **Removal:** `preview remove` deletes the preview's container application and destroys the preview's own state. It refuses to destroy anything that is not a preview.
 - **Promotion:** preview builds are never recorded, so they cannot be promoted.
 
-The reusable `preview.yml` workflow runs this for you on `pull_request` events: `opened`, `synchronize` and `reopened` deploy, `closed` removes. It runs in the `preview` GitHub environment, which `setup` creates with its own state bucket and tokens, so pull request code never receives the `staging` or `production` GitHub environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. It posts the preview's URLs (or the reason there is none) as a comment on the pull request: a page at its root, and a backend with no page on its hostname at `/api/health`, which reports the build it runs. A pull request from a fork gets no preview, because its run receives no secrets, and the run says so. `.github/workflows/previews.yml` previews the kit's Python and Vercel examples.
+The reusable `preview.yml` workflow runs this for you on `pull_request` events: `opened`, `synchronize` and `reopened` deploy, `closed` removes. It runs in the `preview` GitHub environment, which `setup` creates with its own state bucket and tokens, so pull request code never receives the `staging` or `production` GitHub environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. The bootstrap checklist's [What one account leaves shared](docs/bootstrap.md#7-what-one-account-leaves-shared) lists every such limit. It posts the preview's URLs (or the reason there is none) as a comment on the pull request: a page at its root, and a backend with no page on its hostname at `/api/health`, which reports the build it runs. A pull request from a fork gets no preview, because its run receives no secrets, and the run says so. `.github/workflows/previews.yml` previews the kit's Python and Vercel examples.
 
 ## What a backend must do
 
@@ -149,9 +149,9 @@ A `vercel-static` frontend gets a Vercel project per environment, named `<projec
     build: { command: "pnpm build", output: dist }
 ```
 
-With a backend in the same project, the two run on different hosts. The frontend keeps the environment's hostname, and the backend moves to its API hostname: `api.<hostname>` by default, or `environments.<env>.api_hostname`. Set it explicitly when `api.<hostname>` would be two levels below the zone, which Universal SSL does not cover. It must sit under the frontend hostname's parent domain, so the two can share sign-in cookies. validation rejects anything else, except one case it cannot detect without a public-suffix list: a frontend directly under a public suffix such as `co.uk` (`example.co.uk` with `api.other.co.uk`). Use `api.example.co.uk` there. The kit then gives each side what the other needs, per environment:
+With a backend in the same project, the two run on different hosts. The frontend keeps the environment's hostname, and the backend moves to its API hostname: `api.<hostname>` by default, or `environments.<env>.api_hostname`. Set it explicitly when `api.<hostname>` would be two levels below the zone, which Universal SSL does not cover. It must sit under the frontend hostname's parent domain, so the browser treats the two as one site and sends the API's sign-in cookie with the frontend's requests. Validation rejects anything else, except one case it cannot detect without a public-suffix list: a frontend directly under a public suffix such as `co.uk` (`example.co.uk` with `api.other.co.uk`). Use `api.example.co.uk` there. The kit then gives each side what the other needs, per environment:
 
-- The backend receives `ALLOWED_ORIGINS`, set to exactly that environment's frontend URL and never a wildcard. It also receives `FRONTEND_URL`, and `COOKIE_DOMAIN`, the domain both hosts share. It must refuse any other origin. The example does this in `examples/go-api/cors.go`. When staging and production hosts sit in the same zone, `COOKIE_DOMAIN` is the same for both, so give the session cookie a name unique to the environment, or one would overwrite the other. The example derives it from the environment's signing key.
+- The backend receives `ALLOWED_ORIGINS`, set to exactly that environment's frontend URL and never a wildcard. It also receives `FRONTEND_URL`, where sign-in returns. Sign-in cookies stay on the API's own host: the kit sets no cookie domain, so a production session is never sent to a staging or preview host in the same zone. The example names its cookies `__Host-…`, which browsers accept only without a `Domain` and over HTTPS.
 - The page reads `/_turbo-vibe/config.json`, which `deploy` writes next to the built files for each environment: `{ "apiUrl": "https://api…" }`. The build stays identical, so promotion still ships the staging files unchanged. The Vercel project also gets `TURBO_VIBE_API_URL`.
 
 ```yaml

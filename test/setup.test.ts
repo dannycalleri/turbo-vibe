@@ -1323,9 +1323,11 @@ describe("setup on re-runs and other environments", () => {
 
   it("sets up an environment such as live like staging: no reviewer, a staging WorkOS key", async () => {
     let checkedAs = "";
+    let github: string | undefined;
     checks.list = [
-      async ({ environment }) => {
+      async ({ environment, githubEnvironment }) => {
         checkedAs = environment;
+        github = githubEnvironment;
         return [];
       },
     ];
@@ -1348,6 +1350,7 @@ describe("setup on re-runs and other environments", () => {
     expect(gh.calls().some((call) => call.includes("reviewers"))).toBe(false);
     expect(storedValue(gh, "live", "WORKOS_API_KEY")).toBe("sk_test_live");
     expect(checkedAs).toBe("staging");
+    expect(github).toBe("live");
     expect(result.stdout).toContain("live is ready");
   });
 
@@ -1479,6 +1482,51 @@ services:
     expect(storedValue(gh, "production", "TURBO_VIBE_BUILDS_BUCKET")).toBe(
       "acme-turbo-vibe-staging",
     );
+  });
+
+  it("names what one Cloudflare account leaves shared, for a container backend with previews", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": project.replace(
+        "services:",
+        "previews: true\nservices:",
+      ),
+    });
+    const limits = result.stdout.slice(
+      result.stdout.indexOf("What one Cloudflare account leaves shared"),
+    );
+    expect(limits).toContain(
+      "can deploy any Worker in the account, production's included, and change any container application",
+    );
+    expect(limits).toContain("edit the zone's DNS records and routes");
+    const previews = limits.indexOf("Previews run pull request code");
+    expect(previews).toBeGreaterThan(limits.indexOf("any Worker"));
+    expect(limits).toContain("deployment-branch rules");
+    expect(limits).toContain("does not support yet");
+  });
+
+  it("names only the shared DNS and the Vercel team for a Vercel page without previews", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": `version: 1
+project: acme
+domain: acme.example.com
+services:
+  web:
+    kind: frontend
+    target: vercel-static
+    build: { command: "pnpm build", output: dist }
+`,
+    });
+    const limits = result.stdout.slice(
+      result.stdout.indexOf("What one Cloudflare account leaves shared"),
+    );
+    expect(limits).toContain(
+      "edit the zone's DNS records, so it could point production's hostnames elsewhere",
+    );
+    expect(limits).toContain(
+      "The Vercel token reaches every project in its team",
+    );
+    expect(limits).not.toContain("any Worker");
+    expect(limits).not.toContain("Previews");
   });
 });
 

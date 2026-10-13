@@ -143,42 +143,148 @@ describe("the release workflow", () => {
     expect(runs).toMatch(/test "\$TAG" = "v\$version"/);
   });
 
-  it("moves the major tag only for the newest release in that major", async () => {
+  it("moves the major tag only for the newest release in that major, never for a prerelease", async () => {
     const release = await workflow("release.yml");
+    expect(release.jobs["major-tag"].if).toBe(
+      "${{ !contains(github.ref_name, '-') }}",
+    );
     const move = release.jobs["major-tag"].steps
       .map((step: { run?: string }) => step.run ?? "")
       .join("\n");
-    expect(move).toContain('git tag --list "$major.*.*" --sort=-v:refname');
     expect(move.indexOf('[ "$TAG" != "$newest" ]')).toBeLessThan(
       move.indexOf("git push --force"),
     );
+    const selection = move.match(/newest=\$\((.*)\)\n/)?.[1];
+    expect(selection).toBeDefined();
+    const dir = await mkdtemp(join(tmpdir(), "turbo-vibe-tags-"));
+    const isolated = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+    };
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: dir, encoding: "utf8", env: isolated });
+    git("init", "-q");
+    git(
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "x",
+    );
+    for (const tag of ["v1.0.0", "v1.0.10", "v1.0.9", "v1.1.0-rc.1"])
+      git("tag", tag);
+    expect(
+      execFileSync("bash", ["-c", `major=v1; ${selection}`], {
+        cwd: dir,
+        encoding: "utf8",
+        env: isolated,
+      }).trim(),
+    ).toBe("v1.0.10");
+  });
+
+  it("publishes only through the protected release environment, from a commit on main, and a prerelease under next", async () => {
+    const { publish } = (await workflow("release.yml")).jobs;
+    expect(publish.environment).toBe("release");
+    const runs: string[] = publish.steps.map(
+      (step: { run?: string }) => step.run ?? "",
+    );
+    const onMain = runs.findIndex((run) =>
+      run.includes('git merge-base --is-ancestor "$GITHUB_SHA" origin/main'),
+    );
+    const published = runs.findIndex((run) => run.includes("npm publish"));
+    expect(onMain).toBeGreaterThanOrEqual(0);
+    expect(onMain).toBeLessThan(published);
+    expect(runs[published]).toContain(
+      "*-*) npm publish --provenance --access public --tag next ;;",
+    );
+    expect(publish.steps[0].with["fetch-depth"]).toBe(0);
   });
 });
 
 describe("secrets", () => {
-  it("lets every reusable workflow job that deploys receive every credential an adapter or the state bucket reads", async () => {
+  const deploying = [
+    ["deploy.yml", "staging"],
+    ["promote.yml", "production"],
+    ["preview.yml", "deploy"],
+    ["preview.yml", "remove"],
+  ] as const;
+  type Step = { name?: string; env?: Record<string, string>; run?: string };
+  const secretsIn = (env?: Record<string, string>) =>
+    Object.entries(env ?? {}).filter(([, value]) => value.includes("secrets."));
+  const callsCli = (step: Step) => step.run?.includes("turbo-vibe --config");
+
+  it("gives every CLI step every credential an adapter or the state bucket reads", async () => {
     const { adapters } = await import("../src/adapters/index.js");
     const { stateSecrets } = await import("../src/infrastructure.js");
     const names = new Set([
       ...stateSecrets,
       ...Object.values(adapters).flatMap((adapter) => adapter.secrets),
     ]);
-    for (const [file, job] of [
-      ["deploy.yml", "staging"],
-      ["promote.yml", "production"],
-      ["preview.yml", "deploy"],
-      ["preview.yml", "remove"],
-    ] as const) {
+    for (const [file, job] of deploying) {
       const definition = await workflow(file);
+      const steps: Step[] = definition.jobs[job].steps;
+      const cli = steps.filter(callsCli);
+      expect(cli.length, `${file} ${job}`).toBeGreaterThan(0);
       for (const name of names) {
         expect(
           definition.on.workflow_call.secrets,
           `${file} accepts ${name}`,
         ).toHaveProperty(name);
-        expect(definition.jobs[job].env[name], `${file} passes ${name}`).toBe(
-          `\${{ secrets.${name} }}`,
-        );
+        for (const step of cli)
+          expect(step.env?.[name], `${file} ${job}: ${step.run}`).toBe(
+            `\${{ secrets.${name} }}`,
+          );
       }
+      const first = JSON.stringify(secretsIn(cli[0]?.env));
+      for (const step of cli)
+        expect(JSON.stringify(secretsIn(step.env)), step.run).toBe(first);
+    }
+  });
+
+  it("gives secrets to no step except those that call the CLI, and never to the job or through $GITHUB_ENV", async () => {
+    for (const [file, job] of deploying) {
+      const definition = await workflow(file);
+      expect(secretsIn(definition.jobs[job].env), `${file} ${job}`).toEqual([]);
+      for (const step of definition.jobs[job].steps as Step[]) {
+        if (!callsCli(step))
+          expect(
+            secretsIn(step.env),
+            `${file} ${job}: ${step.name ?? step.run}`,
+          ).toEqual([]);
+        if (/pnpm install|npm ci|npm install/.test(step.run ?? ""))
+          expect(secretsIn(step.env), `${file} ${job}: install`).toEqual([]);
+      }
+    }
+    for (const file of ["deploy.yml", "promote.yml", "preview.yml"]) {
+      const definition = await workflow(file);
+      expect(secretsIn(definition.env), `${file} workflow env`).toEqual([]);
+      for (const [name, job] of Object.entries(
+        definition.jobs as Record<string, { env?: Record<string, string> }>,
+      ))
+        expect(secretsIn(job.env), `${file} ${name}`).toEqual([]);
+      const text = await readFile(
+        new URL(`.github/workflows/${file}`, root),
+        "utf8",
+      );
+      expect(text, file).not.toContain("GITHUB_ENV");
+    }
+  });
+
+  it("installs the CLI with npm ci in its unpacked package, never with npx", async () => {
+    for (const file of ["deploy.yml", "promote.yml", "preview.yml"]) {
+      const text = await readFile(
+        new URL(`.github/workflows/${file}`, root),
+        "utf8",
+      );
+      expect(text, file).not.toMatch(/exec npx|npx --yes/);
+      expect(text, file).toContain(
+        "npm ci --omit=dev --ignore-scripts --no-audit --no-fund",
+      );
     }
   });
 
@@ -187,9 +293,12 @@ describe("secrets", () => {
     expect(promote.on.workflow_call.secrets).toHaveProperty(
       "TURBO_VIBE_BUILDS_BUCKET",
     );
-    expect(promote.jobs.production.env.TURBO_VIBE_BUILDS_BUCKET).toBe(
-      "${{ secrets.TURBO_VIBE_BUILDS_BUCKET }}",
-    );
+    for (const step of (promote.jobs.production.steps as Step[]).filter(
+      callsCli,
+    ))
+      expect(step.env?.TURBO_VIBE_BUILDS_BUCKET).toBe(
+        "${{ secrets.TURBO_VIBE_BUILDS_BUCKET }}",
+      );
   });
 });
 
@@ -207,6 +316,19 @@ describe("the preview workflow", () => {
     );
     expect(JSON.stringify(fork)).not.toContain("${{ secrets.");
     expect(fork).not.toHaveProperty("environment");
+  });
+
+  it("checks out the commit the preview reports as its build", async () => {
+    const preview = await workflow("preview.yml");
+    for (const job of ["deploy", "remove"]) {
+      const checkout = preview.jobs[job].steps.find((step: { uses?: string }) =>
+        step.uses?.startsWith("actions/checkout@"),
+      );
+      expect(checkout.with.ref, job).toBe(preview.env.BUILD_ID);
+    }
+    expect(preview.env.BUILD_ID).toBe(
+      "${{ github.event.pull_request.head.sha }}",
+    );
   });
 
   it("runs every preview job that holds secrets in the preview environment, never in staging or production", async () => {
@@ -382,7 +504,7 @@ describe("the live tests workflow", () => {
     const job = live.jobs.live;
     expect(job.if).toBe("github.ref == 'refs/heads/main'");
     expect(job.environment).toBe("live");
-    expect(live.env.BRANCH).toMatch(/^live-/);
+    expect(live.env.BRANCH).toMatch(/^live run /);
   });
 
   describe("commits COMPATIBILITY.md alone", () => {

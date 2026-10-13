@@ -154,7 +154,7 @@ describe("parseConfig", () => {
       {
         line: 13,
         message:
-          "the production API hostname api.bar.co.uk must be under foo.co.uk, like the frontend's app.foo.co.uk, so the two can share sign-in cookies",
+          "the production API hostname api.bar.co.uk must be under foo.co.uk, like the frontend's app.foo.co.uk, so the browser treats the two as one site and sends the API's sign-in cookie with the frontend's requests",
       },
     ]);
   });
