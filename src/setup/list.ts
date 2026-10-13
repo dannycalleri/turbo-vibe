@@ -1,6 +1,7 @@
 import type { Config } from "../config/schema.js";
 import { environmentSecrets } from "../deploy.js";
 import { kindOf } from "../setup.js";
+import { stateBucketName } from "./cloudflare.js";
 
 const cloudflareDashboard = "https://dash.cloudflare.com/?to=/:account";
 
@@ -75,6 +76,12 @@ export function setupSteps(
     ...steps.map((line, index) => `  ${index + 1}. ${line}`),
     "",
     "Then, in a terminal: turbo-vibe setup",
+    "",
+    "State buckets setup finds or creates, one per environment",
+    ...environments.map(
+      (environment) =>
+        `  ${environment}: ${stateBucketName(config, environment)}${environment === "production" ? ` (and read-only access to ${stateBucketName(config, "staging")}, for the builds it promotes)` : ""}`,
+    ),
     "",
     "Secrets setup stores in each GitHub environment",
     ...environments.map(

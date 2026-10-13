@@ -351,9 +351,10 @@ export async function setup(
     present.set(name, names);
   }
   const lacking = (names: readonly string[]) =>
-    [...present.values()].some((existing) =>
-      names.some((name) => needed.includes(name) && !existing.has(name)),
-    );
+    [...present].some(([environment, existing]) => {
+      const own = environmentSecrets(config, kindOf(environment));
+      return names.some((name) => own.includes(name) && !existing.has(name));
+    });
   let provided = new Map<string, Provided>();
   let afterStoring = async () => {};
   if (needed.includes("CLOUDFLARE_ZONE_ID") && lacking(cloudflareSecrets)) {
