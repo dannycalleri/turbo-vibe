@@ -1323,9 +1323,11 @@ describe("setup on re-runs and other environments", () => {
 
   it("sets up an environment such as live like staging: no reviewer, a staging WorkOS key", async () => {
     let checkedAs = "";
+    let github: string | undefined;
     checks.list = [
-      async ({ environment }) => {
+      async ({ environment, githubEnvironment }) => {
         checkedAs = environment;
+        github = githubEnvironment;
         return [];
       },
     ];
@@ -1348,6 +1350,7 @@ describe("setup on re-runs and other environments", () => {
     expect(gh.calls().some((call) => call.includes("reviewers"))).toBe(false);
     expect(storedValue(gh, "live", "WORKOS_API_KEY")).toBe("sk_test_live");
     expect(checkedAs).toBe("staging");
+    expect(github).toBe("live");
     expect(result.stdout).toContain("live is ready");
   });
 
