@@ -86,7 +86,7 @@ jobs:
   staging:
     name: Deploy staging
     needs: test
-    # Vendor tokens reach only main, on a push or a maintainer's manual run; pull requests, from forks or not, stop after the test job.
+    # Staging's tokens reach only main, on a push or a maintainer's manual run; pull requests stop after the test job here, and previews use the `preview` environment's own tokens.
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     environment: staging

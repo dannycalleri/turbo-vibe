@@ -209,6 +209,19 @@ describe("the preview workflow", () => {
     expect(fork).not.toHaveProperty("environment");
   });
 
+  it("runs every preview job that holds secrets in the preview environment, never in staging or production", async () => {
+    const { jobs } = await workflow("preview.yml");
+    const withSecrets = Object.entries(jobs).filter(
+      ([, job]) => (job as { environment?: string }).environment !== undefined,
+    );
+    expect(withSecrets.map(([name]) => name).sort()).toEqual([
+      "deploy",
+      "remove",
+    ]);
+    for (const [, job] of withSecrets)
+      expect((job as { environment: string }).environment).toBe("preview");
+  });
+
   it("deploys a branch's preview while the pull request is open, and removes it when it closes", async () => {
     const { deploy, remove } = (await workflow("preview.yml")).jobs;
     expect(deploy.if).toBe(

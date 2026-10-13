@@ -60,7 +60,7 @@ jobs:
     name: Deploy the preview
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.action != 'closed'
     runs-on: ubuntu-latest
-    environment: staging
+    environment: preview
     concurrency:
       group: turbo-vibe-preview-${{ inputs.config }}-${{ github.head_ref }}
       cancel-in-progress: false
@@ -138,7 +138,7 @@ jobs:
     name: Remove the preview
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.action == 'closed'
     runs-on: ubuntu-latest
-    environment: staging
+    environment: preview
     concurrency:
       group: turbo-vibe-preview-${{ inputs.config }}-${{ github.head_ref }}
       cancel-in-progress: false
