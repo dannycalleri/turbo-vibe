@@ -17,6 +17,7 @@ const cloudflare = {
   CLOUDFLARE_ZONE_ID: "zone456",
 };
 const env = { ...stateEnv, ...cloudflare };
+const production = { ...env, TURBO_VIBE_BUILDS_BUCKET: "tv-state" };
 const record = (overrides: Partial<BuildRecord>): BuildRecord => ({
   buildId: "abc123",
   createdAt: "2026-10-08T10:00:00.000Z",
@@ -455,7 +456,7 @@ describe("promote", () => {
     const { code, stderr } = await run(
       ["promote", "--env", "production"],
       { "turbo-vibe.yaml": project },
-      env,
+      production,
       calls,
       r2.fetch(),
     );
@@ -482,7 +483,7 @@ describe("promote", () => {
     const { code, cwd, stdout } = await run(
       ["promote", "--env", "production"],
       { "turbo-vibe.yaml": project },
-      env,
+      production,
       calls,
       r2.fetch(),
     );
@@ -514,7 +515,7 @@ describe("promote", () => {
     const { code, stderr } = await run(
       ["promote", "--env", "production"],
       { "turbo-vibe.yaml": project },
-      env,
+      production,
       calls,
       r2.fetch(),
     );
@@ -541,7 +542,7 @@ describe("promote", () => {
     const { code, stderr } = await run(
       ["promote", "--env", "production"],
       { "turbo-vibe.yaml": project },
-      env,
+      production,
       calls,
       r2.fetch(),
     );
@@ -559,12 +560,53 @@ describe("promote", () => {
     const { code, stdout } = await run(
       ["promote", "--env", "production", "--choose"],
       { "turbo-vibe.yaml": project },
-      env,
+      production,
       calls,
       r2.fetch(),
     );
     expect(code).toBe(0);
     expect(stdout).toBe("abc123\n");
+    expect(calls).not.toHaveBeenCalled();
+  });
+
+  it("reads build records from staging's bucket and writes nothing there", async () => {
+    const r2 = fakeR2(seeded(record({})));
+    const fetch = r2.fetch();
+    const { code, stdout } = await run(
+      ["promote", "--env", "production", "--choose"],
+      { "turbo-vibe.yaml": project },
+      { ...production, TURBO_VIBE_STATE_BUCKET: "prod-state" },
+      runner(),
+      fetch,
+    );
+    expect(code).toBe(0);
+    expect(stdout).toBe("abc123\n");
+    const storage = fetch.mock.calls
+      .map(([input]) => input as Request)
+      .filter((request) => request.url.includes("r2.cloudflarestorage.com"));
+    expect(storage.length).toBeGreaterThan(0);
+    for (const request of storage) {
+      expect(new URL(request.url).pathname).toMatch(/^\/tv-state\//);
+      expect(request.method).toBe("GET");
+    }
+  });
+
+  it("names a missing builds bucket before it reads anything", async () => {
+    const calls = runner();
+    const fetch = fakeR2(seeded(record({}))).fetch();
+    const { TURBO_VIBE_BUILDS_BUCKET: _, ...withoutBuilds } = production;
+    const { code, stderr } = await run(
+      ["promote", "--env", "production", "--choose"],
+      { "turbo-vibe.yaml": project },
+      withoutBuilds,
+      calls,
+      fetch,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "missing environment variables: TURBO_VIBE_BUILDS_BUCKET\n",
+    );
+    expect(fetch).not.toHaveBeenCalled();
     expect(calls).not.toHaveBeenCalled();
   });
 
@@ -574,7 +616,7 @@ describe("promote", () => {
     const { code, stdout, stderr } = await run(
       ["promote", "--env", "production", "--choose", "--confirm", "abc12"],
       { "turbo-vibe.yaml": project },
-      env,
+      production,
       calls,
       r2.fetch(),
     );
@@ -591,7 +633,7 @@ describe("promote", () => {
     const { code, stdout } = await run(
       ["promote", "--env", "production", "--choose", "--confirm", " abc123 "],
       { "turbo-vibe.yaml": project },
-      env,
+      production,
       runner(),
       r2.fetch(),
     );
@@ -616,7 +658,7 @@ describe("promote", () => {
         "abc123",
       ],
       { "turbo-vibe.yaml": project },
-      env,
+      production,
       calls,
       r2.fetch(),
     );
@@ -636,7 +678,7 @@ describe("promote", () => {
     const { code, stdout } = await run(
       ["promote", "--env", "production", "--build-id", "abc123"],
       { "turbo-vibe.yaml": project },
-      env,
+      production,
       runner(),
       r2.fetch(),
     );
@@ -660,7 +702,7 @@ describe("promote", () => {
       const { code, stderr } = await run(
         ["promote", "--env", "production", "--build-id", "abc123"],
         { "turbo-vibe.yaml": project },
-        env,
+        production,
         calls,
         fakeR2(seeded(record({ smoke }))).fetch(),
       );
@@ -674,7 +716,7 @@ describe("promote", () => {
     const { code, stderr } = await run(
       ["promote", "--env", "production", "--build-id", "nope"],
       { "turbo-vibe.yaml": project },
-      env,
+      production,
       runner(),
       fakeR2().fetch(),
     );
@@ -964,7 +1006,7 @@ services:
     ).toBe(false);
   });
 
-  it("promotes the recorded files to the production project without building", async () => {
+  it("promotes the recorded files to the production project without building, reading them from staging's bucket only", async () => {
     const calls = runner();
     const r2 = fakeR2({
       ...seeded(
@@ -974,15 +1016,30 @@ services:
       ),
       "acme/builds/abc123/web.tar.gz": "archive",
     });
+    const fetch = r2.fetch();
     const { code } = await run(
       ["promote", "--env", "production"],
       { "turbo-vibe.yaml": site },
-      vercelEnv,
+      {
+        ...vercelEnv,
+        TURBO_VIBE_STATE_BUCKET: "prod-state",
+        TURBO_VIBE_BUILDS_BUCKET: "tv-state",
+      },
       calls,
-      r2.fetch(),
+      fetch,
       { capture: capturing(outputs("production")) },
     );
     expect(code).toBe(0);
+    const storage = fetch.mock.calls
+      .map(([input]) => input as Request)
+      .filter((request) => request.url.includes("r2.cloudflarestorage.com"));
+    expect(storage.map((request) => new URL(request.url).pathname)).toContain(
+      "/tv-state/acme/builds/abc123/web.tar.gz",
+    );
+    for (const request of storage) {
+      expect(new URL(request.url).pathname).toMatch(/^\/tv-state\//);
+      expect(request.method).toBe("GET");
+    }
     expect(calls.mock.calls.map(([command]) => command)).not.toContain("sh");
     const deployCall = calls.mock.calls.find(([, args]) =>
       args.includes("--prebuilt"),
@@ -1092,7 +1149,7 @@ services:
     const { code, cwd } = await run(
       ["promote", "--env", "production"],
       { "turbo-vibe.yaml": split },
-      splitEnv,
+      { ...splitEnv, TURBO_VIBE_BUILDS_BUCKET: "tv-state" },
       runner(),
       r2.fetch(),
       { capture: capturing(outputs("production")) },
@@ -1230,7 +1287,7 @@ services:
     const { code } = await run(
       ["promote", "--env", "production"],
       { "turbo-vibe.yaml": app },
-      vercelEnv,
+      { ...vercelEnv, TURBO_VIBE_BUILDS_BUCKET: "tv-state" },
       calls,
       r2.fetch(),
       { capture: capturing(outputs("production")) },

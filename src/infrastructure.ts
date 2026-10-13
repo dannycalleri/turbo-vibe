@@ -121,12 +121,33 @@ export interface RootModule {
   terraform: { backend: { s3: S3Backend } };
   module: Record<string, { source: string } & Record<string, unknown>>;
   output?: Record<string, { value: string; sensitive?: boolean }>;
-  data?: {
-    terraform_remote_state: Record<
-      string,
-      { backend: "s3"; config: S3Backend }
-    >;
-  };
+}
+
+export interface BranchedDatabase {
+  module: string;
+  parent: "staging" | "production";
+  parentName: string;
+  organization?: string;
+}
+
+export function branchedDatabases(
+  config: Config,
+  environment: EnvironmentName,
+  env: Readonly<Record<string, string | undefined>> = {},
+): BranchedDatabase[] {
+  const supabase = composeInfrastructure(config, environment).supabase ?? {};
+  return Object.entries(supabase).flatMap(([name, inputs]) => {
+    if (!inputs.branch_of) return [];
+    const organization = inputs.organization_id ?? env.SUPABASE_ORGANIZATION;
+    return [
+      {
+        module: `supabase_${name}`,
+        parent: inputs.branch_of,
+        parentName: `${config.project}-${name}-${inputs.branch_of}`,
+        ...(organization ? { organization } : {}),
+      },
+    ];
+  });
 }
 
 export function rootModule(
@@ -134,6 +155,7 @@ export function rootModule(
   environment: EnvironmentName,
   env: Readonly<Record<string, string | undefined>>,
   managedRedirectUris: Readonly<Record<string, string[]>> = {},
+  parentRefs: Readonly<Record<string, string>> = {},
 ): RootModule {
   const infrastructure = composeInfrastructure(
     config,
@@ -175,22 +197,8 @@ export function rootModule(
       organization_id: env.SUPABASE_ORGANIZATION,
       ...variables,
     };
-    if (branch_of) {
-      root.data = {
-        terraform_remote_state: {
-          [branch_of]: { backend: "s3", config: backend(branch_of) },
-        },
-      };
-      root.module[module].parent_project_ref =
-        `\${data.terraform_remote_state.${branch_of}.outputs.${module}_project_ref}`;
-    } else {
-      root.output = {
-        ...root.output,
-        [`${module}_project_ref`]: {
-          value: `\${module.${module}.project_ref}`,
-        },
-      };
-    }
+    const parentRef = branch_of && parentRefs[module];
+    if (parentRef) root.module[module].parent_project_ref = parentRef;
     root.output = {
       ...root.output,
       [`${module}_connection`]: {

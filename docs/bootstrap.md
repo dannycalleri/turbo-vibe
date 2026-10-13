@@ -1,6 +1,6 @@
 # Bootstrap checklist
 
-`turbo-vibe setup` does most of the one-time setup. It creates the GitHub environments, the Cloudflare zone, the state bucket and the Cloudflare tokens, and it stores every secret in its GitHub environment. This page lists what it leaves to you: accounts, plans, and the tokens that no API can create. Do only the sections for the targets your `turbo-vibe.yaml` uses, then [run `setup`](#6-run-setup). `setup --list` prints the list for your file, with a link for each step, and changes nothing. Every paid plan is named at the step that needs it, before anything is created.
+`turbo-vibe setup` does most of the one-time setup. It creates the GitHub environments, the Cloudflare zone, a state bucket per environment and the Cloudflare tokens, and it stores every secret in its GitHub environment. This page lists what it leaves to you: accounts, plans, and the tokens that no API can create. Do only the sections for the targets your `turbo-vibe.yaml` uses, then [run `setup`](#6-run-setup). `setup --list` prints the list for your file, with a link for each step, and changes nothing. Every paid plan is named at the step that needs it, before anything is created.
 
 ## 1. GitHub
 
@@ -24,8 +24,8 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
 From the bootstrap token, `setup`:
 
 - finds the zone for your domain, or creates it. While the zone is pending, it prints the two nameservers to set at your registrar. Registration can stay where it is. `check` reports the zone as pending until the change is done, which can take hours.
-- finds or creates the state bucket `<project>-turbo-vibe-state`.
-- creates, for each environment, a CI token `turbo-vibe-<project>-<env>` with exactly the permissions `check` requires, and an R2 token `turbo-vibe-<project>-<env>-r2` that can read and write only the state bucket.
+- finds or creates a state bucket for each environment, `<project>-turbo-vibe-<env>`, such as `acme-turbo-vibe-staging` and `acme-turbo-vibe-production`.
+- creates, for each environment, a CI token `turbo-vibe-<project>-<env>` with exactly the permissions `check` requires, and an R2 token `turbo-vibe-<project>-<env>-r2` that can read and write only that environment's bucket. Production's R2 token can also read staging's bucket, where it finds the builds to promote, and cannot write there.
 
 It does the zone and bucket work through a token named `turbo-vibe-<project>-setup`, which expires after an hour and which it deletes when it is done.
 

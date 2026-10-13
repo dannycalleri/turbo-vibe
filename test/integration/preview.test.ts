@@ -62,12 +62,21 @@ services:
 `);
     if (!result.ok) throw new Error(JSON.stringify(result.problems));
     const dir = await mkdtemp(join(tmpdir(), "turbo-vibe-preview-root-"));
-    const root = rootModule(result.config, "preview-feature-x", {
-      TURBO_VIBE_STATE_BUCKET: "tv-state",
-      CLOUDFLARE_ACCOUNT_ID: "acc123",
-      CLOUDFLARE_ZONE_ID: "zone456",
-      VERCEL_TEAM_ID: "team_1",
-    });
+    const root = rootModule(
+      result.config,
+      "preview-feature-x",
+      {
+        TURBO_VIBE_STATE_BUCKET: "tv-state",
+        CLOUDFLARE_ACCOUNT_ID: "acc123",
+        CLOUDFLARE_ZONE_ID: "zone456",
+        VERCEL_TEAM_ID: "team_1",
+      },
+      {},
+      { supabase_db: "abcdefghijklmnopqrst" },
+    );
+    expect(root.module.supabase_db?.parent_project_ref).toBe(
+      "abcdefghijklmnopqrst",
+    );
     await writeFile(join(dir, "main.tf.json"), JSON.stringify(root));
     tofu(dir, ["init", "-backend=false", "-input=false"]);
     expect(tofu(dir, ["validate", "-no-color"])).toContain(

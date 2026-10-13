@@ -22,7 +22,7 @@ npx @turbo-vibe/cli promote --env production
 
 `plan` lists the services each environment runs and where, from the file alone. `plan --env <env>` asks OpenTofu what applying that environment would do and prints it per service: what it would create, change, replace or delete, with deletions and replacements listed apart. It prints resource addresses and actions only, never values, and changes nothing.
 
-`setup` creates the GitHub environments `staging` and `production`, adds you as a required reviewer on `production` where GitHub offers it, and stores every secret each environment needs. From one Cloudflare bootstrap token, it finds or creates the zone and the state bucket and creates each environment's CI and R2 tokens. It finds the Supabase organization and the Vercel team from their tokens, and asks for the rest. It needs a terminal and a signed-in [GitHub CLI](https://cli.github.com): it reads each value without echoing it and gives it to `gh secret set` on standard input, so a value never reaches the disk, a command line or the output. A second run keeps what each environment already has. `--replace <SECRET>` asks for a secret again and creates its Cloudflare token again, and `--env <name>` sets up other environments, such as `live`, like `staging`. It ends with the checks that `check` runs. `setup --list` prints, from the file alone, the accounts, plans and steps a person must do first, and the secrets each environment will get; it changes nothing.
+`setup` creates the GitHub environments `staging` and `production`, adds you as a required reviewer on `production` where GitHub offers it, and stores every secret each environment needs. From one Cloudflare bootstrap token, it finds or creates the zone and one state bucket per environment, and creates each environment's CI and R2 tokens. Each R2 token reaches only its environment's bucket; production's can also read staging's, to promote its builds. It finds the Supabase organization and the Vercel team from their tokens, and asks for the rest. It needs a terminal and a signed-in [GitHub CLI](https://cli.github.com): it reads each value without echoing it and gives it to `gh secret set` on standard input, so a value never reaches the disk, a command line or the output. A second run keeps what each environment already has. `--replace <SECRET>` asks for a secret again and creates its Cloudflare token again, and `--env <name>` sets up other environments, such as `live`, like `staging`. It ends with the checks that `check` runs. `setup --list` prints, from the file alone, the accounts, plans and steps a person must do first, and the secrets each environment will get; it changes nothing.
 
 `check` verifies an environment's accounts, tokens, and tools for the targets the project uses, and changes nothing. It lists every problem with its fix, and exits non-zero until the environment is ready.
 
@@ -46,7 +46,7 @@ Targets marked **beta** are supported and tested on every change, with less hist
 
 ## Build once, promote the same build
 
-A staging `deploy` builds every service once and records what it shipped in the state bucket, at `<project>/builds/<build id>.json`:
+A staging `deploy` builds every service once and records what it shipped in staging's state bucket, at `<project>/builds/<build id>.json`. Production reads those records from there and cannot change them:
 - the container image's registry digest (`docker build`, then `wrangler containers push`);
 - an archive of each static frontend's built files.
 
@@ -199,9 +199,10 @@ A `workos` identity service registers each environment's callback as a WorkOS re
 | Variable | What it is |
 |---|---|
 | `CLOUDFLARE_API_TOKEN` | API token, which `setup` creates per environment, with Workers Scripts: Edit and Workers Containers: Edit (account), Workers Routes: Edit and DNS: Edit (zone), Account API Tokens: Read (User API Tokens: Read on a user token) so `check` can confirm the token's own permissions, and, with a container backend, Account → Billing: Read so `check` can confirm the Workers Paid plan |
-| `CLOUDFLARE_ACCOUNT_ID` | the Cloudflare account that runs the Workers and holds the state bucket |
+| `CLOUDFLARE_ACCOUNT_ID` | the Cloudflare account that runs the Workers and holds the state buckets |
 | `CLOUDFLARE_ZONE_ID` | the zone of the project's `domain` |
-| `TURBO_VIBE_STATE_BUCKET` | an R2 bucket for OpenTofu state, which `setup` creates |
+| `TURBO_VIBE_STATE_BUCKET` | an R2 bucket for OpenTofu state, which `setup` creates; staging also keeps its build records and asset archives there |
+| `TURBO_VIBE_BUILDS_BUCKET` | production only: the name of staging's bucket, where `promote` reads the build records and asset archives; production's R2 token needs read access to it, and never writes there |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | an R2 API token with Object Read & Write on that bucket, which `setup` creates per environment |
 | `SUPABASE_ACCESS_TOKEN` | a Supabase personal access token, for projects with a `supabase` database (`apply` and `migrate`) |
 | `SUPABASE_ORGANIZATION` | the Supabase organization's slug, when the database leaves `organization` out of `turbo-vibe.yaml` (`apply`) |

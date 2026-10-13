@@ -2,7 +2,12 @@ import { join } from "node:path";
 import { adapterFor, adapters } from "./adapters/index.js";
 import type { ServiceContext } from "./adapters/types.js";
 import { missingVariables, readOutputs } from "./apply.js";
-import { BuildStore, choosePromotion, type Outputs } from "./builds.js";
+import {
+  BuildStore,
+  buildsBucket,
+  choosePromotion,
+  type Outputs,
+} from "./builds.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import {
   type Connection,
@@ -148,9 +153,16 @@ export function deploySecrets(config: Config): string[] {
   return [...names];
 }
 
-export function environmentSecrets(config: Config): string[] {
+export function environmentSecrets(
+  config: Config,
+  environment: EnvironmentName,
+): string[] {
   return [
-    ...new Set([...requiredSecrets(config), ...deploySecrets(config)]),
+    ...new Set([
+      ...requiredSecrets(config),
+      ...deploySecrets(config),
+      ...(environment === "production" ? ["TURBO_VIBE_BUILDS_BUCKET"] : []),
+    ]),
   ].sort();
 }
 
@@ -239,7 +251,7 @@ export async function deploy(
   const store =
     dryRun || environment !== "staging"
       ? undefined
-      : new BuildStore(io, config.project);
+      : new BuildStore(io, config.project, buildsBucket(environment, io.env));
   const outputs = await deployServices(
     project,
     environment,
@@ -273,8 +285,15 @@ export async function promote(
     );
     return 1;
   }
-  if (missingVariables(deploySecrets(config), io)) return 1;
-  const store = new BuildStore(io, config.project);
+  if (
+    missingVariables([...deploySecrets(config), "TURBO_VIBE_BUILDS_BUCKET"], io)
+  )
+    return 1;
+  const store = new BuildStore(
+    io,
+    config.project,
+    buildsBucket("production", io.env),
+  );
   const chosen = buildId
     ? await store.getRecord(buildId)
     : choosePromotion(await store.listRecords());
@@ -342,7 +361,11 @@ export async function smoke(
     failed ||= !result.ok;
   }
   if (records) {
-    const store = new BuildStore(io, config.project);
+    const store = new BuildStore(
+      io,
+      config.project,
+      buildsBucket(environment, io.env),
+    );
     const record = await store.getRecord(buildId);
     if (!record) {
       io.stderr(`no build record for ${buildId}; it cannot be promoted\n`);

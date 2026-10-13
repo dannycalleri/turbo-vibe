@@ -521,6 +521,75 @@ describe("against recorded fakes", () => {
     });
   });
 
+  describe("build records in production", () => {
+    const production = (env: Record<string, string>) => ({
+      ...context(db, env),
+      environment: "production" as const,
+    });
+
+    it("confirms that production can read staging's bucket", async () => {
+      r2({ enforces: true });
+      server.use(
+        http.get(
+          "https://acc123.r2.cloudflarestorage.com/staging-state/",
+          () =>
+            new HttpResponse(
+              "<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>",
+            ),
+        ),
+      );
+      const findings = await stateBucket(
+        production({ ...stateEnv, TURBO_VIBE_BUILDS_BUCKET: "staging-state" }),
+      );
+      expect(findings.at(-1)).toEqual(
+        ok(
+          "build records",
+          "production can read build records in staging-state",
+        ),
+      );
+    });
+
+    it("fails when production's token cannot read staging's bucket", async () => {
+      r2({ enforces: true });
+      server.use(
+        http.get(
+          "https://acc123.r2.cloudflarestorage.com/staging-state/",
+          () => new HttpResponse("AccessDenied", { status: 403 }),
+        ),
+      );
+      const finding = (
+        await stateBucket(
+          production({
+            ...stateEnv,
+            TURBO_VIBE_BUILDS_BUCKET: "staging-state",
+          }),
+        )
+      ).at(-1);
+      expect(finding).toMatchObject({
+        check: "build records",
+        severity: "fail",
+        fix: "give production's R2 token Object Read on staging-state",
+      });
+    });
+
+    it("names a missing builds bucket", async () => {
+      r2({ enforces: true });
+      const finding = (await stateBucket(production(stateEnv))).at(-1);
+      expect(finding).toMatchObject({
+        severity: "fail",
+        unset: ["TURBO_VIBE_BUILDS_BUCKET"],
+      });
+    });
+
+    it("does not look for build records outside production", async () => {
+      r2({ enforces: true });
+      const findings = await stateBucket(context(db, stateEnv));
+      expect(findings.map((finding) => finding.check)).toEqual([
+        "state bucket",
+      ]);
+    });
+  });
+
   describe("supabase", () => {
     const token = { SUPABASE_ACCESS_TOKEN: "sbp_token" };
     function supabaseApi(
@@ -798,6 +867,7 @@ describe("against recorded fakes", () => {
           "CLOUDFLARE_ACCOUNT_ID",
           "CLOUDFLARE_API_TOKEN",
           "CLOUDFLARE_ZONE_ID",
+          "TURBO_VIBE_BUILDS_BUCKET",
           "TURBO_VIBE_STATE_BUCKET",
         ],
       );
@@ -822,6 +892,7 @@ describe("against recorded fakes", () => {
           "CLOUDFLARE_ACCOUNT_ID",
           "CLOUDFLARE_API_TOKEN",
           "CLOUDFLARE_ZONE_ID",
+          "TURBO_VIBE_BUILDS_BUCKET",
           "TURBO_VIBE_STATE_BUCKET",
         ],
       );
@@ -850,7 +921,7 @@ describe("against recorded fakes", () => {
         ],
         [
           "fail",
-          "the production environment is missing AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, TURBO_VIBE_STATE_BUCKET",
+          "the production environment is missing AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, TURBO_VIBE_BUILDS_BUCKET, TURBO_VIBE_STATE_BUCKET",
         ],
       ]);
     });

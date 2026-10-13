@@ -303,7 +303,7 @@ export const github: Check = async (context) => {
     return findings;
   }
   const present = new Set(secrets.body.secrets.map((secret) => secret.name));
-  const needed = environmentSecrets(config);
+  const needed = environmentSecrets(config, environment);
   const absent = needed.filter((name) => !present.has(name));
   findings.push(
     absent.length === 0

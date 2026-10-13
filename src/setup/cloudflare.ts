@@ -48,6 +48,7 @@ export const cloudflareSecrets = [
   "CLOUDFLARE_ACCOUNT_ID",
   "CLOUDFLARE_ZONE_ID",
   "TURBO_VIBE_STATE_BUCKET",
+  "TURBO_VIBE_BUILDS_BUCKET",
   "CLOUDFLARE_API_TOKEN",
   "AWS_ACCESS_KEY_ID",
   "AWS_SECRET_ACCESS_KEY",
@@ -59,6 +60,7 @@ export interface Provided {
 }
 
 const r2Permission = "Workers R2 Storage Bucket Item Write";
+const r2ReadPermission = "Workers R2 Storage Bucket Item Read";
 
 // check reads the token's own policies and the account's plan, so the CI token can read both.
 function ciPermissions(config: Config): string[] {
@@ -69,8 +71,12 @@ function ciPermissions(config: Config): string[] {
   ];
 }
 
-function stateBucketName(config: Config): string {
-  return `${config.project}-turbo-vibe-state`;
+export function stateBucketName(config: Config, environment: string): string {
+  return `${config.project}-turbo-vibe-${environment}`;
+}
+
+function bucketResource(account: string, bucket: string): string {
+  return `com.cloudflare.edge.r2.bucket.${account}_default_${bucket}`;
 }
 
 function zoneCandidates(domain: string): string[] {
@@ -455,17 +461,20 @@ async function environmentTokens(
   config: Config,
   account: string,
   zoneId: string,
-  bucketName: string,
   environment: string,
   present: ReadonlySet<string>,
   groups: ReadonlyMap<string, string>,
   io: Io,
 ): Promise<Provided | undefined> {
+  const bucketName = stateBucketName(config, environment);
+  const production = environment === "production";
+  const stagingBucket = stateBucketName(config, "staging");
   const provided: Provided = {
     values: {
       CLOUDFLARE_ACCOUNT_ID: account,
       CLOUDFLARE_ZONE_ID: zoneId,
       TURBO_VIBE_STATE_BUCKET: bucketName,
+      ...(production ? { TURBO_VIBE_BUILDS_BUCKET: stagingBucket } : {}),
     },
     replace: [],
   };
@@ -484,7 +493,9 @@ async function environmentTokens(
   }
   if (
     !present.has("AWS_ACCESS_KEY_ID") ||
-    !present.has("AWS_SECRET_ACCESS_KEY")
+    !present.has("AWS_SECRET_ACCESS_KEY") ||
+    !present.has("TURBO_VIBE_STATE_BUCKET") ||
+    (production && !present.has("TURBO_VIBE_BUILDS_BUCKET"))
   ) {
     const r2 = await createToken(
       bootstrap,
@@ -493,12 +504,18 @@ async function environmentTokens(
       [
         {
           effect: "allow",
-          resources: {
-            [`com.cloudflare.edge.r2.bucket.${account}_default_${bucketName}`]:
-              "*",
-          },
+          resources: { [bucketResource(account, bucketName)]: "*" },
           permission_groups: [{ id: groups.get(r2Permission) }],
         },
+        ...(production
+          ? [
+              {
+                effect: "allow",
+                resources: { [bucketResource(account, stagingBucket)]: "*" },
+                permission_groups: [{ id: groups.get(r2ReadPermission) }],
+              },
+            ]
+          : []),
       ],
       io,
     );
@@ -507,7 +524,13 @@ async function environmentTokens(
     provided.values.AWS_SECRET_ACCESS_KEY = createHash("sha256")
       .update(r2.value)
       .digest("hex");
-    provided.replace.push("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY");
+    // The stored bucket names must name the buckets the new keys reach, even where an older name was kept.
+    provided.replace.push(
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "TURBO_VIBE_STATE_BUCKET",
+      ...(production ? ["TURBO_VIBE_BUILDS_BUCKET"] : []),
+    );
   }
   return provided;
 }
@@ -568,11 +591,27 @@ export async function setupCloudflare(
   const groups = await permissionGroups(
     bootstrap,
     account,
-    [...setupPermissions(config), ...ciPermissions(config), r2Permission],
+    [
+      ...setupPermissions(config),
+      ...ciPermissions(config),
+      r2Permission,
+      r2ReadPermission,
+    ],
     io,
   );
   if (!groups) return undefined;
-  const bucketName = stateBucketName(config);
+  const environments = [...present.keys()];
+  const buckets = [
+    ...new Set([
+      ...environments.map((environment) =>
+        stateBucketName(config, environment),
+      ),
+      // Production's token reads staging's bucket, so that bucket must exist even when only production is set up.
+      ...(environments.includes("production")
+        ? [stateBucketName(config, "staging")]
+        : []),
+    ]),
+  ];
   const zoneId = await withSetupToken(
     bootstrap,
     config,
@@ -583,9 +622,10 @@ export async function setupCloudflare(
       if (hasContainer(config) && !(await workersPaid(cloudflare, account, io)))
         return undefined;
       const id = await zone(cloudflare, config, account, io);
-      return id && (await bucket(cloudflare, bucketName, account, io))
-        ? id
-        : undefined;
+      if (!id) return undefined;
+      for (const name of buckets)
+        if (!(await bucket(cloudflare, name, account, io))) return undefined;
+      return id;
     },
   );
   if (!zoneId) return undefined;
@@ -596,7 +636,6 @@ export async function setupCloudflare(
       config,
       account,
       zoneId,
-      bucketName,
       environment,
       names,
       groups,

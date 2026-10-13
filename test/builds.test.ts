@@ -69,7 +69,7 @@ describe("BuildStore", () => {
       },
     } as unknown as Io;
 
-    expect(await new BuildStore(io, "acme").listRecords()).toEqual([
+    expect(await new BuildStore(io, "acme", "tv-state").listRecords()).toEqual([
       records.a,
       records.b,
     ]);
@@ -89,7 +89,9 @@ describe("BuildStore", () => {
         TURBO_VIBE_STATE_BUCKET: "tv-state",
       },
     } as unknown as Io;
-    await expect(new BuildStore(io, "acme").listRecords()).rejects.toThrow(
+    await expect(
+      new BuildStore(io, "acme", "tv-state").listRecords(),
+    ).rejects.toThrow(
       "cannot list build records: the state bucket answered HTTP 403",
     );
   });

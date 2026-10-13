@@ -14,7 +14,11 @@ import {
   isPreview,
 } from "./config/schema.js";
 import { discoverRedirectUris } from "./identity.js";
-import { requiredSecrets, rootModule } from "./infrastructure.js";
+import {
+  branchedDatabases,
+  requiredSecrets,
+  rootModule,
+} from "./infrastructure.js";
 import type { Io } from "./io.js";
 
 export function missingVariables(names: Iterable<string>, io: Io): boolean {
@@ -29,22 +33,61 @@ async function writeRoot(
   environment: EnvironmentName,
   io: Io,
   managedRedirectUris: Readonly<Record<string, string[]>> = {},
+  parentRefs: Readonly<Record<string, string>> = {},
 ): Promise<string> {
   const dir = join(io.cwd, ".turbo-vibe", "tofu", environment);
   await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, "main.tf.json"),
-    `${JSON.stringify(rootModule(config, environment, io.env, managedRedirectUris), null, 2)}\n`,
+    `${JSON.stringify(rootModule(config, environment, io.env, managedRedirectUris, parentRefs), null, 2)}\n`,
   );
   return dir;
+}
+
+// A branch learns only its parent's project ref, so no environment needs another environment's state.
+export async function parentProjectRefs(
+  config: Config,
+  environment: EnvironmentName,
+  io: Io,
+): Promise<Record<string, string> | string> {
+  const branched = branchedDatabases(config, environment, io.env);
+  if (branched.length === 0) return {};
+  const response = await io.fetch("https://api.supabase.com/v1/projects", {
+    headers: { authorization: `Bearer ${io.env.SUPABASE_ACCESS_TOKEN}` },
+  });
+  if (!response.ok)
+    return `cannot list the Supabase projects (HTTP ${response.status})`;
+  const projects = (await response.json()) as {
+    id: string;
+    name: string;
+    organization_id?: string;
+    organization_slug?: string;
+  }[];
+  const refs: Record<string, string> = {};
+  for (const { module, parent, parentName, organization } of branched) {
+    const named = projects.filter(
+      (project) =>
+        project.name === parentName &&
+        (!organization ||
+          project.organization_id === organization ||
+          project.organization_slug === organization),
+    );
+    if (named.length === 0)
+      return `the Supabase project ${parentName} does not exist yet; apply ${parent} first`;
+    if (named.length > 1)
+      return `more than one Supabase project is named ${parentName} (${named.map((project) => project.id).join(", ")}); set the database's organization so that one matches`;
+    refs[module] = named[0]?.id ?? "";
+  }
+  return refs;
 }
 
 async function initRoot(
   config: Config,
   environment: EnvironmentName,
   io: Io,
+  parentRefs: Readonly<Record<string, string>> = {},
 ): Promise<{ dir: string; code: number }> {
-  const dir = await writeRoot(config, environment, io);
+  const dir = await writeRoot(config, environment, io, {}, parentRefs);
   // The backend is regenerated from the config on every run, so a backend cached in .terraform by another
   // project's config in the same directory (a monorepo, or the live tests) must not stop init.
   const code = await io.run("tofu", ["init", "-input=false", "-reconfigure"], {
@@ -60,7 +103,12 @@ async function prepare(
   io: Io,
 ): Promise<{ dir: string } | { code: number }> {
   if (missingVariables(requiredSecrets(config), io)) return { code: 1 };
-  const { dir, code } = await initRoot(config, environment, io);
+  const parentRefs = await parentProjectRefs(config, environment, io);
+  if (typeof parentRefs === "string") {
+    io.stderr(`${parentRefs}\n`);
+    return { code: 1 };
+  }
+  const { dir, code } = await initRoot(config, environment, io, parentRefs);
   if (code !== 0) return { code };
   if (
     Object.values(config.services).some(
@@ -79,7 +127,7 @@ async function prepare(
       io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
       return { code: 1 };
     }
-    await writeRoot(config, environment, io, managed);
+    await writeRoot(config, environment, io, managed, parentRefs);
   }
   return { dir };
 }
@@ -188,7 +236,14 @@ export async function destroy(
     return 1;
   }
   if (missingVariables(requiredSecrets(config), io)) return 1;
-  const { dir, code } = await initRoot(config, environment, io);
+  // A preview whose parent is already gone still has to be removable.
+  const parentRefs = await parentProjectRefs(config, environment, io);
+  const { dir, code } = await initRoot(
+    config,
+    environment,
+    io,
+    typeof parentRefs === "string" ? {} : parentRefs,
+  );
   if (code !== 0) return code;
   return io.run("tofu", ["destroy", "-input=false", "-auto-approve"], {
     cwd: dir,
