@@ -156,29 +156,84 @@ describe("the release workflow", () => {
 });
 
 describe("secrets", () => {
-  it("lets every reusable workflow job that deploys receive every credential an adapter or the state bucket reads", async () => {
+  const deploying = [
+    ["deploy.yml", "staging"],
+    ["promote.yml", "production"],
+    ["preview.yml", "deploy"],
+    ["preview.yml", "remove"],
+  ] as const;
+  type Step = { name?: string; env?: Record<string, string>; run?: string };
+  const secretsIn = (env?: Record<string, string>) =>
+    Object.entries(env ?? {}).filter(([, value]) => value.includes("secrets."));
+  const callsCli = (step: Step) => step.run?.includes("turbo-vibe --config");
+
+  it("gives every CLI step every credential an adapter or the state bucket reads", async () => {
     const { adapters } = await import("../src/adapters/index.js");
     const { stateSecrets } = await import("../src/infrastructure.js");
     const names = new Set([
       ...stateSecrets,
       ...Object.values(adapters).flatMap((adapter) => adapter.secrets),
     ]);
-    for (const [file, job] of [
-      ["deploy.yml", "staging"],
-      ["promote.yml", "production"],
-      ["preview.yml", "deploy"],
-      ["preview.yml", "remove"],
-    ] as const) {
+    for (const [file, job] of deploying) {
       const definition = await workflow(file);
+      const steps: Step[] = definition.jobs[job].steps;
+      const cli = steps.filter(callsCli);
+      expect(cli.length, `${file} ${job}`).toBeGreaterThan(0);
       for (const name of names) {
         expect(
           definition.on.workflow_call.secrets,
           `${file} accepts ${name}`,
         ).toHaveProperty(name);
-        expect(definition.jobs[job].env[name], `${file} passes ${name}`).toBe(
-          `\${{ secrets.${name} }}`,
-        );
+        for (const step of cli)
+          expect(step.env?.[name], `${file} ${job}: ${step.run}`).toBe(
+            `\${{ secrets.${name} }}`,
+          );
       }
+      const first = JSON.stringify(secretsIn(cli[0]?.env));
+      for (const step of cli)
+        expect(JSON.stringify(secretsIn(step.env)), step.run).toBe(first);
+    }
+  });
+
+  it("gives secrets to no step except those that call the CLI, and never to the job or through $GITHUB_ENV", async () => {
+    for (const [file, job] of deploying) {
+      const definition = await workflow(file);
+      expect(secretsIn(definition.jobs[job].env), `${file} ${job}`).toEqual([]);
+      for (const step of definition.jobs[job].steps as Step[]) {
+        if (!callsCli(step))
+          expect(
+            secretsIn(step.env),
+            `${file} ${job}: ${step.name ?? step.run}`,
+          ).toEqual([]);
+        if (/pnpm install|npm ci|npm install/.test(step.run ?? ""))
+          expect(secretsIn(step.env), `${file} ${job}: install`).toEqual([]);
+      }
+    }
+    for (const file of ["deploy.yml", "promote.yml", "preview.yml"]) {
+      const definition = await workflow(file);
+      expect(secretsIn(definition.env), `${file} workflow env`).toEqual([]);
+      for (const [name, job] of Object.entries(
+        definition.jobs as Record<string, { env?: Record<string, string> }>,
+      ))
+        expect(secretsIn(job.env), `${file} ${name}`).toEqual([]);
+      const text = await readFile(
+        new URL(`.github/workflows/${file}`, root),
+        "utf8",
+      );
+      expect(text, file).not.toContain("GITHUB_ENV");
+    }
+  });
+
+  it("installs the CLI with npm ci in its unpacked package, never with npx", async () => {
+    for (const file of ["deploy.yml", "promote.yml", "preview.yml"]) {
+      const text = await readFile(
+        new URL(`.github/workflows/${file}`, root),
+        "utf8",
+      );
+      expect(text, file).not.toMatch(/exec npx|npx --yes/);
+      expect(text, file).toContain(
+        "npm ci --omit=dev --ignore-scripts --no-audit --no-fund",
+      );
     }
   });
 
@@ -187,9 +242,12 @@ describe("secrets", () => {
     expect(promote.on.workflow_call.secrets).toHaveProperty(
       "TURBO_VIBE_BUILDS_BUCKET",
     );
-    expect(promote.jobs.production.env.TURBO_VIBE_BUILDS_BUCKET).toBe(
-      "${{ secrets.TURBO_VIBE_BUILDS_BUCKET }}",
-    );
+    for (const step of (promote.jobs.production.steps as Step[]).filter(
+      callsCli,
+    ))
+      expect(step.env?.TURBO_VIBE_BUILDS_BUCKET).toBe(
+        "${{ secrets.TURBO_VIBE_BUILDS_BUCKET }}",
+      );
   });
 });
 
