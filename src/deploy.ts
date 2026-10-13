@@ -300,6 +300,13 @@ export async function promote(
     );
     return 1;
   }
+  // The ID reaches the workflow's outputs and its checkout of that commit, so a record cannot inject anything there.
+  if (!/^[0-9a-f]{40}$/.test(chosen.buildId)) {
+    io.stderr(
+      `the build record names ${JSON.stringify(chosen.buildId)} as its build, which is not a full commit SHA; production is unchanged\n`,
+    );
+    return 1;
+  }
   if (chosen.smoke !== "passed") {
     io.stderr(
       `build ${chosen.buildId} has not passed its smoke test (${chosen.smoke}); production is unchanged\n`,

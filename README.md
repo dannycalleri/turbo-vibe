@@ -13,8 +13,8 @@ npx @turbo-vibe/cli check --env staging
 npx @turbo-vibe/cli test
 npx @turbo-vibe/cli apply --env staging
 npx @turbo-vibe/cli migrate --env staging
-npx @turbo-vibe/cli deploy --env staging --build-id "$(git rev-parse --short HEAD)"
-npx @turbo-vibe/cli smoke --env staging --build-id "$(git rev-parse --short HEAD)"
+npx @turbo-vibe/cli deploy --env staging --build-id "$(git rev-parse HEAD)"
+npx @turbo-vibe/cli smoke --env staging --build-id "$(git rev-parse HEAD)"
 npx @turbo-vibe/cli promote --env production
 ```
 

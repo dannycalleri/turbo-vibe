@@ -19,12 +19,14 @@ const cloudflare = {
 const env = { ...stateEnv, ...cloudflare };
 const production = { ...env, TURBO_VIBE_BUILDS_BUCKET: "tv-state" };
 const record = (overrides: Partial<BuildRecord>): BuildRecord => ({
-  buildId: "abc123",
+  buildId: "abc1230000000000000000000000000000000000",
   createdAt: "2026-10-08T10:00:00.000Z",
   smoke: "passed",
   services: {
     api: { image: digest },
-    web: { assets: "acme/builds/abc123/web.tar.gz" },
+    web: {
+      assets: "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
+    },
   },
   ...overrides,
 });
@@ -55,7 +57,13 @@ describe("deploy to staging", () => {
     const calls = runner();
     const fetch = r2.fetch();
     const { code, cwd, stdout } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": project },
       env,
       calls,
@@ -94,8 +102,12 @@ describe("deploy to staging", () => {
         [expect.stringMatching(/wrangler\.js$/), "deploy", "--config"],
       ],
     ]);
-    expect(calls.mock.calls[0]?.[2].env).toEqual({ BUILD_ID: "abc123" });
-    expect(calls.mock.calls[2]?.[1]).toContain("BUILD_ID=abc123");
+    expect(calls.mock.calls[0]?.[2].env).toEqual({
+      BUILD_ID: "abc1230000000000000000000000000000000000",
+    });
+    expect(calls.mock.calls[2]?.[1]).toContain(
+      "BUILD_ID=abc1230000000000000000000000000000000000",
+    );
     const deployArgs =
       calls.mock.calls.find((call) => call[1][1] === "deploy")?.[1] ?? [];
     expect(deployArgs[deployArgs.indexOf("--containers-rollout") + 1]).toBe(
@@ -112,15 +124,24 @@ describe("deploy to staging", () => {
     expect(config.assets.directory).toBe(join(cwd, "dist"));
     expect(
       await readFile(join(cwd, "dist", "_turbo-vibe", "build-id"), "utf8"),
-    ).toBe("abc123");
+    ).toBe("abc1230000000000000000000000000000000000");
 
-    expect(r2.objects.has("acme/builds/abc123/web.tar.gz")).toBe(true);
-    expect(r2.record("acme/builds/abc123.json")).toEqual({
-      buildId: "abc123",
+    expect(
+      r2.objects.has(
+        "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
+      ),
+    ).toBe(true);
+    expect(
+      r2.record("acme/builds/abc1230000000000000000000000000000000000.json"),
+    ).toEqual({
+      buildId: "abc1230000000000000000000000000000000000",
       createdAt: expect.any(String),
       smoke: "pending",
       services: {
-        web: { assets: "acme/builds/abc123/web.tar.gz" },
+        web: {
+          assets:
+            "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
+        },
         api: { image: digest },
       },
     });
@@ -139,7 +160,13 @@ services:
 `;
     const r2 = fakeR2();
     const { code, cwd } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": frontendOnly },
       env,
       runner(),
@@ -152,8 +179,14 @@ services:
       not_found_handling: "single-page-application",
     });
     expect(config).not.toHaveProperty("containers");
-    expect(r2.record("acme/builds/abc123.json").services).toEqual({
-      web: { assets: "acme/builds/abc123/web.tar.gz" },
+    expect(
+      r2.record("acme/builds/abc1230000000000000000000000000000000000.json")
+        .services,
+    ).toEqual({
+      web: {
+        assets:
+          "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
+      },
     });
   });
 
@@ -173,7 +206,14 @@ services:
     async function dryRun(capture: ReturnType<typeof container>) {
       const calls = runner();
       const result = await run(
-        ["deploy", "--env", "staging", "--build-id", "abc123", "--dry-run"],
+        [
+          "deploy",
+          "--env",
+          "staging",
+          "--build-id",
+          "abc1230000000000000000000000000000000000",
+          "--dry-run",
+        ],
         { "turbo-vibe.yaml": project },
         {},
         calls,
@@ -197,7 +237,7 @@ services:
           "linux/amd64",
           "--env",
           "PORT=8080",
-          "acme-api:abc123",
+          "acme-api:abc1230000000000000000000000000000000000",
         ],
         expect.anything(),
       );
@@ -247,7 +287,14 @@ services:
     const calls = runner();
     const r2 = fakeR2();
     const { code, cwd } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123", "--dry-run"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+        "--dry-run",
+      ],
       { "turbo-vibe.yaml": project },
       {},
       calls,
@@ -265,7 +312,7 @@ services:
       (await workerConfig(cwd, "staging", "acme-api-staging")).containers[0],
     ).toMatchObject({
       image: join(cwd, "Dockerfile"),
-      image_vars: { BUILD_ID: "abc123" },
+      image_vars: { BUILD_ID: "abc1230000000000000000000000000000000000" },
     });
     expect(r2.objects.size).toBe(0);
   });
@@ -273,7 +320,13 @@ services:
   it("names every missing credential, the state bucket's included, and runs nothing", async () => {
     const calls = runner();
     const { code, stderr } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": project },
       { CLOUDFLARE_API_TOKEN: "t" },
       calls,
@@ -289,7 +342,13 @@ services:
     const r2 = fakeR2();
     const calls = runner((command) => (command === "sh" ? 2 : undefined));
     const { code, stderr } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": project },
       env,
       calls,
@@ -304,7 +363,13 @@ services:
   it("records the digest of the repository it pushed to, not another one sharing the image", async () => {
     const r2 = fakeR2();
     const { code } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": project },
       env,
       runner(),
@@ -318,7 +383,10 @@ services:
       },
     );
     expect(code).toBe(0);
-    expect(r2.record("acme/builds/abc123.json").services.api).toEqual({
+    expect(
+      r2.record("acme/builds/abc1230000000000000000000000000000000000.json")
+        .services.api,
+    ).toEqual({
       image: digest,
     });
   });
@@ -326,7 +394,13 @@ services:
   it("fails when the pushed image has no registry digest", async () => {
     const r2 = fakeR2();
     const { code, stderr } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": project },
       env,
       runner(),
@@ -335,15 +409,25 @@ services:
     );
     expect(code).toBe(1);
     expect(stderr).toContain(
-      "cannot find the pushed digest of acme-api:abc123 in the Cloudflare registry",
+      "cannot find the pushed digest of acme-api:abc1230000000000000000000000000000000000 in the Cloudflare registry",
     );
-    expect(r2.objects.has("acme/builds/abc123.json")).toBe(false);
+    expect(
+      r2.objects.has(
+        "acme/builds/abc1230000000000000000000000000000000000.json",
+      ),
+    ).toBe(false);
   });
 
   it("refuses production: production only receives promoted builds", async () => {
     const calls = runner();
     const { code, stderr } = await run(
-      ["deploy", "--env", "production", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "production",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": project },
       env,
       calls,
@@ -367,70 +451,110 @@ describe("smoke", () => {
   it("records a passing staging build as promotable", async () => {
     const r2 = fakeR2(seeded(record({ smoke: "pending" })));
     const { code, stdout } = await run(
-      ["smoke", "--env", "staging", "--build-id", "abc123"],
+      [
+        "smoke",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": project },
       stateEnv,
       undefined,
-      r2.fetch(serving("abc123")),
+      r2.fetch(serving("abc1230000000000000000000000000000000000")),
     );
     expect(code).toBe(0);
     expect(stdout).toBe(
-      "ok api: https://staging.acme.example.com/api/health reports build abc123\n" +
-        "ok web: https://staging.acme.example.com/_turbo-vibe/build-id reports build abc123\n",
+      "ok api: https://staging.acme.example.com/api/health reports build abc1230000000000000000000000000000000000\n" +
+        "ok web: https://staging.acme.example.com/_turbo-vibe/build-id reports build abc1230000000000000000000000000000000000\n",
     );
-    expect(r2.record("acme/builds/abc123.json").smoke).toBe("passed");
+    expect(
+      r2.record("acme/builds/abc1230000000000000000000000000000000000.json")
+        .smoke,
+    ).toBe("passed");
   });
 
   it("records a failing staging build and names both build IDs", async () => {
     const r2 = fakeR2(seeded(record({ smoke: "pending" })));
     const { code, stderr } = await run(
-      ["smoke", "--env", "staging", "--build-id", "abc123"],
+      [
+        "smoke",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": project },
       stateEnv,
       undefined,
-      r2.fetch(serving("old999", "abc123")),
+      r2.fetch(serving("old999", "abc1230000000000000000000000000000000000")),
     );
     expect(code).toBe(1);
     expect(stderr).toBe(
-      "FAIL api: https://staging.acme.example.com/api/health reports build old999, expected abc123\n",
+      "FAIL api: https://staging.acme.example.com/api/health reports build old999, expected abc1230000000000000000000000000000000000\n",
     );
-    expect(r2.record("acme/builds/abc123.json").smoke).toBe("failed");
+    expect(
+      r2.record("acme/builds/abc1230000000000000000000000000000000000.json")
+        .smoke,
+    ).toBe("failed");
   });
 
   it("reports a malformed health body as no build rather than an unreachable service", async () => {
     const r2 = fakeR2(seeded(record({ smoke: "pending" })));
     const { stderr } = await run(
-      ["smoke", "--env", "staging", "--build-id", "abc123"],
+      [
+        "smoke",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": project },
       stateEnv,
       undefined,
       r2.fetch((url) =>
         url.endsWith("/api/health")
           ? new Response("OK")
-          : new Response("abc123"),
+          : new Response("abc1230000000000000000000000000000000000"),
       ),
     );
-    expect(stderr).toContain("reports build (none), expected abc123");
+    expect(stderr).toContain(
+      "reports build (none), expected abc1230000000000000000000000000000000000",
+    );
   });
 
   it("fails a staging build that has no record, since it could never be promoted", async () => {
     const { code, stderr } = await run(
-      ["smoke", "--env", "staging", "--build-id", "abc123"],
+      [
+        "smoke",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": project },
       stateEnv,
       undefined,
-      fakeR2().fetch(serving("abc123")),
+      fakeR2().fetch(serving("abc1230000000000000000000000000000000000")),
     );
     expect(code).toBe(1);
-    expect(stderr).toBe("no build record for abc123; it cannot be promoted\n");
+    expect(stderr).toBe(
+      "no build record for abc1230000000000000000000000000000000000; it cannot be promoted\n",
+    );
   });
 
   it("checks production without touching build records", async () => {
     const fetch = vi.fn(async (input: string | URL | Request) =>
-      serving("abc123")(String(input)),
+      serving("abc1230000000000000000000000000000000000")(String(input)),
     );
     const { code } = await run(
-      ["smoke", "--env", "production", "--build-id", "abc123"],
+      [
+        "smoke",
+        "--env",
+        "production",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": project },
       {},
       undefined,
@@ -478,7 +602,8 @@ describe("promote", () => {
           smoke: "failed",
         }),
       ),
-      "acme/builds/abc123/web.tar.gz": "archive",
+      "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+        "archive",
     });
     const { code, cwd, stdout } = await run(
       ["promote", "--env", "production"],
@@ -488,7 +613,9 @@ describe("promote", () => {
       r2.fetch(),
     );
     expect(code).toBe(0);
-    expect(stdout).toContain("promote build abc123 to production");
+    expect(stdout).toContain(
+      "promote build abc1230000000000000000000000000000000000 to production",
+    );
     const assets = join(
       cwd,
       ".turbo-vibe",
@@ -521,7 +648,7 @@ describe("promote", () => {
     );
     expect(code).toBe(1);
     expect(stderr).toBe(
-      "build abc123 has no recorded outputs for web; nothing is rebuilt during promotion\n",
+      "build abc1230000000000000000000000000000000000 has no recorded outputs for web; nothing is rebuilt during promotion\n",
     );
     expect(calls).not.toHaveBeenCalled();
   });
@@ -533,11 +660,15 @@ describe("promote", () => {
         record({
           services: {
             api: {},
-            web: { assets: "acme/builds/abc123/web.tar.gz" },
+            web: {
+              assets:
+                "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
+            },
           },
         }),
       ),
-      "acme/builds/abc123/web.tar.gz": "archive",
+      "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+        "archive",
     });
     const { code, stderr } = await run(
       ["promote", "--env", "production"],
@@ -547,7 +678,9 @@ describe("promote", () => {
       r2.fetch(),
     );
     expect(code).toBe(1);
-    expect(stderr).toContain("build abc123 has no recorded image for api");
+    expect(stderr).toContain(
+      "build abc1230000000000000000000000000000000000 has no recorded image for api",
+    );
     expect(calls.mock.calls.map(([command]) => command)).not.toContain(
       "docker",
     );
@@ -565,7 +698,7 @@ describe("promote", () => {
       r2.fetch(),
     );
     expect(code).toBe(0);
-    expect(stdout).toBe("abc123\n");
+    expect(stdout).toBe("abc1230000000000000000000000000000000000\n");
     expect(calls).not.toHaveBeenCalled();
   });
 
@@ -580,7 +713,7 @@ describe("promote", () => {
       fetch,
     );
     expect(code).toBe(0);
-    expect(stdout).toBe("abc123\n");
+    expect(stdout).toBe("abc1230000000000000000000000000000000000\n");
     const storage = fetch.mock.calls
       .map(([input]) => input as Request)
       .filter((request) => request.url.includes("r2.cloudflarestorage.com"));
@@ -610,6 +743,28 @@ describe("promote", () => {
     expect(calls).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["a short SHA", "abc1230"],
+    ["text that would write a workflow output", 'abc" >> out; echo "x'],
+  ])(
+    "refuses a chosen record whose build ID is %s, before printing it",
+    async (_, buildId) => {
+      const r2 = fakeR2(seeded(record({ buildId })));
+      const { code, stdout, stderr } = await run(
+        ["promote", "--env", "production", "--choose"],
+        { "turbo-vibe.yaml": project },
+        production,
+        runner(),
+        r2.fetch(),
+      );
+      expect(code).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toBe(
+        `the build record names ${JSON.stringify(buildId)} as its build, which is not a full commit SHA; production is unchanged\n`,
+      );
+    },
+  );
+
   it("refuses a confirmation that is not the build it would promote, and names that build", async () => {
     const calls = runner();
     const r2 = fakeR2(seeded(record({})));
@@ -623,7 +778,7 @@ describe("promote", () => {
     expect(code).toBe(1);
     expect(stdout).toBe("");
     expect(stderr).toBe(
-      'the build to promote is abc123, not "abc12"; production is unchanged. Confirm with abc123 to promote it\n',
+      'the build to promote is abc1230000000000000000000000000000000000, not "abc12"; production is unchanged. Confirm with abc1230000000000000000000000000000000000 to promote it\n',
     );
     expect(calls).not.toHaveBeenCalled();
   });
@@ -631,21 +786,29 @@ describe("promote", () => {
   it("accepts the confirmed build", async () => {
     const r2 = fakeR2(seeded(record({})));
     const { code, stdout } = await run(
-      ["promote", "--env", "production", "--choose", "--confirm", " abc123 "],
+      [
+        "promote",
+        "--env",
+        "production",
+        "--choose",
+        "--confirm",
+        " abc1230000000000000000000000000000000000 ",
+      ],
       { "turbo-vibe.yaml": project },
       production,
       runner(),
       r2.fetch(),
     );
     expect(code).toBe(0);
-    expect(stdout).toBe("abc123\n");
+    expect(stdout).toBe("abc1230000000000000000000000000000000000\n");
   });
 
   it("promotes a build whose ID was confirmed", async () => {
     const calls = runner();
     const r2 = fakeR2({
       ...seeded(record({})),
-      "acme/builds/abc123/web.tar.gz": "archive",
+      "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+        "archive",
     });
     const { code, stdout } = await run(
       [
@@ -653,9 +816,9 @@ describe("promote", () => {
         "--env",
         "production",
         "--build-id",
-        "abc123",
+        "abc1230000000000000000000000000000000000",
         "--confirm",
-        "abc123",
+        "abc1230000000000000000000000000000000000",
       ],
       { "turbo-vibe.yaml": project },
       production,
@@ -663,7 +826,9 @@ describe("promote", () => {
       r2.fetch(),
     );
     expect(code).toBe(0);
-    expect(stdout).toContain("promote build abc123 to production");
+    expect(stdout).toContain(
+      "promote build abc1230000000000000000000000000000000000 to production",
+    );
     expect(calls.mock.calls.map(([, args]) => args[1])).toContain("deploy");
   });
 
@@ -673,34 +838,49 @@ describe("promote", () => {
         record({}),
         record({ buildId: "new999", createdAt: "2026-10-08T12:00:00.000Z" }),
       ),
-      "acme/builds/abc123/web.tar.gz": "archive",
+      "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+        "archive",
     });
     const { code, stdout } = await run(
-      ["promote", "--env", "production", "--build-id", "abc123"],
+      [
+        "promote",
+        "--env",
+        "production",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": project },
       production,
       runner(),
       r2.fetch(),
     );
     expect(code).toBe(0);
-    expect(stdout).toContain("promote build abc123 to production");
+    expect(stdout).toContain(
+      "promote build abc1230000000000000000000000000000000000 to production",
+    );
   });
 
   it.each([
     [
       "failed",
-      "build abc123 has not passed its smoke test (failed); production is unchanged\n",
+      "build abc1230000000000000000000000000000000000 has not passed its smoke test (failed); production is unchanged\n",
     ],
     [
       "pending",
-      "build abc123 has not passed its smoke test (pending); production is unchanged\n",
+      "build abc1230000000000000000000000000000000000 has not passed its smoke test (pending); production is unchanged\n",
     ],
   ] as const)(
     "refuses a pinned build whose smoke test %s",
     async (smoke, message) => {
       const calls = runner();
       const { code, stderr } = await run(
-        ["promote", "--env", "production", "--build-id", "abc123"],
+        [
+          "promote",
+          "--env",
+          "production",
+          "--build-id",
+          "abc1230000000000000000000000000000000000",
+        ],
         { "turbo-vibe.yaml": project },
         production,
         calls,
@@ -757,7 +937,13 @@ describe("runtime secrets", () => {
       return undefined;
     });
     const result = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": config },
       { ...env, ...extraEnv },
       calls,
@@ -839,14 +1025,22 @@ describe("runtime secrets", () => {
           "https://staging.acme.example.com/api/auth/callback",
       },
     ]);
-    expect(calls.mock.calls[0]?.[2].env).toEqual({ BUILD_ID: "abc123" });
+    expect(calls.mock.calls[0]?.[2].env).toEqual({
+      BUILD_ID: "abc1230000000000000000000000000000000000",
+    });
     expect(stdout + stderr).not.toContain("sk_test");
   });
 
   it("names missing WorkOS credentials before building anything", async () => {
     const calls = runner();
     const { code, stderr } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       {
         "turbo-vibe.yaml": `${project}  auth:\n    kind: identity\n    target: workos\n`,
       },
@@ -871,7 +1065,14 @@ describe("a project with a database", () => {
     const calls = runner();
     const capture = capturing();
     const { code } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123", "--dry-run"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+        "--dry-run",
+      ],
       { "turbo-vibe.yaml": withDb },
       {},
       calls,
@@ -892,14 +1093,22 @@ describe("a project with a database", () => {
   it("smoke-checks only the services that ship builds", async () => {
     const r2 = fakeR2(seeded(record({ smoke: "pending" })));
     const { code, stdout } = await run(
-      ["smoke", "--env", "staging", "--build-id", "abc123"],
+      [
+        "smoke",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": withDb },
       stateEnv,
       undefined,
       r2.fetch((url) =>
         url.endsWith("/api/health")
-          ? Response.json({ build_id: "abc123" })
-          : new Response("abc123"),
+          ? Response.json({
+              build_id: "abc1230000000000000000000000000000000000",
+            })
+          : new Response("abc1230000000000000000000000000000000000"),
       ),
     );
     expect(code).toBe(0);
@@ -934,7 +1143,13 @@ services:
     const r2 = fakeR2();
     const calls = runner();
     const { code, cwd } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": site },
       vercelEnv,
       calls,
@@ -969,16 +1184,29 @@ services:
         join(root, ".vercel", "output", "static", "_turbo-vibe", "build-id"),
         "utf8",
       ),
-    ).toBe("abc123");
-    expect(r2.record("acme/builds/abc123.json").services).toEqual({
-      web: { assets: "acme/builds/abc123/web.tar.gz" },
+    ).toBe("abc1230000000000000000000000000000000000");
+    expect(
+      r2.record("acme/builds/abc1230000000000000000000000000000000000.json")
+        .services,
+    ).toEqual({
+      web: {
+        assets:
+          "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
+      },
     });
   });
 
   it("prepares the output but uploads nothing in a dry run", async () => {
     const calls = runner();
     const { code } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123", "--dry-run"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+        "--dry-run",
+      ],
       { "turbo-vibe.yaml": site },
       {},
       calls,
@@ -990,7 +1218,13 @@ services:
   it("asks for apply when the environment has no Vercel project yet", async () => {
     const calls = runner();
     const { code, stderr } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": site },
       vercelEnv,
       calls,
@@ -1011,10 +1245,16 @@ services:
     const r2 = fakeR2({
       ...seeded(
         record({
-          services: { web: { assets: "acme/builds/abc123/web.tar.gz" } },
+          services: {
+            web: {
+              assets:
+                "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
+            },
+          },
         }),
       ),
-      "acme/builds/abc123/web.tar.gz": "archive",
+      "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+        "archive",
     });
     const fetch = r2.fetch();
     const { code } = await run(
@@ -1034,7 +1274,7 @@ services:
       .map(([input]) => input as Request)
       .filter((request) => request.url.includes("r2.cloudflarestorage.com"));
     expect(storage.map((request) => new URL(request.url).pathname)).toContain(
-      "/tv-state/acme/builds/abc123/web.tar.gz",
+      "/tv-state/acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
     );
     for (const request of storage) {
       expect(new URL(request.url).pathname).toMatch(/^\/tv-state\//);
@@ -1051,10 +1291,16 @@ services:
 
   it("smoke-checks the build ID on the environment's hostname", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(
-      async () => new Response("abc123"),
+      async () => new Response("abc1230000000000000000000000000000000000"),
     );
     const { code } = await run(
-      ["smoke", "--env", "production", "--build-id", "abc123"],
+      [
+        "smoke",
+        "--env",
+        "production",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": site },
       {},
       undefined,
@@ -1103,7 +1349,13 @@ services:
       return undefined;
     });
     const { code, cwd } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": split },
       splitEnv,
       calls,
@@ -1143,7 +1395,8 @@ services:
   it("points the promoted page at production's backend without rebuilding it", async () => {
     const r2 = fakeR2({
       ...seeded(record({})),
-      "acme/builds/abc123/web.tar.gz": "archive",
+      "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+        "archive",
     });
     const { code, cwd } = await run(
       ["promote", "--env", "production"],
@@ -1210,7 +1463,13 @@ services:
       return undefined;
     });
     const { code, cwd } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
       { "turbo-vibe.yaml": app },
       vercelEnv,
       calls,
@@ -1232,7 +1491,10 @@ services:
     ]);
     expect(build?.[2]).toMatchObject({
       cwd: root,
-      env: { BUILD_ID: "abc123", VERCEL_TELEMETRY_DISABLED: "1" },
+      env: {
+        BUILD_ID: "abc1230000000000000000000000000000000000",
+        VERCEL_TELEMETRY_DISABLED: "1",
+      },
     });
     expect(build?.[2].env).not.toHaveProperty("VERCEL_API_TOKEN");
     expect(linkDuringBuild).toMatchObject({
@@ -1244,22 +1506,35 @@ services:
         join(root, ".vercel", "output", "static", "_turbo-vibe", "build-id"),
         "utf8",
       ),
-    ).toBe("abc123");
+    ).toBe("abc1230000000000000000000000000000000000");
     const deployCall = calls.mock.calls.find(([, args]) =>
       args.includes("--prebuilt"),
     );
     expect(deployCall?.[2].env).toMatchObject({
       VERCEL_PROJECT_ID: "prj_staging",
     });
-    expect(r2.record("acme/builds/abc123.json").services).toEqual({
-      web: { assets: "acme/builds/abc123/web.tar.gz" },
+    expect(
+      r2.record("acme/builds/abc1230000000000000000000000000000000000.json")
+        .services,
+    ).toEqual({
+      web: {
+        assets:
+          "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
+      },
     });
   });
 
   it("puts back the app's own vercel link file after building", async () => {
     const mine = '{"projectId":"prj_mine","orgId":"team_mine"}\n';
     const { code, cwd } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123", "--dry-run"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+        "--dry-run",
+      ],
       { "turbo-vibe.yaml": app },
       {},
       runner(),
@@ -1278,10 +1553,16 @@ services:
     const r2 = fakeR2({
       ...seeded(
         record({
-          services: { web: { assets: "acme/builds/abc123/web.tar.gz" } },
+          services: {
+            web: {
+              assets:
+                "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
+            },
+          },
         }),
       ),
-      "acme/builds/abc123/web.tar.gz": "archive",
+      "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+        "archive",
     });
     const { code } = await run(
       ["promote", "--env", "production"],
@@ -1311,7 +1592,14 @@ services:
   it("builds but ships nothing in a dry run", async () => {
     const calls = runner();
     const { code } = await run(
-      ["deploy", "--env", "staging", "--build-id", "abc123", "--dry-run"],
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+        "--dry-run",
+      ],
       { "turbo-vibe.yaml": app },
       {},
       calls,
