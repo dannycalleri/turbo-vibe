@@ -108,7 +108,7 @@ npx @turbo-vibe/cli preview remove --branch "$BRANCH"
 - **Removal:** `preview remove` deletes the preview's container application and destroys the preview's own state. It refuses to destroy anything that is not a preview.
 - **Promotion:** preview builds are never recorded, so they cannot be promoted.
 
-The reusable `preview.yml` workflow runs this for you on `pull_request` events: `opened`, `synchronize` and `reopened` deploy, `closed` removes. It runs in the `staging` GitHub environment and posts the preview URL (or the reason there is none) as a comment on the pull request. A pull request from a fork gets no preview, because its run receives no secrets, and the run says so. `.github/workflows/previews.yml` previews the kit's Python and Vercel examples.
+The reusable `preview.yml` workflow runs this for you on `pull_request` events: `opened`, `synchronize` and `reopened` deploy, `closed` removes. It runs in the `staging` GitHub environment and posts the preview's URLs (or the reason there is none) as a comment on the pull request: a page at its root, and a backend with no page on its hostname at `/api/health`, which reports the build it runs. A pull request from a fork gets no preview, because its run receives no secrets, and the run says so. `.github/workflows/previews.yml` previews the kit's Python and Vercel examples.
 
 ## What a backend must do
 

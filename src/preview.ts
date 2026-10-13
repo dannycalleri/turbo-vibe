@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { adapterFor } from "./adapters/index.js";
 import { apply, destroy, missingVariables } from "./apply.js";
-import type { PreviewEnvironment } from "./config/schema.js";
+import type { Config, PreviewEnvironment } from "./config/schema.js";
 import { deploy, type Project, smoke } from "./deploy.js";
 import { requiredSecrets } from "./infrastructure.js";
 import type { Io } from "./io.js";
@@ -73,14 +73,33 @@ export async function deployPreview(
     const code = await step();
     if (code !== 0) return code;
   }
-  const hosts = layout(config, environment);
-  const urls = Object.values(config.services)
-    .filter(
-      (service) => service.kind === "frontend" || service.kind === "backend",
-    )
-    .map((service) => `https://${hostOf(hosts, service)}/`);
-  for (const url of [...new Set(urls)]) io.stdout(`preview: ${url}\n`);
+  for (const url of previewUrls(config, environment))
+    io.stdout(`preview: ${url}\n`);
   return 0;
+}
+
+export function previewUrls(
+  config: Config,
+  environment: PreviewEnvironment,
+): string[] {
+  const hosts = layout(config, environment);
+  const services = Object.values(config.services);
+  const pages = new Set(
+    services
+      .filter((service) => service.kind === "frontend")
+      .map((service) => hostOf(hosts, service)),
+  );
+  const urls = services.flatMap((service) => {
+    if (service.kind === "frontend")
+      return [`https://${hostOf(hosts, service)}/`];
+    if (service.kind !== "backend") return [];
+    const host = hostOf(hosts, service);
+    // A backend with no page on its hostname is routed only under /api/, so its root reaches no origin and Cloudflare answers 522.
+    return [
+      pages.has(host) ? `https://${host}/` : `https://${host}/api/health`,
+    ];
+  });
+  return [...new Set(urls)];
 }
 
 export async function removePreview(
