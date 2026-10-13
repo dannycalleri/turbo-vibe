@@ -5,7 +5,7 @@ import { parseConfig } from "../src/config/load.js";
 import type { Config } from "../src/config/schema.js";
 import { rootModule } from "../src/infrastructure.js";
 import { layout } from "../src/origins.js";
-import { previewEnvironment } from "../src/preview.js";
+import { previewEnvironment, previewUrls } from "../src/preview.js";
 import { capturing, fakeR2, run, runner, stateEnv } from "./harness.js";
 
 const digest =
@@ -118,6 +118,33 @@ describe("preview hostnames", () => {
   });
 });
 
+describe("previewUrls", () => {
+  it("links a backend with no page on its hostname to /api/health, since its root reaches no origin", () => {
+    expect(previewUrls(config(shop), "preview-feature-x")).toEqual([
+      "https://feature-x-staging-shop.example.com/api/health",
+    ]);
+  });
+
+  it("links the hostname once when the backend serves the page", () => {
+    const served = config(
+      `${shop}  web:\n    kind: frontend\n    target: cloudflare-static\n    serve_with: api\n    build: { command: x, output: dist }\n`,
+    );
+    expect(previewUrls(served, "preview-feature-x")).toEqual([
+      "https://feature-x-staging-shop.example.com/",
+    ]);
+  });
+
+  it("links a Vercel page at its root and its API at /api/health", () => {
+    const split = config(
+      `${shop}  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n`,
+    );
+    expect(previewUrls(split, "preview-feature-x")).toEqual([
+      "https://api-feature-x-staging-shop.example.com/api/health",
+      "https://feature-x-staging-shop.example.com/",
+    ]);
+  });
+});
+
 const env = { ...stateEnv, CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ZONE_ID: "z" };
 
 describe("turbo-vibe preview deploy", () => {
@@ -143,7 +170,7 @@ describe("turbo-vibe preview deploy", () => {
       }),
     ]);
     expect(stdout).toContain(
-      "preview: https://feature-x-staging-shop.example.com/\n",
+      "preview: https://feature-x-staging-shop.example.com/api/health\n",
     );
     expect([...r2.objects.keys()]).toEqual([]);
     const worker = JSON.parse(
