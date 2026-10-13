@@ -249,7 +249,7 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
     ) {
       problems.push({
         path: ["environments"],
-        message: `the ${environment} API hostname ${backendHostname} must be under ${parentDomain(hostname)}, like the frontend's ${hostname}, so the two can share sign-in cookies`,
+        message: `the ${environment} API hostname ${backendHostname} must be under ${parentDomain(hostname)}, like the frontend's ${hostname}, so the browser treats the two as one site and sends the API's sign-in cookie with the frontend's requests`,
       });
     }
     const uses: [string, string][] = [[hostname, environment]];

@@ -332,6 +332,7 @@ async function verify(
     await runChecks(checksFor(config), {
       config,
       environment: kindOf(environment),
+      githubEnvironment: environment,
       io: { ...io, env },
       nodeVersion: process.versions.node,
     })

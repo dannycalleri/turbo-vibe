@@ -16,7 +16,8 @@ env:
   NODE_VERSION: "24"
   TOFU_VERSION: "1.13.1"
   BUILD_ID: ${{ github.sha }}
-  BRANCH: live-${{ github.run_number }}
+  # Git forbids spaces in branch names, so no pull request's preview can share this one.
+  BRANCH: live run ${{ github.run_number }}
 
 jobs:
   live:
@@ -108,5 +109,5 @@ jobs:
       - name: Fail when a preview could not be removed
         if: always() && env.removal == 'failed'
         run: |
-          echo "::error::a preview-live-${{ github.run_number }} environment was not removed; run turbo-vibe preview remove --branch $BRANCH for it"
+          echo "::error::the preview for \"$BRANCH\" was not removed; run turbo-vibe preview remove --branch \"$BRANCH\" for it"
           exit 1

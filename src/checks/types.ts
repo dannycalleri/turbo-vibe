@@ -14,6 +14,8 @@ export interface Finding {
 export interface CheckContext {
   config: Config;
   environment: EnvironmentName;
+  // `setup` checks an environment such as `live` as staging-kind, but its secrets live in the GitHub environment of that name.
+  githubEnvironment?: string;
   io: Io;
   nodeVersion: string;
 }

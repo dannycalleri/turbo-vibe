@@ -68,6 +68,38 @@ export function setupSteps(
       : []),
   ];
 
+  const workers = services.some((service) =>
+    service.target.startsWith("cloudflare-"),
+  );
+  const limits = [
+    ...(workers
+      ? [
+          `Every environment's Cloudflare token can deploy any Worker in the account, production's included${container ? ", and change any container application, production's image included" : ""}`,
+        ]
+      : []),
+    `Every environment's Cloudflare token can edit the zone's DNS records${workers ? " and routes" : ""}, so it could point production's hostnames elsewhere`,
+    ...(database
+      ? [
+          "The Supabase access token reaches every project in its organization; a separate organization for production keeps them apart",
+        ]
+      : []),
+    ...(vercel
+      ? [
+          "The Vercel token reaches every project in its team; a separate team for production keeps them apart",
+        ]
+      : []),
+    ...(identity
+      ? ["Staging and previews share the WorkOS staging environment's key"]
+      : []),
+    ...(config.previews
+      ? [
+          "Previews run pull request code with the preview's tokens, which reach as far as every line above",
+        ]
+      : []),
+    "On a private GitHub repository without GitHub Pro, Team or Enterprise, there are no deployment-branch rules, so a workflow on any branch could ask for staging's or production's secrets",
+    "Keeping staging and previews away from production's Workers, containers and DNS needs production in its own Cloudflare account and zone, which turbo-vibe does not support yet",
+  ];
+
   return [
     "Accounts and plans",
     ...accounts.map((line, index) => `  ${index + 1}. ${line}`),
@@ -88,6 +120,9 @@ export function setupSteps(
       (environment) =>
         `  ${environment}: ${environmentSecrets(config, kindOf(environment)).join(", ")}`,
     ),
+    "",
+    "What one Cloudflare account leaves shared",
+    ...limits.map((line) => `  - ${line}`),
     "",
   ].join("\n");
 }

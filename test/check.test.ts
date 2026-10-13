@@ -817,6 +817,20 @@ describe("against recorded fakes", () => {
       );
     }
 
+    it("reads the GitHub environment it is given, such as live, while checking it as staging", async () => {
+      repo("live", [], ["AWS_ACCESS_KEY_ID"]);
+      const findings = await github({
+        ...context(container, githubEnv),
+        githubEnvironment: "live",
+      });
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "fail",
+          message: expect.stringMatching(/^the live environment is missing /),
+        }),
+      );
+    });
+
     it("only warns when it has no token to look with", async () => {
       expect((await github(context(container)))[0]?.severity).toBe("warn");
     });

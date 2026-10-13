@@ -15,6 +15,7 @@ const maxHostname = 64;
 export function previewEnvironment(
   branch: string,
   stagingHostname: string,
+  distinct = false,
 ): PreviewEnvironment {
   const slug = branch
     .normalize("NFKD")
@@ -22,15 +23,42 @@ export function previewEnvironment(
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  const named = /^[a-z]/.test(slug) ? slug : `pr-${slug}`.replace(/-+$/, "");
+  // `live-run-…` belongs to the live tests' branch `live run <n>`, which git refuses as a branch name.
+  const reserved =
+    slug.startsWith("live-run-") && !/^live run \d+$/.test(branch);
+  const named =
+    /^[a-z]/.test(slug) && !reserved ? slug : `pr-${slug}`.replace(/-+$/, "");
   const room = Math.min(
     maxLabel - "api-".length - (stagingHostname.split(".")[0] ?? "").length - 1,
     maxHostname - "api-".length - stagingHostname.length - 1,
   );
   // Normalizing can map two branches to one name (fix/login, fix-login); the hash keeps their previews apart.
-  if (named === branch && named.length <= room) return `preview-${named}`;
+  // A plain name that already looks hashed could equal another branch's hashed name.
+  if (
+    !distinct &&
+    named === branch &&
+    named.length <= room &&
+    !/-[0-9a-f]{6}$/.test(named)
+  )
+    return `preview-${named}`;
   const hash = createHash("sha256").update(branch).digest("hex").slice(0, 6);
   return `preview-${named.slice(0, room - hash.length - 1).replace(/-+$/, "")}-${hash}`;
+}
+
+// A branch named like a configured host, such as `api` next to `api-staging.<domain>`, must not take that host over.
+export function previewFor(branch: string, config: Config): PreviewEnvironment {
+  const stagingHostname = hostnameFor(config, "staging");
+  const configured = new Set(
+    (["staging", "production"] as const).flatMap((environment) => {
+      const hosts = layout(config, environment);
+      return [hosts.hostname, hosts.backendHostname];
+    }),
+  );
+  const plain = previewEnvironment(branch, stagingHostname);
+  const hosts = layout(config, plain);
+  return configured.has(hosts.hostname) || configured.has(hosts.backendHostname)
+    ? previewEnvironment(branch, stagingHostname, true)
+    : plain;
 }
 
 function databaseBlocksPreviews({ config }: Project): string | undefined {
@@ -60,10 +88,7 @@ export async function deployPreview(
     io.stdout(`no preview: ${blocked}\n`);
     return 0;
   }
-  const environment = previewEnvironment(
-    branch,
-    hostnameFor(config, "staging"),
-  );
+  const environment = previewFor(branch, config);
   for (const step of [
     () => apply(config, environment, io),
     () => migrate(project, environment, io),
@@ -108,10 +133,7 @@ export async function removePreview(
   io: Io,
 ): Promise<number> {
   const { config } = project;
-  const environment = previewEnvironment(
-    branch,
-    hostnameFor(config, "staging"),
-  );
+  const environment = previewFor(branch, config);
   if (missingVariables(requiredSecrets(config), io)) return 1;
   const hosts = layout(config, environment);
   for (const [name, service] of Object.entries(config.services)) {

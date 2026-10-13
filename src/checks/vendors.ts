@@ -238,6 +238,7 @@ export const vercel: Check = async (context) => {
 
 export const github: Check = async (context) => {
   const { config, environment, io } = context;
+  const githubName = context.githubEnvironment ?? environment;
   const repository = io.env.GITHUB_REPOSITORY;
   if (!io.env.GITHUB_TOKEN || !repository) {
     return [
@@ -248,7 +249,7 @@ export const github: Check = async (context) => {
       ),
     ];
   }
-  const api = `https://api.github.com/repos/${repository}/environments/${environment}`;
+  const api = `https://api.github.com/repos/${repository}/environments/${githubName}`;
   const settings = await getJson<{ protection_rules?: { type: string }[] }>(
     context,
     api,
@@ -258,7 +259,7 @@ export const github: Check = async (context) => {
     return [
       fail(
         "github",
-        `${repository} has no ${environment} environment`,
+        `${repository} has no ${githubName} environment`,
         `create it in Settings → Environments → New environment`,
       ),
     ];
@@ -267,7 +268,7 @@ export const github: Check = async (context) => {
     return [
       warn(
         "github",
-        `cannot read the ${environment} environment (HTTP ${settings.status})`,
+        `cannot read the ${githubName} environment (HTTP ${settings.status})`,
         "use a GITHUB_TOKEN that can read the repository's environments",
       ),
     ];
@@ -296,7 +297,7 @@ export const github: Check = async (context) => {
     findings.push(
       warn(
         "github",
-        `cannot list the ${environment} environment's secrets (HTTP ${secrets.status})`,
+        `cannot list the ${githubName} environment's secrets (HTTP ${secrets.status})`,
         "use a token with read access to environment secrets",
       ),
     );
@@ -309,12 +310,12 @@ export const github: Check = async (context) => {
     absent.length === 0
       ? ok(
           "github",
-          `the ${environment} environment has every secret the project needs`,
+          `the ${githubName} environment has every secret the project needs`,
         )
       : fail(
           "github",
-          `the ${environment} environment is missing ${absent.join(", ")}`,
-          `add them in Settings → Environments → ${environment} → Environment secrets`,
+          `the ${githubName} environment is missing ${absent.join(", ")}`,
+          `add them in Settings → Environments → ${githubName} → Environment secrets`,
         ),
   );
   return findings;
