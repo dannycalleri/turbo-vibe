@@ -67,6 +67,27 @@ npx @turbo-vibe/cli@1 setup
 
 `setup` stores values that you never see, such as the Cloudflare tokens, so you cannot export them to run `check` in your shell. To verify an environment again, run `setup` again: it checks the values it stores in that run, and lists the ones it kept. To check a kept secret, set it again with `--replace <SECRET>`. `check` changes nothing except one probe object it writes to the state bucket and deletes, to prove R2 enforces state locking. To run it on a GitHub environment's stored secrets, add it as a step to a workflow job that uses that environment.
 
+## 7. What one account leaves shared
+
+Each environment has its own GitHub environment, state bucket and tokens, and `staging` and `production` accept runs from `main` only. Some things are still shared, because Cloudflare cannot narrow them within one account and zone:
+
+| What | Who can reach production through it |
+|---|---|
+| Workers | every environment's Cloudflare token can deploy any Worker in the account, production's included |
+| Container applications | with a `cloudflare-container` backend, every environment's token can change any container application, production's image included |
+| DNS records and routes | every environment's token can edit the zone's DNS records, and its routes when a Cloudflare target runs Workers, so it could point production's hostnames elsewhere |
+| Supabase | the access token reaches every project in its organization |
+| Vercel | the token reaches every project in its team |
+| WorkOS | staging and previews share the WorkOS staging environment's key |
+| Previews | pull request code runs with the preview's tokens, which reach as far as every row above |
+| GitHub | on a private repository without GitHub Pro, Team or Enterprise, there are no deployment-branch rules, so a workflow on any branch could ask for `staging`'s or `production`'s secrets |
+
+For a project with real users:
+- Give production its own Supabase organization and Vercel team, with their own tokens.
+- Keeping staging and previews away from production's Workers, containers and DNS needs production in its own Cloudflare account and zone, as Cloudflare recommends. turbo-vibe does not support that yet.
+
+`setup --list` prints the rows that apply to your file. It cannot see your GitHub plan, so it always prints the GitHub row.
+
 ## The kit's own repository
 
 Only turbo-vibe's repository needs this. Its weekly live tests (`live-tests.yml`) deploy the examples as previews, smoke-test them, remove them, and record the results in `COMPATIBILITY.md`.

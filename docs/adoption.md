@@ -137,7 +137,7 @@ jobs:
     secrets: inherit
 ```
 
-Previews run in the `preview` GitHub environment, with its own state bucket and tokens, which `setup` creates when the config enables previews. Pull request code receives those, never the `staging` or `production` environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. A project with a database needs Supabase's paid plan for previews, because each preview gets its own database branch.
+Previews run in the `preview` GitHub environment, with its own state bucket and tokens, which `setup` creates when the config enables previews. Pull request code receives those, never the `staging` or `production` environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. The bootstrap checklist's [What one account leaves shared](bootstrap.md#7-what-one-account-leaves-shared) lists every such limit. A project with a database needs Supabase's paid plan for previews, because each preview gets its own database branch.
 
 ## 4. Create the accounts, tokens, and GitHub environments
 
