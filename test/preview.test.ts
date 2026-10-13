@@ -5,7 +5,7 @@ import { parseConfig } from "../src/config/load.js";
 import type { Config } from "../src/config/schema.js";
 import { branchedDatabases, rootModule } from "../src/infrastructure.js";
 import { layout } from "../src/origins.js";
-import { previewEnvironment, previewUrls } from "../src/preview.js";
+import { previewEnvironment, previewFor, previewUrls } from "../src/preview.js";
 import { capturing, fakeR2, run, runner, stateEnv } from "./harness.js";
 
 const digest =
@@ -123,6 +123,48 @@ describe("preview hostnames", () => {
     );
     expect(root.module.supabase_db?.parent_project_ref).toBe("stagingref");
     expect(JSON.stringify(root)).not.toContain("terraform_remote_state");
+  });
+});
+
+describe("previewFor", () => {
+  const crossOrigin = config(
+    `${shop.replace(
+      "staging: { hostname: staging-shop.example.com }",
+      "staging: { hostname: staging-shop.example.com, api_hostname: api-staging-shop.example.com }",
+    )}  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n`,
+  );
+
+  it("keeps an ordinary branch's name", () => {
+    expect(previewFor("feature-x", crossOrigin)).toBe("preview-feature-x");
+  });
+
+  it("gives a branch named like a configured host a suffixed name, so it cannot take that host", () => {
+    const hosts = layout(crossOrigin, "staging");
+    expect(hosts.backendHostname).toBe("api-staging-shop.example.com");
+    const environment = previewFor("api", crossOrigin);
+    expect(environment).toMatch(/^preview-api-[0-9a-f]{6}$/);
+    const preview = layout(crossOrigin, environment);
+    expect([preview.hostname, preview.backendHostname]).not.toContain(
+      hosts.backendHostname,
+    );
+  });
+
+  it("never gives a pull request branch the live tests' preview", () => {
+    expect(previewFor("live-3", crossOrigin)).not.toBe(
+      previewFor("live run 3", crossOrigin),
+    );
+    expect(previewFor("live-run-3", crossOrigin)).not.toBe(
+      previewFor("live run 3", crossOrigin),
+    );
+    for (const branch of ["live_run_3", "Live-Run-3", "live/run/3"])
+      expect(previewFor(branch, crossOrigin)).toMatch(
+        /^preview-pr-live-run-3-/,
+      );
+    const live = previewFor("live run 3", crossOrigin);
+    expect(live).toMatch(/^preview-live-run-3-[0-9a-f]{6}$/);
+    expect(previewFor(live.slice("preview-".length), crossOrigin)).not.toBe(
+      live,
+    );
   });
 });
 

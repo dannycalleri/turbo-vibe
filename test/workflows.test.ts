@@ -395,7 +395,7 @@ describe("the live tests workflow", () => {
     const job = live.jobs.live;
     expect(job.if).toBe("github.ref == 'refs/heads/main'");
     expect(job.environment).toBe("live");
-    expect(live.env.BRANCH).toMatch(/^live-/);
+    expect(live.env.BRANCH).toMatch(/^live run /);
   });
 
   describe("commits COMPATIBILITY.md alone", () => {
