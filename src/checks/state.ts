@@ -1,9 +1,10 @@
 import { BuildStore } from "../builds.js";
 import { stateSecrets } from "../infrastructure.js";
-import type { Check, Finding } from "./types.js";
-import { fail, ok } from "./types.js";
+import type { Check, CheckContext, Finding } from "./types.js";
+import { fail, missing, ok } from "./types.js";
 
-export const stateBucket: Check = async ({ config, io }) => {
+export const stateBucket: Check = async (context) => {
+  const { config, environment, io } = context;
   const absent = stateSecrets.filter((name) => !io.env[name]);
   if (absent.length > 0) {
     return [
@@ -18,7 +19,7 @@ export const stateBucket: Check = async ({ config, io }) => {
     ];
   }
   const bucket = io.env.TURBO_VIBE_STATE_BUCKET;
-  const store = new BuildStore(io, config.project);
+  const store = new BuildStore(io, config.project, bucket);
   const key = `${config.project}/check/lock-probe-${Date.now()}`;
   const findings: Finding[] = [];
   try {
@@ -48,5 +49,29 @@ export const stateBucket: Check = async ({ config, io }) => {
   } finally {
     await store.remove(key).catch(() => undefined);
   }
+  if (environment === "production") findings.push(await buildRecords(context));
   return findings;
 };
+
+async function buildRecords({ config, io }: CheckContext): Promise<Finding> {
+  const bucket = io.env.TURBO_VIBE_BUILDS_BUCKET;
+  if (!bucket)
+    return missing(
+      "build records",
+      "TURBO_VIBE_BUILDS_BUCKET",
+      "set TURBO_VIBE_BUILDS_BUCKET on production to the name of staging's state bucket, which holds the build records production promotes",
+    );
+  try {
+    await new BuildStore(io, config.project, bucket).listRecords();
+    return ok(
+      "build records",
+      `production can read build records in ${bucket}`,
+    );
+  } catch (error) {
+    return fail(
+      "build records",
+      `production cannot read build records in ${bucket}: ${error instanceof Error ? error.message : String(error)}`,
+      `give production's R2 token Object Read on ${bucket}`,
+    );
+  }
+}

@@ -1,5 +1,6 @@
 import type { Config } from "../config/schema.js";
 import { environmentSecrets } from "../deploy.js";
+import { kindOf } from "../setup.js";
 
 const cloudflareDashboard = "https://dash.cloudflare.com/?to=/:account";
 
@@ -66,7 +67,6 @@ export function setupSteps(
       : []),
   ];
 
-  const secrets = environmentSecrets(config).join(", ");
   return [
     "Accounts and plans",
     ...accounts.map((line, index) => `  ${index + 1}. ${line}`),
@@ -77,7 +77,10 @@ export function setupSteps(
     "Then, in a terminal: turbo-vibe setup",
     "",
     "Secrets setup stores in each GitHub environment",
-    ...environments.map((environment) => `  ${environment}: ${secrets}`),
+    ...environments.map(
+      (environment) =>
+        `  ${environment}: ${environmentSecrets(config, kindOf(environment)).join(", ")}`,
+    ),
     "",
   ].join("\n");
 }

@@ -18,6 +18,15 @@ export function choosePromotion(
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 }
 
+export function buildsBucket(
+  environment: string,
+  env: Readonly<Record<string, string | undefined>>,
+): string | undefined {
+  return environment === "production"
+    ? env.TURBO_VIBE_BUILDS_BUCKET
+    : env.TURBO_VIBE_STATE_BUCKET;
+}
+
 export class BuildStore {
   private readonly client: AwsClient;
   private readonly base: string;
@@ -25,6 +34,7 @@ export class BuildStore {
   constructor(
     private readonly io: Io,
     private readonly project: string,
+    bucket: string | undefined,
   ) {
     this.client = new AwsClient({
       accessKeyId: io.env.AWS_ACCESS_KEY_ID ?? "",
@@ -32,7 +42,7 @@ export class BuildStore {
       service: "s3",
       region: "auto",
     });
-    this.base = `https://${io.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${io.env.TURBO_VIBE_STATE_BUCKET}`;
+    this.base = `https://${io.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${bucket}`;
   }
 
   artifactKey(buildId: string, service: string): string {

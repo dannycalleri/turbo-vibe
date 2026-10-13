@@ -181,6 +181,16 @@ describe("secrets", () => {
       }
     }
   });
+
+  it("lets the production job receive the builds bucket that promote reads", async () => {
+    const promote = await workflow("promote.yml");
+    expect(promote.on.workflow_call.secrets).toHaveProperty(
+      "TURBO_VIBE_BUILDS_BUCKET",
+    );
+    expect(promote.jobs.production.env.TURBO_VIBE_BUILDS_BUCKET).toBe(
+      "${{ secrets.TURBO_VIBE_BUILDS_BUCKET }}",
+    );
+  });
 });
 
 describe("the preview workflow", () => {

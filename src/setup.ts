@@ -20,7 +20,7 @@ export interface SetupOptions {
   replace?: readonly string[];
 }
 
-function kindOf(environment: string): EnvironmentName {
+export function kindOf(environment: string): EnvironmentName {
   return environment === "production" ? "production" : "staging";
 }
 
@@ -186,7 +186,7 @@ async function storeSecrets(
   askSecret: (question: string) => Promise<string>,
   io: Io,
 ): Promise<Stored | undefined> {
-  const needed = environmentSecrets(config);
+  const needed = environmentSecrets(config, kindOf(environment));
   const store = (name: string) =>
     !present.has(name) || provided.replace.includes(name);
   const kept = needed.filter((name) => !store(name));
@@ -245,7 +245,7 @@ async function verify(
   github: Record<string, string>,
   io: Io,
 ): Promise<boolean> {
-  const secrets = new Set(environmentSecrets(config));
+  const secrets = new Set(environmentSecrets(config, kindOf(environment)));
   // The shell can hold its own values for these names; the checks must see only what this run stored.
   const env = {
     ...Object.fromEntries(
@@ -289,7 +289,11 @@ export async function setup(
     );
     return 1;
   }
-  const needed = environmentSecrets(config);
+  const needed = [
+    ...new Set(
+      options.env.flatMap((name) => environmentSecrets(config, kindOf(name))),
+    ),
+  ];
   const unknown = (options.replace ?? []).filter(
     (name) => !needed.includes(name),
   );

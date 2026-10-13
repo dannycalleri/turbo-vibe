@@ -774,7 +774,10 @@ services:
   it("asks for no bootstrap token when every environment has the Cloudflare secrets", async () => {
     const cloudflare = fakeCloudflare();
     const gh = fakeGh({
-      secrets: { staging: cloudflareKept, production: cloudflareKept },
+      secrets: {
+        staging: cloudflareKept,
+        production: [...cloudflareKept, "TURBO_VIBE_BUILDS_BUCKET"],
+      },
     });
     expect((await setup([], gh, true, cloudflare)).code).toBe(0);
     expect(cloudflare.fetch).not.toHaveBeenCalled();
@@ -865,7 +868,7 @@ services:
         staging: cloudflareKept.filter(
           (name) => name !== "CLOUDFLARE_API_TOKEN",
         ),
-        production: cloudflareKept.filter(
+        production: [...cloudflareKept, "TURBO_VIBE_BUILDS_BUCKET"].filter(
           (name) => name !== "CLOUDFLARE_ZONE_ID",
         ),
       },
@@ -1047,7 +1050,10 @@ const storedValue = (
 ) => gh.stored.find((s) => s.env === env && s.name === name)?.value;
 
 describe("setup with vendor tokens", () => {
-  const allKept = { staging: cloudflareKept, production: cloudflareKept };
+  const allKept = {
+    staging: cloudflareKept,
+    production: [...cloudflareKept, "TURBO_VIBE_BUILDS_BUCKET"],
+  };
 
   it("stores the only Supabase organization the token sees, without a question", async () => {
     const gh = fakeGh({ secrets: allKept });
@@ -1150,7 +1156,10 @@ describe("setup on re-runs and other environments", () => {
 
   it("asks again only for a secret named by --replace, in every environment", async () => {
     const gh = fakeGh({
-      secrets: { staging: everything, production: everything },
+      secrets: {
+        staging: everything,
+        production: [...everything, "TURBO_VIBE_BUILDS_BUCKET"],
+      },
     });
     const cloudflare = fakeCloudflare();
     const result = await setup(
@@ -1170,7 +1179,10 @@ describe("setup on re-runs and other environments", () => {
 
   it("creates the Cloudflare token again for --replace CLOUDFLARE_API_TOKEN", async () => {
     const gh = fakeGh({
-      secrets: { staging: cloudflareKept, production: cloudflareKept },
+      secrets: {
+        staging: cloudflareKept,
+        production: [...cloudflareKept, "TURBO_VIBE_BUILDS_BUCKET"],
+      },
     });
     const cloudflare = fakeCloudflare({
       existingTokens: ["turbo-vibe-acme-staging", "turbo-vibe-acme-production"],
