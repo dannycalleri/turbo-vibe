@@ -25,6 +25,7 @@ interface FakeGitHub {
   refuseReviewers?: boolean;
   userReadable?: boolean;
   secrets?: Record<string, string[]>;
+  rules?: Record<string, string[]>;
 }
 
 function fakeGh({
@@ -34,8 +35,10 @@ function fakeGh({
   refuseReviewers = false,
   userReadable = true,
   secrets = {},
+  rules = {},
 }: FakeGitHub = {}) {
   const envs = new Map(Object.entries(environments));
+  const branchRules = new Map<string, string[]>(Object.entries(rules));
   const stored: { env: string; name: string; value: string | undefined }[] = [];
   const capture = vi.fn<Capturer>(async (command, args, options) => {
     if (command !== "gh") return { code: 0, stdout: "{}" };
@@ -61,9 +64,27 @@ function fakeGh({
       return userReadable
         ? { code: 0, stdout: JSON.stringify({ id: 42, login: "ada" }) }
         : { code: 1, stdout: '{"message":"Bad credentials"}' };
-    const put = rest[0] === "-X";
-    const path = put ? rest[2] : rest[0];
-    const name = path?.match(/environments\/(.+)$/)?.[1];
+    const method = rest[0] === "-X" ? rest[1] : "GET";
+    const put = method === "PUT";
+    const path = rest[0] === "-X" ? rest[2] : rest[0];
+    const rule = path?.match(
+      /environments\/([^/]+)\/deployment-branch-policies$/,
+    )?.[1];
+    if (rule) {
+      if (method === "POST") {
+        branchRules.set(rule, [...(branchRules.get(rule) ?? []), "main"]);
+        return { code: 0, stdout: "{}" };
+      }
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          branch_policies: (branchRules.get(rule) ?? []).map((name) => ({
+            name,
+          })),
+        }),
+      };
+    }
+    const name = path?.match(/environments\/([^/]+)$/)?.[1];
     if (!name) return { code: 1, stdout: "" };
     if (!put) {
       const found = envs.get(name);
@@ -319,53 +340,119 @@ describe("setup", () => {
     expect(gh.capture).not.toHaveBeenCalled();
   });
 
-  it("creates only the missing environments and adds the signed-in user as production's reviewer", async () => {
+  it("creates only the missing environments, limits staging and production to main, and adds the signed-in user as production's reviewer", async () => {
     const gh = fakeGh({ environments: { staging: {} } });
     const result = await setup([], gh);
     expect(result.code).toBe(0);
-    const puts = gh.calls().filter((call) => call.includes("-X PUT"));
-    expect(puts).toEqual([
+    const writes = gh
+      .calls()
+      .filter((call) => call.includes("-X PUT") || call.includes("-X POST"));
+    expect(writes).toEqual([
+      "api -X PUT repos/acme/app/environments/staging -F deployment_branch_policy[protected_branches]=false -F deployment_branch_policy[custom_branch_policies]=true",
+      "api -X POST repos/acme/app/environments/staging/deployment-branch-policies -f name=main -f type=branch",
       "api -X PUT repos/acme/app/environments/production",
-      "api -X PUT repos/acme/app/environments/production -f reviewers[][type]=User -F reviewers[][id]=42",
+      "api -X PUT repos/acme/app/environments/production -f reviewers[][type]=User -F reviewers[][id]=42 -F deployment_branch_policy[protected_branches]=false -F deployment_branch_policy[custom_branch_policies]=true",
+      "api -X POST repos/acme/app/environments/production/deployment-branch-policies -f name=main -f type=branch",
     ]);
     expect(result.stdout).toContain("environment staging exists");
     expect(result.stdout).toContain("production now requires a review by ada");
+    expect(result.stdout).toContain(
+      "staging accepts deployments from main only",
+    );
   });
 
-  it("keeps an existing reviewer rule, and sends the other settings back unchanged when it adds one", async () => {
-    const policy = { protected_branches: true, custom_branch_policies: false };
-    const reviewed = fakeGh({
-      environments: {
-        staging: {},
-        production: { protection_rules: [{ type: "required_reviewers" }] },
+  it("changes nothing on environments that already require a reviewer and accept only main", async () => {
+    const done = {
+      deployment_branch_policy: {
+        protected_branches: false,
+        custom_branch_policies: true,
       },
-    });
-    expect((await setup([], reviewed)).code).toBe(0);
-    expect(reviewed.calls().some((call) => call.includes("-X PUT"))).toBe(
-      false,
-    );
-
-    const restricted = fakeGh({
+    };
+    const gh = fakeGh({
       environments: {
-        staging: {},
+        staging: done,
         production: {
-          deployment_branch_policy: policy,
+          ...done,
+          protection_rules: [
+            {
+              type: "required_reviewers",
+              reviewers: [{ type: "User", reviewer: { id: 7 } }],
+            },
+          ],
+        },
+      },
+      rules: { staging: ["main"], production: ["main"] },
+    });
+    expect((await setup([], gh)).code).toBe(0);
+    expect(
+      gh
+        .calls()
+        .some((call) => call.includes("-X PUT") || call.includes("-X POST")),
+    ).toBe(false);
+  });
+
+  it("sends the existing reviewers and settings back when it limits an environment to main", async () => {
+    const gh = fakeGh({
+      environments: {
+        production: {
           can_admins_bypass: false,
-          protection_rules: [{ type: "wait_timer", wait_timer: 30 }],
+          deployment_branch_policy: {
+            protected_branches: true,
+            custom_branch_policies: false,
+          },
+          protection_rules: [
+            { type: "wait_timer", wait_timer: 30 },
+            {
+              type: "required_reviewers",
+              prevent_self_review: true,
+              reviewers: [{ type: "Team", reviewer: { id: 9 } }],
+            },
+          ],
         },
       },
     });
-    await setup(["--env", "production"], restricted);
-    expect(restricted.calls()).toContain(
-      "api -X PUT repos/acme/app/environments/production -f reviewers[][type]=User -F reviewers[][id]=42 -F deployment_branch_policy[protected_branches]=true -F deployment_branch_policy[custom_branch_policies]=false -F wait_timer=30 -F can_admins_bypass=false",
+    await setup(["--env", "production"], gh);
+    expect(gh.calls()).toContain(
+      "api -X PUT repos/acme/app/environments/production -f reviewers[][type]=Team -F reviewers[][id]=9 -F prevent_self_review=true -F deployment_branch_policy[protected_branches]=false -F deployment_branch_policy[custom_branch_policies]=true -F wait_timer=30 -F can_admins_bypass=false",
     );
   });
 
-  it("warns and continues when GitHub refuses a reviewer", async () => {
+  it("still limits production to main when GitHub refuses a reviewer", async () => {
     const gh = fakeGh({ refuseReviewers: true });
-    const result = await setup([], gh);
+    const result = await setup(["--env", "production"], gh);
     expect(result.code).toBe(0);
+    expect(result.stdout).toContain("needs GitHub Enterprise for it");
     expect(result.stdout).toContain("typed build ID");
+    expect(gh.calls()).toContain(
+      "api -X PUT repos/acme/app/environments/production -F deployment_branch_policy[protected_branches]=false -F deployment_branch_policy[custom_branch_policies]=true",
+    );
+    expect(gh.calls()).toContain(
+      "api -X POST repos/acme/app/environments/production/deployment-branch-policies -f name=main -f type=branch",
+    );
+    expect(result.stdout).toContain(
+      "production accepts deployments from main only",
+    );
+  });
+
+  it("names branch rules other than main instead of claiming main only", async () => {
+    const gh = fakeGh({
+      environments: {
+        staging: {
+          deployment_branch_policy: {
+            protected_branches: false,
+            custom_branch_policies: true,
+          },
+        },
+      },
+      rules: { staging: ["main", "release/*"] },
+    });
+    const result = await setup(["--env", "staging"], gh);
+    expect(result.stdout).toContain(
+      "staging also accepts deployments from release/*",
+    );
+    expect(result.stdout).not.toContain(
+      "staging accepts deployments from main only",
+    );
   });
 
   it("stops without a PUT when an environment cannot be read", async () => {
@@ -1392,5 +1479,45 @@ services:
     expect(storedValue(gh, "production", "TURBO_VIBE_BUILDS_BUCKET")).toBe(
       "acme-turbo-vibe-staging",
     );
+  });
+});
+
+describe("setup with previews", () => {
+  const withPreviews = project.replace(
+    "services:",
+    "previews: true\nservices:",
+  );
+
+  it("creates a preview environment with its own bucket and tokens, and no branch limit", async () => {
+    const gh = fakeGh();
+    const cloudflare = fakeCloudflare();
+    const result = await setupWith(withPreviews, cloudflare.fetch, gh);
+    expect(result.code).toBe(0);
+    expect(gh.calls()).toContain(
+      "api -X PUT repos/acme/app/environments/preview",
+    );
+    expect(
+      gh
+        .calls()
+        .some((call) =>
+          call.includes("environments/preview/deployment-branch-policies"),
+        ),
+    ).toBe(false);
+    expect(storedValue(gh, "preview", "TURBO_VIBE_STATE_BUCKET")).toBe(
+      "acme-turbo-vibe-preview",
+    );
+    const buckets = JSON.stringify(
+      cloudflare.created("turbo-vibe-acme-preview-r2")?.body,
+    ).match(/acme-turbo-vibe-[a-z-]+/g);
+    expect(buckets).toEqual(["acme-turbo-vibe-preview"]);
+    expect(cloudflare.created("turbo-vibe-acme-preview")).toBeDefined();
+  });
+
+  it("creates no preview environment when the config has no previews", async () => {
+    const gh = fakeGh();
+    await setupWith(project, fakeCloudflare().fetch, gh);
+    expect(
+      gh.calls().some((call) => call.includes("environments/preview")),
+    ).toBe(false);
   });
 });

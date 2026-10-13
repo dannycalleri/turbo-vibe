@@ -59,7 +59,7 @@ A staging `deploy` builds every service once and records what it shipped in stag
 The reusable `promote.yml` workflow is the "Deploy to production" button: call it from a `workflow_dispatch` workflow, the way `.github/workflows/production.yml` does for the kit's example. Its job runs in the GitHub environment `production`. Two safeguards stand before any production change:
 
 - **Typed confirmation.** The run asks for `confirm-build`, the ID of the build to promote; each passing Staging run prints it in its summary. If it is not the build promotion would choose, the run stops before changing anything and its summary names the right one.
-- **Required reviewers.** Give the `production` environment required reviewers once (Settings → Environments), and every run waits for an approval before any production secret is used. GitHub offers them on public repositories and on paid plans; on a private repository on GitHub Free, the typed confirmation is the safeguard.
+- **Required reviewers.** Give the `production` environment required reviewers once (Settings → Environments), and every run waits for an approval before any production secret is used. GitHub offers them on public repositories, and on private ones only with GitHub Enterprise; elsewhere, the typed confirmation is the safeguard.
 
 It then:
 

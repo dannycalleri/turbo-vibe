@@ -283,7 +283,7 @@ export const github: Check = async (context) => {
         : warn(
             "github",
             "production has no required reviewers, so the typed build-ID confirmation is the only safeguard before promotion",
-            "add required reviewers in Settings → Environments → production; GitHub offers them on public repositories and on paid plans",
+            "add required reviewers in Settings → Environments → production; GitHub offers them on public repositories, and on private ones only with GitHub Enterprise",
           ),
     );
   }

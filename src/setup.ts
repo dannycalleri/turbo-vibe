@@ -20,13 +20,22 @@ export interface SetupOptions {
   replace?: readonly string[];
 }
 
+export function defaultEnvironments(config: Config): string[] {
+  return ["staging", "production", ...(config.previews ? ["preview"] : [])];
+}
+
 export function kindOf(environment: string): EnvironmentName {
   return environment === "production" ? "production" : "staging";
 }
 
 interface GitHubEnvironment {
   can_admins_bypass?: boolean;
-  protection_rules?: { type: string; wait_timer?: number }[];
+  protection_rules?: {
+    type: string;
+    wait_timer?: number;
+    prevent_self_review?: boolean;
+    reviewers?: { type: string; reviewer: { id: number } }[];
+  }[];
   deployment_branch_policy?: {
     protected_branches: boolean;
     custom_branch_policies: boolean;
@@ -87,69 +96,134 @@ async function repository(
   return viewed?.code === 0 ? viewed.stdout.trim() || undefined : undefined;
 }
 
+const mainOnly = { protected_branches: false, custom_branch_policies: true };
+
 // A PUT resets every environment setting it leaves out, so the existing ones are sent back.
-function keptSettings(existing: GitHubEnvironment): string[] {
-  const kept: string[] = [];
-  const policy = existing.deployment_branch_policy;
+function settings(
+  existing: GitHubEnvironment,
+  reviewers: readonly { type: string; id: number }[],
+  policy: GitHubEnvironment["deployment_branch_policy"],
+): string[] {
+  const args: string[] = [];
+  for (const reviewer of reviewers)
+    args.push(
+      "-f",
+      `reviewers[][type]=${reviewer.type}`,
+      "-F",
+      `reviewers[][id]=${reviewer.id}`,
+    );
+  const rules = existing.protection_rules ?? [];
+  const review = rules.find((rule) => rule.type === "required_reviewers");
+  if (reviewers.length > 0 && review?.prevent_self_review !== undefined)
+    args.push("-F", `prevent_self_review=${review.prevent_self_review}`);
   if (policy)
-    kept.push(
+    args.push(
       "-F",
       `deployment_branch_policy[protected_branches]=${policy.protected_branches}`,
       "-F",
       `deployment_branch_policy[custom_branch_policies]=${policy.custom_branch_policies}`,
     );
-  const timer = existing.protection_rules?.find(
-    (rule) => rule.type === "wait_timer",
-  )?.wait_timer;
-  if (timer !== undefined) kept.push("-F", `wait_timer=${timer}`);
+  const timer = rules.find((rule) => rule.type === "wait_timer")?.wait_timer;
+  if (timer !== undefined) args.push("-F", `wait_timer=${timer}`);
   if (existing.can_admins_bypass !== undefined)
-    kept.push("-F", `can_admins_bypass=${existing.can_admins_bypass}`);
-  return kept;
+    args.push("-F", `can_admins_bypass=${existing.can_admins_bypass}`);
+  return args;
 }
 
-async function requireReviewer(
+function existingReviewers(
+  existing: GitHubEnvironment,
+): { type: string; id: number }[] {
+  return (
+    existing.protection_rules
+      ?.find((rule) => rule.type === "required_reviewers")
+      ?.reviewers?.map(({ type, reviewer }) => ({ type, id: reviewer.id })) ??
+    []
+  );
+}
+
+async function onlyMain(repo: string, name: string, io: Io): Promise<void> {
+  const path = `repos/${repo}/environments/${name}/deployment-branch-policies`;
+  const listed = await ghRead<{ branch_policies?: { name: string }[] }>(
+    ["api", path],
+    io,
+  );
+  const rules = listed.status === "found" ? listed.value.branch_policies : [];
+  const added =
+    listed.status === "found" &&
+    (rules?.some((rule) => rule.name === "main") ||
+      (
+        await gh(
+          ["api", "-X", "POST", path, "-f", "name=main", "-f", "type=branch"],
+          io,
+        )
+      )?.code === 0);
+  if (!added) {
+    io.stdout(
+      `warn  github: could not add main to ${name}'s deployment branches, so ${name} may now accept deployments from no branch; add main in Settings → Environments → ${name} → Deployment branches\n`,
+    );
+    return;
+  }
+  const others = (rules ?? [])
+    .map((rule) => rule.name)
+    .filter((rule) => rule !== "main");
+  io.stdout(
+    others.length === 0
+      ? `github: ${name} accepts deployments from main only\n`
+      : `warn  github: ${name} also accepts deployments from ${others.join(", ")}; remove those rules in Settings → Environments → ${name} → Deployment branches, or those branches receive ${name}'s secrets\n`,
+  );
+}
+
+async function protect(
   repo: string,
+  name: "staging" | "production",
   existing: GitHubEnvironment,
   io: Io,
 ): Promise<void> {
-  if (
-    existing.protection_rules?.some(
-      (rule) => rule.type === "required_reviewers",
-    )
-  ) {
+  const kept = existingReviewers(existing);
+  let reviewer: { id: number; login: string } | undefined;
+  if (name === "production" && kept.length === 0) {
+    const user = await ghRead<{ id: number; login: string }>(
+      ["api", "user"],
+      io,
+    );
+    if (user.status === "found") reviewer = user.value;
+    else
+      io.stdout(
+        "warn  github: cannot read the signed-in GitHub user, so production has no required reviewer; every promotion still needs the typed build ID\n",
+      );
+  } else if (name === "production")
     io.stdout("github: production already requires a reviewer\n");
-    return;
-  }
-  const user = await ghRead<{ id: number; login: string }>(["api", "user"], io);
-  if (user.status !== "found") {
+  const policy = existing.deployment_branch_policy;
+  const restricted =
+    policy?.custom_branch_policies === true && !policy.protected_branches;
+  const path = `repos/${repo}/environments/${name}`;
+  const put = async (reviewers: { type: string; id: number }[]) =>
+    (
+      await gh(
+        ["api", "-X", "PUT", path, ...settings(existing, reviewers, mainOnly)],
+        io,
+      )
+    )?.code === 0;
+  if (reviewer) {
+    if (await put([...kept, { type: "User", id: reviewer.id }])) {
+      io.stdout(
+        `github: production now requires a review by ${reviewer.login}\n`,
+      );
+      await onlyMain(repo, name, io);
+      return;
+    }
+    // GitHub offers required reviewers on fewer plans than deployment-branch rules, so the rule is tried alone.
     io.stdout(
-      "warn  github: cannot read the signed-in GitHub user, so production has no required reviewer; every promotion still needs the typed build ID\n",
+      "warn  github: GitHub did not accept a required reviewer on production (a private repository needs GitHub Enterprise for it); every promotion still needs the typed build ID\n",
+    );
+  }
+  if (!restricted && !(await put(kept))) {
+    io.stdout(
+      `warn  github: GitHub did not accept a deployment-branch rule on ${name} (a private repository needs GitHub Pro, Team or Enterprise for it), so a workflow on any branch could ask for ${name}'s secrets\n`,
     );
     return;
   }
-  const added = await gh(
-    [
-      "api",
-      "-X",
-      "PUT",
-      `repos/${repo}/environments/production`,
-      "-f",
-      "reviewers[][type]=User",
-      "-F",
-      `reviewers[][id]=${user.value.id}`,
-      ...keptSettings(existing),
-    ],
-    io,
-  );
-  if (added?.code === 0) {
-    io.stdout(
-      `github: production now requires a review by ${user.value.login}\n`,
-    );
-    return;
-  }
-  io.stdout(
-    "warn  github: GitHub did not accept a required reviewer on production (a private repository on GitHub Free has none); every promotion still needs the typed build ID\n",
-  );
+  await onlyMain(repo, name, io);
 }
 
 async function presentSecrets(
@@ -341,7 +415,8 @@ export async function setup(
       );
       return 1;
     }
-    if (name === "production") await requireReviewer(repo, found.value, io);
+    if (name === "staging" || name === "production")
+      await protect(repo, name, found.value, io);
   }
   const present = new Map<string, Set<string>>();
   for (const name of options.env) {
