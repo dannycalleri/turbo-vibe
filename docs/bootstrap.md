@@ -94,3 +94,4 @@ Only turbo-vibe's repository needs this. Its weekly live tests (`live-tests.yml`
 
 1. Run `setup --env live`. The `live` environment gets the same kind of values as `staging`, and no reviewers: it only creates and removes preview environments.
 2. Let the workflow push to `main`: it commits `COMPATIBILITY.md` when a run changes it. If `main` is protected, allow GitHub Actions to bypass the rule, or the commit is rejected and the run fails.
+3. Create a GitHub environment named `release`, with you as a required reviewer where GitHub offers it, and limit npm's trusted publisher for `@turbo-vibe/cli` to the workflow `release.yml` and the environment `release`. The release workflow publishes only through that environment, and only from a tag whose commit is on `main`. A version with a prerelease part, such as `1.0.0-rc.1`, is published under the npm dist-tag `next`, and never moves the `v1` tag.

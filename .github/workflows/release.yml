@@ -11,13 +11,18 @@ jobs:
   publish:
     name: Publish @turbo-vibe/cli
     runs-on: ubuntu-latest
+    # Required reviewers on this environment, and npm's trusted publisher limited to it, keep a pushed tag from publishing alone.
+    environment: release
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
+      - name: The tag's commit is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -40,11 +45,19 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: make check validate-infra lint-workflows
       - run: make build
-      - run: npm publish --provenance --access public
+      - name: Publish, under the dist-tag next for a prerelease
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          case "$TAG" in
+            *-*) npm publish --provenance --access public --tag next ;;
+            *) npm publish --provenance --access public ;;
+          esac
 
   major-tag:
     name: Move the major tag
     needs: publish
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -56,7 +69,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           major="${TAG%%.*}"
-          newest=$(git tag --list "$major.*.*" --sort=-v:refname | head -n 1)
+          newest=$(git tag --list "$major.*.*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
           if [ "$TAG" != "$newest" ]; then
             echo "$TAG is not the newest $major release ($newest); $major stays where it is"
             exit 0

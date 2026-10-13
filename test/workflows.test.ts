@@ -143,15 +143,66 @@ describe("the release workflow", () => {
     expect(runs).toMatch(/test "\$TAG" = "v\$version"/);
   });
 
-  it("moves the major tag only for the newest release in that major", async () => {
+  it("moves the major tag only for the newest release in that major, never for a prerelease", async () => {
     const release = await workflow("release.yml");
+    expect(release.jobs["major-tag"].if).toBe(
+      "${{ !contains(github.ref_name, '-') }}",
+    );
     const move = release.jobs["major-tag"].steps
       .map((step: { run?: string }) => step.run ?? "")
       .join("\n");
-    expect(move).toContain('git tag --list "$major.*.*" --sort=-v:refname');
     expect(move.indexOf('[ "$TAG" != "$newest" ]')).toBeLessThan(
       move.indexOf("git push --force"),
     );
+    const selection = move.match(/newest=\$\((.*)\)\n/)?.[1];
+    expect(selection).toBeDefined();
+    const dir = await mkdtemp(join(tmpdir(), "turbo-vibe-tags-"));
+    const isolated = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+    };
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: dir, encoding: "utf8", env: isolated });
+    git("init", "-q");
+    git(
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "x",
+    );
+    for (const tag of ["v1.0.0", "v1.0.10", "v1.0.9", "v1.1.0-rc.1"])
+      git("tag", tag);
+    expect(
+      execFileSync("bash", ["-c", `major=v1; ${selection}`], {
+        cwd: dir,
+        encoding: "utf8",
+        env: isolated,
+      }).trim(),
+    ).toBe("v1.0.10");
+  });
+
+  it("publishes only through the protected release environment, from a commit on main, and a prerelease under next", async () => {
+    const { publish } = (await workflow("release.yml")).jobs;
+    expect(publish.environment).toBe("release");
+    const runs: string[] = publish.steps.map(
+      (step: { run?: string }) => step.run ?? "",
+    );
+    const onMain = runs.findIndex((run) =>
+      run.includes('git merge-base --is-ancestor "$GITHUB_SHA" origin/main'),
+    );
+    const published = runs.findIndex((run) => run.includes("npm publish"));
+    expect(onMain).toBeGreaterThanOrEqual(0);
+    expect(onMain).toBeLessThan(published);
+    expect(runs[published]).toContain(
+      "*-*) npm publish --provenance --access public --tag next ;;",
+    );
+    expect(publish.steps[0].with["fetch-depth"]).toBe(0);
   });
 });
 
