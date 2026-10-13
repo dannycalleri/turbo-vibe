@@ -209,6 +209,19 @@ describe("the preview workflow", () => {
     expect(fork).not.toHaveProperty("environment");
   });
 
+  it("checks out the commit the preview reports as its build", async () => {
+    const preview = await workflow("preview.yml");
+    for (const job of ["deploy", "remove"]) {
+      const checkout = preview.jobs[job].steps.find((step: { uses?: string }) =>
+        step.uses?.startsWith("actions/checkout@"),
+      );
+      expect(checkout.with.ref, job).toBe(preview.env.BUILD_ID);
+    }
+    expect(preview.env.BUILD_ID).toBe(
+      "${{ github.event.pull_request.head.sha }}",
+    );
+  });
+
   it("runs every preview job that holds secrets in the preview environment, never in staging or production", async () => {
     const { jobs } = await workflow("preview.yml");
     const withSecrets = Object.entries(jobs).filter(
