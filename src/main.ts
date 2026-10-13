@@ -20,7 +20,7 @@ import { migrate } from "./migrate.js";
 import { derivePlan, formatPlan } from "./plan.js";
 import { deployPreview, removePreview } from "./preview.js";
 import { setupSteps } from "./setup/list.js";
-import { setup } from "./setup.js";
+import { defaultEnvironments, setup } from "./setup.js";
 import { major, version } from "./version.js";
 
 export type { Io } from "./io.js";
@@ -191,8 +191,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     )
     .option(
       "-e, --env <environment...>",
-      "GitHub environments to set up; any name other than production is set up like staging",
-      [...environmentNames],
+      "GitHub environments to set up (default: staging and production, plus preview when the config enables previews); any name other than production is set up like staging",
     )
     .option("--repo <owner/name>", "GitHub repository (default: this one)")
     .option(
@@ -205,15 +204,16 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     )
     .action(
       async (options: {
-        env: string[];
+        env?: string[];
         repo?: string;
         replace?: string[];
         list?: boolean;
       }) => {
         const project = await loadProject();
         if (!project) return;
-        if (options.list) io.stdout(setupSteps(project.config, options.env));
-        else exitCode = await setup(project.config, options, io);
+        const env = options.env ?? defaultEnvironments(project.config);
+        if (options.list) io.stdout(setupSteps(project.config, env));
+        else exitCode = await setup(project.config, { ...options, env }, io);
       },
     );
 

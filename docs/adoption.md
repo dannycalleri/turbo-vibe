@@ -117,7 +117,7 @@ jobs:
 
 Pass `with: { config: path/to/turbo-vibe.yaml }` if the file is not at the root. The `@v1` tag and the CLI version move together, so a workflow tag always runs the CLI it was released with.
 
-Pull requests, including from forks, run the test-and-build job with no secrets. Only `main` deploys: on every push, or when a maintainer runs **Staging** by hand.
+Pull requests, including from forks, run the test-and-build job with no secrets. Only `main` deploys staging: on every push, or when a maintainer runs **Staging** by hand. `setup` limits the `staging` and `production` environments to `main`, where GitHub offers deployment-branch rules (public repositories, and private ones on GitHub Pro, Team or Enterprise).
 
 `apply` refuses to delete or replace a resource unless told to, so removing or renaming a service, or a change that forces a resource to be recreated, stops the run before anything changes. The log names each resource. If the deletion is intended, run the workflow again from the Actions tab on `main` with **allow-deletions** ticked. Locally, `turbo-vibe plan --env staging` shows the same list before you merge.
 
@@ -137,7 +137,7 @@ jobs:
     secrets: inherit
 ```
 
-A project with a database needs Supabase's paid plan for previews, because each preview gets its own database branch.
+Previews run in the `preview` GitHub environment, with its own state bucket and tokens, which `setup` creates when the config enables previews. Pull request code receives those, never the `staging` or `production` environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. A project with a database needs Supabase's paid plan for previews, because each preview gets its own database branch.
 
 ## 4. Create the accounts, tokens, and GitHub environments
 
@@ -151,7 +151,7 @@ Do this once per project. The [bootstrap checklist](bootstrap.md) walks through 
    npx @turbo-vibe/cli@1 setup
    ```
 
-   It creates `staging` and `production`, adds you as a required reviewer on `production` where your GitHub plan offers it, finds or creates the Cloudflare zone and state bucket and creates the per-environment tokens from the bootstrap token, and stores every secret in its environment. It ends with the checks. A `FAIL` on a value you entered is fixed with `setup --replace <SECRET>`; a plain second run asks only for what is missing.
+   It creates `staging` and `production`, and `preview` when the config enables previews, limits `staging` and `production` to `main` and adds you as a required reviewer on `production` where your GitHub plan offers them, finds or creates the Cloudflare zone and a state bucket per environment, creates the per-environment tokens from the bootstrap token, and stores every secret in its environment. It ends with the checks. A `FAIL` on a value you entered is fixed with `setup --replace <SECRET>`; a plain second run asks only for what is missing.
 
 ## 5. Merge, then promote
 
