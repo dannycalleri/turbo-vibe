@@ -1,6 +1,6 @@
 {
   "name": "@turbo-vibe/cli",
-  "version": "1.0.0",
+  "version": "1.0.0-rc.1",
   "description": "The production step after the prototype: staging and production from one file, the tested build promoted unchanged after approval.",
   "license": "MIT",
   "repository": {
