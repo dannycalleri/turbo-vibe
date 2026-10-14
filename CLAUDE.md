@@ -47,7 +47,7 @@ An open-source kit that deploys a project's services from one `turbo-vibe.yaml`.
 
 ## Conventions
 
-- TypeScript strict on Node 24, ESM, `.js` suffixes in relative imports.
+- TypeScript strict on Node 24, ESM, `.js` suffixes in relative imports. `package.json` pins Node 24.12.0 for Volta: `make shrinkwrap` must run with the npm adopters' CI uses (Node 24's npm 11), because a newer npm resolves a different tree.
 - Direct dependencies are pinned to exact versions (`.npmrc` sets `save-exact`); commit `pnpm-lock.yaml`.
 - Nothing external (network, child processes) runs before the config validates. Child processes go through `io.run` (output streamed) or `io.capture` (stdout returned); Postgres goes through `io.sql`. Tests fake them.
 - Never print secret values; print names.
