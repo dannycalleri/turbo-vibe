@@ -128,9 +128,15 @@ describe("the production workflow", () => {
 });
 
 describe("the release workflow", () => {
-  it("publishes from a version tag with provenance, and only that job can mint an identity token", async () => {
+  it("publishes the release that release-please creates on main, with provenance, and only that job can mint an identity token", async () => {
     const release = await workflow("release.yml");
-    expect(release.on.push.tags).toEqual(["v*.*.*"]);
+    expect(release.on.push).toEqual({ branches: ["main"] });
+    expect(release.jobs["release-please"].steps[0].with.token).toBe(
+      "${{ secrets.RELEASE_PLEASE_TOKEN }}",
+    );
+    expect(release.jobs.publish.if).toBe(
+      "${{ needs.release-please.outputs.created == 'true' }}",
+    );
     expect(release.permissions).toEqual({ contents: "read" });
     expect(release.jobs.publish.permissions["id-token"]).toBe("write");
     expect(release.jobs["major-tag"].permissions).toEqual({
@@ -146,7 +152,7 @@ describe("the release workflow", () => {
   it("moves the major tag only for the newest release in that major, never for a prerelease", async () => {
     const release = await workflow("release.yml");
     expect(release.jobs["major-tag"].if).toBe(
-      "${{ !contains(github.ref_name, '-') }}",
+      "${{ !contains(needs.release-please.outputs.tag, '-') }}",
     );
     const move = release.jobs["major-tag"].steps
       .map((step: { run?: string }) => step.run ?? "")
@@ -194,7 +200,7 @@ describe("the release workflow", () => {
       (step: { run?: string }) => step.run ?? "",
     );
     const onMain = runs.findIndex((run) =>
-      run.includes('git merge-base --is-ancestor "$GITHUB_SHA" origin/main'),
+      run.includes("git merge-base --is-ancestor HEAD origin/main"),
     );
     const published = runs.findIndex((run) => run.includes("npm publish"));
     expect(onMain).toBeGreaterThanOrEqual(0);
@@ -202,7 +208,41 @@ describe("the release workflow", () => {
     expect(runs[published]).toContain(
       "*-*) npm publish --provenance --access public --tag next ;;",
     );
-    expect(publish.steps[0].with["fetch-depth"]).toBe(0);
+    expect(publish.steps[0].with).toMatchObject({
+      ref: "${{ needs.release-please.outputs.tag }}",
+      "fetch-depth": 0,
+    });
+  });
+
+  it("has release-please move every workflow's CLI pin with the package version", async () => {
+    const config = JSON.parse(
+      await readFile(new URL("release-please-config.json", root), "utf8"),
+    );
+    const extra: string[] = config.packages["."]["extra-files"].map(
+      (file: { path: string }) => file.path,
+    );
+    for (const name of ["deploy.yml", "promote.yml", "preview.yml"]) {
+      expect(extra).toContain(`.github/workflows/${name}`);
+      const text = await readFile(
+        new URL(`.github/workflows/${name}`, root),
+        "utf8",
+      );
+      // The line edit release-please's generic updater makes on an annotated line.
+      const bumped = text
+        .split("\n")
+        .map((line) =>
+          line.includes("x-release-please-version")
+            ? line.replace(
+                /(\d+)\.(\d+)\.(\d+)(-([\w.]+))?(\+([-\w.]+))?/,
+                "1.2.0-rc.3",
+              )
+            : line,
+        )
+        .join("\n");
+      expect(parse(bumped).env.TURBO_VIBE_CLI).toBe(
+        "@turbo-vibe/cli@1.2.0-rc.3",
+      );
+    }
   });
 });
 
