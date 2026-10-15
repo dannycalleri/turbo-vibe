@@ -70,7 +70,7 @@ services:
     kind: frontend
     target: cloudflare-static
     serve_with: api            # one Worker: the page at /, the API at /api/
-    build: { command: pnpm build, output: dist }
+    build: { command: npm ci && npm run build, output: dist }
   db:
     kind: database
     target: supabase
@@ -100,6 +100,7 @@ The reusable workflows run these for you. Each one also runs from a terminal.
 | Command | What it does |
 |---|---|
 | `init` | Writes `turbo-vibe.yaml` and the staging and production workflows from a few answers. |
+| `adopt` | Writes guidance that lets a coding assistant adapt an existing project to turbo-vibe and check it locally. |
 | `plan` | Lists the services each environment runs and where, from the file alone. |
 | `plan --env <env>` | Asks OpenTofu what applying that environment would create, change, replace or delete, per service. Changes nothing. |
 | `setup` | Creates the GitHub environments and stores every secret each one needs. `setup --list` prints what a person must do first. |
@@ -119,6 +120,8 @@ Every command validates the file before anything external runs, prints resource 
 
 **`init`** asks for the project's name, domain, and the target of each service, then writes `turbo-vibe.yaml` and the staging and production workflows. It never replaces existing files unless given `--force`. Every answer has a flag (`--name`, `--domain`, `--backend`, `--frontend`, `--database`, `--identity`, `--assistant`) for running it non-interactively. It treats a two-label domain (`example.com`) as the zone apex and anything longer as one level below the zone. For a domain on a multi-part suffix, such as `example.co.uk`, edit the hostnames it writes. Build commands, output directories and the Supabase region it fills in are marked as defaults to replace.
 
+**`adopt`** writes guidance for a coding assistant (`--assistant claude`, `cursor` or `both`) into an existing repository, which needs no `turbo-vibe.yaml` yet. Asked to make the project deployable with turbo-vibe, the assistant inspects the repository, maps each part to a target or names what turbo-vibe cannot run yet, changes the backend to the contract in [What a backend must do](#what-a-backend-must-do), writes the config and workflows with `init`, checks them with `plan`, `test` and `deploy --dry-run`, and leaves account setup and production to you. It never replaces existing files unless given `--force`.
+
 **`plan`** lists the services each environment runs and where, from the file alone. `plan --env <env>` asks OpenTofu what applying that environment would do and prints it per service: what it would create, change, replace or delete, with deletions and replacements listed apart. It prints resource addresses and actions only, never values, and changes nothing.
 
 **`setup`** creates the GitHub environments `staging` and `production`, and `preview` when the config enables previews. It limits `staging` and `production` to `main` and adds you as a required reviewer on `production`, where GitHub offers these rules. It stores every secret each environment needs. From one Cloudflare bootstrap token, it finds or creates the zone and one state bucket per environment, and creates each environment's CI and R2 tokens. Each R2 token reaches only its environment's bucket; production's can also read staging's, to promote its builds. It finds the Supabase organization and the Vercel team from their tokens, and asks for the rest. It needs a terminal and a signed-in [GitHub CLI](https://cli.github.com): it reads each value without echoing it and gives it to `gh secret set` on standard input, so a value never reaches the disk, a command line or the output. A second run keeps what each environment already has. `--replace <SECRET>` asks for a secret again and creates its Cloudflare token again, and `--env <name>` sets up other environments, such as `live`, like `staging`. It ends with the checks that `check` runs. `setup --list` prints, from the file alone, the accounts, plans and steps a person must do first, and the secrets each environment will get; it changes nothing.
@@ -127,7 +130,7 @@ Every command validates the file before anything external runs, prints resource 
 
 **`apply`** writes the environment's OpenTofu root, saves a plan, prints its summary, and applies that plan. It refuses a plan that deletes or replaces a resource outside a preview unless given `--allow-deletions` (the reusable workflows' `allow-deletions` input).
 
-**`deploy --dry-run`** builds everything and validates the Worker without credentials. `deploy --env production` is refused, so production only ever runs promoted builds.
+**`deploy --dry-run`** builds everything and validates the Worker without credentials. It starts each backend image, and fails unless the container answers `/api/health` with the build ID and stops on `SIGTERM`. `deploy --env production` is refused, so production only ever runs promoted builds.
 
 **`promote --choose`** prints the build it would promote and changes nothing. `promote --build-id <id>` promotes exactly that build, and refuses it unless it passed on staging. `promote --confirm <id>` refuses unless `<id>` is the build it would choose.
 
@@ -227,7 +230,7 @@ ENV BUILD_ID=$BUILD_ID
 
 The ID lives in the image, so `smoke` proves which image is serving, and a promoted image reports the same ID in every environment. `smoke` fails unless it matches the build just deployed. A frontend's build command receives `BUILD_ID` too; the kit adds `/_turbo-vibe/build-id` to its output so `smoke` can check the page as well.
 
-The backend must also exit on `SIGTERM`: Cloudflare waits up to 15 minutes for a container that ignores it, and every rollout waits with it. `deploy --dry-run` starts the image and fails if `docker stop` has to kill it. The [adoption guide](docs/adoption.md#1-make-the-backend-report-its-build) has the checks to run locally.
+The backend must also exit on `SIGTERM`: Cloudflare waits up to 15 minutes for a container that ignores it, and every rollout waits with it. `deploy --dry-run` starts the image and fails unless `/api/health` reports the build ID it was given and `docker stop` stops it without killing it. The [adoption guide](docs/adoption.md#1-make-the-backend-report-its-build) has the checks to run locally.
 
 ### Sessions on their own container
 
@@ -281,7 +284,7 @@ A `vercel-static` frontend gets a Vercel project per environment, named `<projec
   web:
     kind: frontend
     target: vercel-static
-    build: { command: "pnpm build", output: dist }
+    build: { command: "npm ci && npm run build", output: dist }
 ```
 
 With a backend in the same project, the two run on different hosts. The frontend keeps the environment's hostname, and the backend moves to its API hostname: `api.<hostname>` by default, or `environments.<env>.api_hostname`. Set it explicitly when `api.<hostname>` would be two levels below the zone, which Universal SSL does not cover. It must sit under the frontend hostname's parent domain, so the browser treats the two as one site and sends the API's sign-in cookie with the frontend's requests. Validation rejects anything else, except one case it cannot detect without a public-suffix list: a frontend directly under a public suffix such as `co.uk` (`example.co.uk` with `api.other.co.uk`). Use `api.example.co.uk` there. The kit then gives each side what the other needs, per environment:
@@ -345,7 +348,7 @@ The image build dominates staging. Promotion skips it, which is why it costs les
 
 ### Coding assistants
 
-`init --assistant claude`, `cursor` or `both` writes guidance for coding assistants (`.claude/skills/turbo-vibe/SKILL.md`, `.cursor/rules/turbo-vibe.mdc`), stamped with the CLI's version. It teaches them to change infrastructure only through `turbo-vibe.yaml`, to show `plan --env` before proposing a change, to walk a person through `setup --list` and send them to a terminal for `setup` without ever handling a secret, and to leave production promotion to a person. In a project that already has `turbo-vibe.yaml`, `init --only-assistant --assistant claude` writes just the guidance.
+`init --assistant claude`, `cursor` or `both` writes guidance for coding assistants (`.claude/skills/turbo-vibe/SKILL.md`, `.cursor/rules/turbo-vibe.mdc`), stamped with the CLI's version. It teaches them to change infrastructure only through `turbo-vibe.yaml`, to show `plan --env` before proposing a change, to walk a person through `setup --list` and send them to a terminal for `setup` without ever handling a secret, and to leave production promotion to a person. In a project that already has `turbo-vibe.yaml`, `init --only-assistant --assistant claude` writes just the guidance. For a project that does not use turbo-vibe yet, `adopt --assistant claude` writes `.claude/skills/turbo-vibe-adopt/SKILL.md` (and `.cursor/rules/turbo-vibe-adopt.mdc` for Cursor), which takes the assistant from the existing code to a pull request; see [`adopt`](#commands). In a git repository, `adopt` lists those files in `.git/info/exclude`, so they are never committed.
 
 ## Contributing
 

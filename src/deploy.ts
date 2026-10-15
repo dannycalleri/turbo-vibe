@@ -168,6 +168,7 @@ interface DeployRun {
   secrets: Readonly<Record<string, string>>;
   store?: BuildStore;
   recorded?: Readonly<Record<string, Outputs>>;
+  unchecked?: string[];
 }
 
 async function deployServices(
@@ -219,6 +220,7 @@ async function deployServices(
       );
       return result.code;
     }
+    if (result.unchecked) run.unchecked?.push(context.name);
     if (result.outputs) outputs[context.name] = result.outputs;
     if (result.assetsDir) assetsDirs[context.name] = result.assetsDir;
   }
@@ -247,13 +249,30 @@ export async function deploy(
     dryRun || environment !== "staging"
       ? undefined
       : new BuildStore(io, config.project, buildsBucket(environment, io.env));
+  const unchecked: string[] = [];
   const outputs = await deployServices(
     project,
     environment,
-    { buildId, dryRun, secrets, outputs: infra, ...(store ? { store } : {}) },
+    {
+      buildId,
+      dryRun,
+      secrets,
+      outputs: infra,
+      unchecked,
+      ...(store ? { store } : {}),
+    },
     io,
   );
   if (typeof outputs === "number") return outputs;
+  if (dryRun) {
+    const checked =
+      unchecked.length === 0
+        ? "every service built and checked"
+        : `every service built, but ${unchecked.join(", ")} could not be checked (see above)`;
+    io.stdout(
+      `dry run passed: ${checked}; nothing was uploaded${database(config) ? ", and the database is not checked in a dry run" : ""}\n`,
+    );
+  }
   await store?.putRecord({
     buildId,
     createdAt: new Date().toISOString(),

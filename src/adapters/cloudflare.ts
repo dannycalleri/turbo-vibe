@@ -1,5 +1,11 @@
 import { rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import {
+  backendPort,
+  backendPrefix,
+  buildIdVariable,
+  healthPath,
+} from "../contract.js";
 import { checkBuildId } from "../smoke.js";
 import { recordedOrBuilt, staticBuild } from "./assets.js";
 import { awaitRollout, existingRollouts } from "./rollout.js";
@@ -31,7 +37,7 @@ function dockerBuild(
       "--platform",
       "linux/amd64",
       "--build-arg",
-      `BUILD_ID=${context.buildId}`,
+      `${buildIdVariable}=${context.buildId}`,
       "--file",
       dockerfile,
       "--tag",
@@ -73,11 +79,17 @@ async function buildAndPush(
   return digest;
 }
 
+const healthBuildId = async (response: Response) => {
+  const body: unknown = await response.json().catch(() => undefined);
+  const buildId = (body as { build_id?: unknown } | undefined)?.build_id;
+  return typeof buildId === "string" ? buildId : undefined;
+};
+
 // A deploy replaces running instances with SIGTERM, and Cloudflare waits 15 minutes before killing one that ignores it.
-async function stopsOnSigterm(
+async function meetsContract(
   context: DeployContext,
   backend: Backend,
-): Promise<number> {
+): Promise<number | "unchecked"> {
   const { io, configDir } = context;
   const tag = imageTag(context);
   const options = { cwd: configDir, env: io.env };
@@ -85,12 +97,22 @@ async function stopsOnSigterm(
   if (built !== 0) return built;
   const started = await io.capture(
     "docker",
-    ["run", "--detach", "--platform", "linux/amd64", "--env", "PORT=8080", tag],
+    [
+      "run",
+      "--detach",
+      "--platform",
+      "linux/amd64",
+      "--env",
+      `PORT=${backendPort}`,
+      "--publish",
+      `127.0.0.1::${backendPort}`,
+      tag,
+    ],
     options,
   );
   const id = started.stdout.trim();
   if (started.code !== 0 || !id) {
-    io.stderr(`cannot start ${tag} to check that it stops on SIGTERM\n`);
+    io.stderr(`cannot start ${tag} to check its health route and SIGTERM\n`);
     return 1;
   }
   try {
@@ -102,11 +124,41 @@ async function stopsOnSigterm(
     );
     if (running.stdout.trim() !== "true") {
       io.stdout(
-        `${context.name}: the container exited by itself within 3 seconds, so whether it stops on SIGTERM is not checked\n`,
+        `${context.name}: the container exited by itself within 3 seconds, so its health route and whether it stops on SIGTERM are not checked\n`,
       );
-      return 0;
+      return "unchecked";
     }
-    await io.run("docker", ["stop", "--time", "10", id], options);
+    const published = await io.capture(
+      "docker",
+      ["port", id, `${backendPort}/tcp`],
+      options,
+    );
+    const port = published.stdout.trim().split("\n")[0]?.split(":").pop();
+    if (published.code !== 0 || !/^\d+$/.test(port ?? "")) {
+      io.stderr(
+        `${context.name}: the container published no port for ${backendPort}, so its health route is not reachable; it may have stopped (see docker logs) or the Docker daemon may not be local\n`,
+      );
+      return 1;
+    }
+    const health = await checkBuildId(
+      {
+        url: `http://127.0.0.1:${port}${healthPath}`,
+        read: healthBuildId,
+      },
+      context.buildId,
+      io,
+      { attempts: 10, delayMs: 1_000 },
+    );
+    if (!health.ok) {
+      io.stderr(
+        `${context.name}: ${health.message}. The smoke test after every deploy asks GET ${healthPath} on port ${backendPort} (also given as PORT) for JSON whose build_id is the ${buildIdVariable} build argument, so listen on 0.0.0.0, serve that route, and put ARG ${buildIdVariable} and ENV ${buildIdVariable}=$${buildIdVariable} in the Dockerfile's final stage\n`,
+      );
+      return 1;
+    }
+    io.stdout(
+      `${context.name}: the container answers ${healthPath} with build ${context.buildId}\n`,
+    );
+    await io.capture("docker", ["stop", "--timeout", "10", id], options);
     const exited = await io.capture(
       "docker",
       ["inspect", "--format", "{{.State.ExitCode}}", id],
@@ -121,7 +173,7 @@ async function stopsOnSigterm(
     io.stdout(`${context.name}: the container stops on SIGTERM\n`);
     return 0;
   } finally {
-    await io.run("docker", ["rm", "--force", id], options);
+    await io.capture("docker", ["rm", "--force", id], options);
   }
 }
 
@@ -177,7 +229,7 @@ export const cloudflareContainer: Adapter = {
   plan(context) {
     const route = servedFrontend(context)
       ? `${context.hostname}/*`
-      : `${context.hostname}/api/*`;
+      : `${context.hostname}${backendPrefix}*`;
     return {
       cloudflare: {
         workers: { [workerName(context)]: { routes: [route] } },
@@ -194,9 +246,11 @@ export const cloudflareContainer: Adapter = {
       );
       return { code: 1 };
     }
+    let unchecked = false;
     if (context.dryRun && !context.recorded) {
-      const stopped = await stopsOnSigterm(context, context.service);
-      if (stopped !== 0) return { code: stopped };
+      const checked = await meetsContract(context, context.service);
+      if (checked === "unchecked") unchecked = true;
+      else if (checked !== 0) return { code: checked };
     }
     let image = context.recorded?.image;
     if (!image && !context.dryRun) {
@@ -224,7 +278,11 @@ export const cloudflareContainer: Adapter = {
     let code = await wranglerDeploy(context, file, context.secrets);
     if (code === 0 && !context.dryRun)
       code = await awaitRollout(application, before, context.io);
-    return { code, ...(image ? { outputs: { image } } : {}) };
+    return {
+      code,
+      ...(image ? { outputs: { image } } : {}),
+      ...(unchecked ? { unchecked } : {}),
+    };
   },
   async remove(context) {
     const { io } = context;
@@ -260,13 +318,8 @@ export const cloudflareContainer: Adapter = {
   smoke(context) {
     return checkBuildId(
       {
-        url: `https://${context.hostname}/api/health`,
-        read: async (response) => {
-          const body: unknown = await response.json().catch(() => undefined);
-          const buildId = (body as { build_id?: unknown } | undefined)
-            ?.build_id;
-          return typeof buildId === "string" ? buildId : undefined;
-        },
+        url: `https://${context.hostname}${healthPath}`,
+        read: healthBuildId,
       },
       context.buildId,
       context.io,

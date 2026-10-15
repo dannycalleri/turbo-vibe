@@ -4,6 +4,7 @@ import {
   environmentNames,
   type ServiceKind,
 } from "./config/schema.js";
+import { backendPrefix } from "./contract.js";
 import { hostOf, layout } from "./origins.js";
 
 export interface PlannedService {
@@ -21,7 +22,7 @@ export interface EnvironmentPlan {
 }
 
 export function pathFor(kind: ServiceKind): string | undefined {
-  if (kind === "backend") return "/api/";
+  if (kind === "backend") return backendPrefix;
   if (kind === "frontend") return "/";
   return undefined;
 }

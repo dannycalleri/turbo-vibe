@@ -41,6 +41,7 @@ export interface DeployResult {
   code: number;
   outputs?: Outputs;
   assetsDir?: string;
+  unchecked?: boolean;
 }
 
 export interface SmokeContext extends ServiceContext {

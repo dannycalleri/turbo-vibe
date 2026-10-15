@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Config } from "../config/schema.js";
+import { backendPort, backendPrefix, buildIdVariable } from "../contract.js";
 
 type Backend = Extract<Config["services"][string], { kind: "backend" }>;
 
@@ -47,12 +48,12 @@ export function workerEntry(
 import { instanceName } from "./routing.js";
 
 export class Backend extends Container {
-  defaultPort = 8080;
+  defaultPort = ${backendPort};
   sleepAfter = ${JSON.stringify(sleepAfter)};
 
   constructor(ctx, env) {
     super(ctx, env);
-    this.envVars = { PORT: "8080"${forwarded} };
+    this.envVars = { PORT: "${backendPort}"${forwarded} };
   }
 }
 
@@ -92,7 +93,7 @@ export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
           image_build_context: spec.backend.build.context
             ? resolve(spec.configDir, spec.backend.build.context)
             : dirname(dockerfile),
-          image_vars: { BUILD_ID: spec.buildId },
+          image_vars: { [buildIdVariable]: spec.buildId },
         };
     Object.assign(config, {
       main: "worker.js",
@@ -113,7 +114,7 @@ export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
     config.assets = {
       directory: spec.assets,
       not_found_handling: "single-page-application",
-      ...(spec.backend ? { run_worker_first: ["/api/*"] } : {}),
+      ...(spec.backend ? { run_worker_first: [`${backendPrefix}*`] } : {}),
     };
   }
   return config;

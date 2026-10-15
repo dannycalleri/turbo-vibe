@@ -1,6 +1,7 @@
 import type { Config } from "../config/schema.js";
 import { environmentSecrets } from "../deploy.js";
 import { kindOf } from "../setup.js";
+import { cliRange } from "../version.js";
 import { stateBucketName } from "./cloudflare.js";
 
 const cloudflareDashboard = "https://dash.cloudflare.com/?to=/:account";
@@ -49,7 +50,7 @@ export function setupSteps(
     `Enable R2 once on the account: ${cloudflareDashboard}/r2/overview`,
     `Create the Cloudflare bootstrap token, owned by the account, with only Account API Tokens: Edit and a one-day expiry: ${cloudflareDashboard}/api-tokens`,
     "Copy the Cloudflare account ID: the part after dash.cloudflare.com/ in the dashboard's address",
-    "Set the zone's nameservers at your registrar when setup prints them",
+    "If setup adds the zone to Cloudflare, set the zone's nameservers at your registrar when it prints them; that moves DNS for the whole zone",
     ...(database
       ? [
           "Create the Supabase organization: https://supabase.com/dashboard/new",
@@ -107,7 +108,7 @@ export function setupSteps(
     "Steps only a person can do",
     ...steps.map((line, index) => `  ${index + 1}. ${line}`),
     "",
-    "Then, in a terminal: turbo-vibe setup",
+    `Then, in a terminal: npx @turbo-vibe/cli@${cliRange} setup`,
     "",
     "State buckets setup finds or creates, one per environment",
     ...environments.map(

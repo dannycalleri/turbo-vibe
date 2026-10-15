@@ -5,7 +5,7 @@ import { parse } from "yaml";
 import { parseConfig } from "../src/config/load.js";
 import { type Answers, choices, configFor } from "../src/init.js";
 import { derivePlan } from "../src/plan.js";
-import { major, version } from "../src/version.js";
+import { cliRange, version, workflowRef } from "../src/version.js";
 import { run } from "./harness.js";
 
 const answers = (overrides: Partial<Answers> = {}): Answers => ({
@@ -63,13 +63,20 @@ describe("configFor", () => {
     });
   });
 
+  it("leaves the Supabase organization out, commented, so its slug stays out of the repository", () => {
+    const rows = configFor(answers({ database: "supabase" })).split("\n");
+    expect(rows).toContain(
+      "    # organization: your-org-slug   # or leave it out: setup finds it and stores it as SUPABASE_ORGANIZATION",
+    );
+    expect(rows.some((row) => /^\s*organization:/.test(row))).toBe(false);
+  });
+
   it("marks every placeholder it fills in", () => {
     const text = configFor(answers({ database: "supabase" }));
     for (const line of [
       "command: npm ci && npm run build",
       "output: dist",
       "region: us-east-1",
-      "organization: your-supabase-org-slug",
     ]) {
       expect(text.split("\n").find((row) => row.includes(line))).toContain("#");
     }
@@ -126,7 +133,7 @@ describe("turbo-vibe init", () => {
     expect(
       await readFile(join(cwd, ".github/workflows/staging.yml"), "utf8"),
     ).toContain(
-      "uses: dannycalleri/turbo-vibe/.github/workflows/deploy.yml@v1",
+      `uses: dannycalleri/turbo-vibe/.github/workflows/deploy.yml@${workflowRef}\n`,
     );
     expect(
       await readFile(join(cwd, ".github/workflows/production.yml"), "utf8"),
@@ -184,9 +191,9 @@ describe("turbo-vibe init", () => {
     );
   });
 
-  it("points the config at the published schema for the running major version", () => {
+  it("points the config at the published schema of the running version line", () => {
     expect(configFor(answers()).split("\n")[0]).toBe(
-      `# yaml-language-server: $schema=https://unpkg.com/@turbo-vibe/cli@${major}/schema/turbo-vibe.schema.json`,
+      `# yaml-language-server: $schema=https://unpkg.com/@turbo-vibe/cli@${cliRange}/schema/turbo-vibe.schema.json`,
     );
   });
 
