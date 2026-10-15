@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 import { adapters } from "../src/adapters/index.js";
 import { adoptionFiles, assistantFiles } from "../src/assistant.js";
+import { reservedNames } from "../src/config/load.js";
 import { backendPort, buildIdVariable, healthPath } from "../src/contract.js";
 import { choices } from "../src/init.js";
 import { cliRange, version } from "../src/version.js";
@@ -114,6 +115,25 @@ describe("the adoption guidance", () => {
       expect(kind).toBe(adapters[target ?? ""]?.kind);
       expect(choices[flag as keyof typeof choices]).toContain(target);
     }
+  });
+
+  it("maps the application's own values to the three fields, and names every reserved name the validator refuses", () => {
+    for (const field of [
+      "the service's `secrets`",
+      "the frontend's `public`",
+      "the service's `build.secrets`",
+    ])
+      expect(guidance).toContain(field);
+    const { service, credentials } = reservedNames();
+    for (const name of [...Object.keys(service), ...Object.keys(credentials)])
+      expect(guidance).toContain(`\`${name}\``);
+    expect(guidance).not.toContain("secrets of the application's own");
+  });
+
+  it("tells an assistant working on the project afterwards where a new value of the application goes", () => {
+    const ongoing = Object.values(assistantFiles("claude", version))[0] ?? "";
+    for (const field of ["`secrets`", "`public`", "`build.secrets`"])
+      expect(ongoing).toContain(field);
   });
 
   it("states the backend contract the deploy checks", () => {

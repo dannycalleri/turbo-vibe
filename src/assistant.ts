@@ -1,4 +1,5 @@
 import { adapters } from "./adapters/index.js";
+import { reservedNames } from "./config/load.js";
 import { serviceKinds } from "./config/schema.js";
 import {
   backendPort,
@@ -43,7 +44,9 @@ When the person asks to set up the project's accounts, or a run fails on a missi
 3. Never ask for a secret value, and never accept one in the chat. If the person pastes a token, do not use it, store it or repeat it. Tell them to revoke it and create a new one, because the conversation keeps a copy.
 4. Read \`setup\`'s final report with the person, and explain each \`FAIL\` line with its fix. A \`FAIL\` on a value \`setup\` stored is fixed with \`setup --replace <SECRET>\`; a plain second run keeps what exists.
 
-Never invent tokens, and never print or commit a secret value. Secrets belong in the GitHub environments \`staging\` and \`production\`. \`check --env staging\` names what is missing without changing anything, but it needs that environment's values, which only GitHub holds once \`setup\` has stored them.
+When the application needs a new value of its own, add its name to the field of its kind in \`turbo-vibe.yaml\`: \`secrets\` for a secret its server reads (one value per environment), \`public\` for a value a frontend build inlines (one per environment), \`build.secrets\` for a secret only the build needs (one for the repository). Then tell the person to run \`${cli(version)} setup\`, which asks only for what is missing. A deploy stops, naming the value, until it exists.
+
+Never invent tokens, and never print or commit a secret value. \`setup\` stores every value: runtime secrets and public values in each GitHub environment (\`staging\`, \`production\`, and \`preview\` with previews), build secrets once in the repository. \`check --env staging\` names what is missing without changing anything, but it needs that environment's values, which only GitHub holds once \`setup\` has stored them.
 
 ## Production is promoted by a person
 
@@ -88,6 +91,14 @@ const targetTable = () =>
     )
     .join("\n");
 
+const reservedList = () => {
+  const { service, credentials } = reservedNames();
+  return [...Object.keys(service), ...Object.keys(credentials)]
+    .map((name) => `\`${name}\``)
+    .join(", ")
+    .concat(", and any name that starts with `GITHUB_` or `TURBO_VIBE_`");
+};
+
 const adoptGuidance = (version: string) => `# Adopting turbo-vibe
 
 Use this when the person asks to make this existing project deployable with turbo-vibe ${version}. The goal is one pull request after which a merge to \`main\` deploys staging, and a person promotes that same build to production. turbo-vibe creates everything in the person's own accounts (Cloudflare, and Supabase, Vercel or WorkOS when a part needs them), from \`turbo-vibe.yaml\` and two GitHub workflows.
@@ -122,8 +133,21 @@ A project has at most one service of each kind. Present the mapping as a table, 
 - **Another SQL database** (SQLite, MySQL): it can move to PostgreSQL if the person agrees. That is a change to the data-access code plus a first migration.
 - **Existing data**, in any database: each environment starts with an empty database. Copying data in is not covered by this guide; say so, and ask whether it matters.
 - **Files written to local disk that must persist:** a container's disk is lost on every deploy and whenever it sleeps. Data belongs in the database; uploaded files have no target yet.
-- **Environment variables and secrets of the application's own** (a payment key, an email API key): the backend receives only \`PORT\`, \`${buildIdVariable}\`, \`DATABASE_URL\` with a database, \`WORKOS_CLIENT_ID\`, \`WORKOS_API_KEY\` and \`WORKOS_REDIRECT_URI\` with sign-in, and \`ALLOWED_ORIGINS\` and \`FRONTEND_URL\` with a frontend on Vercel.
 - **A second backend or frontend, background workers, scheduled jobs and queues.**
+
+The application's own values each go in the field of their kind, and \`setup\` later asks the person for them:
+
+| What the application reads | Field | Values |
+|---|---|---|
+| A secret its server reads while it runs (a payment key, an email or LLM API key), in a backend or a Next.js app's server code | the service's \`secrets\` | one per environment: test keys on staging and previews, live keys in production |
+| A value its frontend build inlines (\`NEXT_PUBLIC_*\`, \`VITE_*\`, anything a build script writes) | the frontend's \`public\` | one per environment; the build sees a placeholder that each deploy replaces |
+| A secret only its build needs (a private registry token, a source-map upload token) | the service's \`build.secrets\` | one for the whole repository |
+
+- A \`public\` value must be an identifier, a key or a DSN, never a switch that the build compares: during the build the code sees the placeholder.
+- A Next.js page that reads a runtime secret must render per request (\`cookies()\`, \`headers()\`, \`connection()\`, or \`export const dynamic = "force-dynamic"\`); a page rendered during the build sees no secret.
+- A plain setting that is not secret, such as \`LOG_LEVEL\`, goes in \`secrets\` too.
+- The kit already uses some names in the same GitHub environments. If the application reads one of them for its own value, rename it in the application, such as \`APP_\` followed by the name: ${reservedList()}.
+- A backend receives no other variables than its declared \`secrets\` and the kit's own: \`PORT\`, \`${buildIdVariable}\`, \`DATABASE_URL\` with a database, \`WORKOS_CLIENT_ID\`, \`WORKOS_API_KEY\` and \`WORKOS_REDIRECT_URI\` with sign-in, and \`ALLOWED_ORIGINS\` and \`FRONTEND_URL\` with a frontend on Vercel.
 
 If the application cannot start or serve its main pages without a part that has no target, stop here and tell the person what is missing. Do not build a workaround: a turbo-vibe change may add it. If it can run without it (a scheduled job that can wait, an optional integration), ask whether to proceed without it, and make sure that code path does nothing when its variable is unset.
 
@@ -131,6 +155,7 @@ Then ask the person, in one message, everything this guide needs them to decide,
 
 - the production hostname: \`domain\` in \`turbo-vibe.yaml\`, and whether it serves something today. If it does, the person removes the old DNS record just before the first **Deploy to production**, which is the cutover, or chooses a new hostname: Cloudflare refuses the new record next to an old CNAME, and next to an old A or AAAA record both would answer and traffic would move as soon as production's infrastructure is applied, before the app is promoted. Its zone (the registered domain, such as \`example.com\`) must be on Cloudflare; if it is not yet, \`setup\` adds it, and the person then moves the zone's nameservers to Cloudflare, which moves DNS for the whole zone, email and other sites included. Tell them the staging hostname \`init\` will derive: one level below the zone, such as \`staging-shop.example.com\` for \`shop.example.com\`, because Cloudflare's free certificate covers only that level;
 - each part with no target: stop, or proceed without it;
+- each of the application's own values, with its field from the table above, so they know what \`setup\` will ask for;
 - each change from steps 3 and 4 they would notice: the port, routes moving under \`${backendPrefix}\`, pages or routes that stop being served, a replaced health route, an open CORS policy tightened, start-up steps removed, new dependencies or a lockfile;
 - the database's region, near the app's users.
 
@@ -145,13 +170,13 @@ Skip this step for a project with no backend. Each change below can break the wa
    ENV ${buildIdVariable}=$${buildIdVariable}
    \`\`\`
 
-   Use the exec form for the start command (\`CMD ["node", "server.js"]\`), not the shell form, so the server receives signals itself. The exec form does not expand \`$PORT\`: read it in the server's code or its config file (gunicorn's \`gunicorn.conf.py\`), or use \`CMD ["sh", "-c", "exec <server> --port $PORT"]\`.
+   A secret only the build needs (step 2's \`build.secrets\`) arrives as a BuildKit secret: read it with \`RUN --mount=type=secret,id=<NAME> <NAME>="$(cat /run/secrets/<NAME>)" <command>\`, and never put it in an \`ARG\`, an \`ENV\` or a copied file. Use the exec form for the start command (\`CMD ["node", "server.js"]\`), not the shell form, so the server receives signals itself. The exec form does not expand \`$PORT\`: read it in the server's code or its config file (gunicorn's \`gunicorn.conf.py\`), or use \`CMD ["sh", "-c", "exec <server> --port $PORT"]\`.
 2. **Port.** Listen on \`0.0.0.0\`, on \`PORT\` when it is set, and on ${backendPort} otherwise. Tell the person when this changes the port they use locally.
 3. **Routes under \`${backendPrefix}\`.** Only \`${backendPrefix}*\` reaches the backend, whatever else the project has; every other path is answered by the frontend, or not at all. Mount the router under \`${backendPrefix}\` if the routes are elsewhere, and update the frontend's calls if it has one. Server-rendered pages outside \`${backendPrefix}\` stop being reachable: drop them, move them under \`${backendPrefix}\`, or turn them into a \`cloudflare-static\` frontend, as the person chose. With the frontend on the same host, the API no longer needs cross-origin access, so an open CORS policy can be tightened: remove it, or allow only the local dev server's origin.
 4. **Health.** Answer \`GET ${healthPath}\` with status 200 and a JSON object whose \`"build_id"\` is the \`${buildIdVariable}\` environment variable, as a string; other fields are fine. Do not touch the database there: the pull request's dry run starts the image without one. If the app had another health route, say it is replaced, or keep both.
 5. **Stop on \`SIGTERM\`.** Each deploy replaces the container by sending \`SIGTERM\`, and waits up to 15 minutes for one that ignores it. Go servers and gunicorn exit by default. Node, and Python servers that run as process 1 without such a manager, need a handler that closes the server and exits, or an init such as \`tini\` as the entrypoint.
 6. **Database.** Read the connection string from \`DATABASE_URL\`. It points at the database's session pooler and includes \`sslmode=require\`, so a driver that reads the URL needs no TLS or prepared-statement options. The pooler closes idle connections: handle a pool's connection errors so they do not crash the process (node-postgres: \`pool.on("error", …)\`). Migrations run before each deploy as a role that owns the schema, and the running app connects as one that can read and write rows but cannot change the schema; it gets those rights, sequences included, on everything the migrations create, so write no \`GRANT\`s. Remove any migration or table creation at start-up. Schema changes become SQL files in \`supabase/migrations/\`, named \`<YYYYMMDDHHMMSS>_<name>.sql\` and applied in name order. Copy SQL migrations the project already has (\`prisma/migrations/*/migration.sql\`, Drizzle's output folder, Rails or Django can print theirs) into that folder in their original order, renaming each with an increasing timestamp. Without any, write the SQL that creates the current schema as the first file, or have the tool print it (\`alembic upgrade head --sql\`; for Prisma, \`prisma migrate diff\` from empty to the schema with \`--script\`, whose flag names differ between versions, so check \`--help\`). Keep the tool's own runner out of the deploy. For local development, say how to apply the files, such as \`supabase db reset\` or \`psql\` over each file in order.
-7. **Tests.** The \`build.test\` command runs on every pull request, from the folder that holds \`turbo-vibe.yaml\`, on GitHub's \`ubuntu-latest\` runner with Node, npm, Yarn 1, Docker and Python 3, and nothing of the project's installed. For pnpm, start the command with \`corepack enable &&\`. Make it install what the tests need first, such as \`npm ci && npm test\`, or run them in the language's image without leaving files behind: \`docker run --rm -e PYTHONDONTWRITEBYTECODE=1 -v "$PWD":/src -w /src python:3.12 sh -c "pip install -r requirements.txt && pytest -p no:cacheprovider"\`. Tests that need a database must start one in the command (a \`postgres\` container) or stay out of \`build.test\`; ask the person which.
+7. **Tests.** The \`build.test\` command runs on every pull request, from the folder that holds \`turbo-vibe.yaml\`, on GitHub's \`ubuntu-latest\` runner with Node, npm, Yarn 1, Docker and Python 3, and nothing of the project's installed. For pnpm, start the command with \`corepack enable &&\`. Make it install what the tests need first, such as \`npm ci && npm test\`, or run them in the language's image without leaving files behind: \`docker run --rm -e PYTHONDONTWRITEBYTECODE=1 -v "$PWD":/src -w /src python:3.12 sh -c "pip install -r requirements.txt && pytest -p no:cacheprovider"\`. It receives none of the application's secrets. Tests that need a database must start one in the command (a \`postgres\` container) or stay out of \`build.test\`; ask the person which.
 
 ## 4. Point the frontend at the API
 
@@ -159,7 +184,7 @@ Skip this step for a project with no backend. Each change below can break the wa
 - **On Vercel (\`vercel-static\`):** read the API's URL at run time from \`/_turbo-vibe/config.json\` (\`{ "apiUrl": "https://…" }\`), which each environment gets next to the built files, so one build serves staging and production. The backend must accept only the origins in \`ALLOWED_ORIGINS\`, with credentials.
 - **Next.js (\`vercel-nextjs\`):** read the API's URL from \`TURBO_VIBE_API_URL\` on the server.
 
-A frontend's build receives no secrets. A value it inlines at build time is the same in staging and production, so take environment-specific values from the API at run time.
+A frontend's build receives none of the runtime secrets. A value it inlines keeps the framework's own mechanism: list its name in \`public\`, and each environment gets its own value in the same build.
 
 ## 5. Write turbo-vibe.yaml and the workflows
 
@@ -175,6 +200,7 @@ Then edit \`turbo-vibe.yaml\` (each field is described at https://github.com/dan
 
 - \`build.dockerfile\`, \`build.context\` when the Dockerfile builds from another folder, and \`build.test\`;
 - the frontend's \`build.command\`, \`build.output\` and \`build.test\`, replacing the defaults \`init\` marks;
+- the \`secrets\`, \`public\` and \`build.secrets\` lists from step 2;
 - with a database, its \`region\`, as the person chose. Leave its \`organization\` line commented out: \`setup\` finds the Supabase organization and stores it as a secret, so its slug stays out of the repository.
 
 Add \`.turbo-vibe/\` to \`.gitignore\`.
@@ -185,7 +211,7 @@ Run each command, fix what fails, and run it again:
 
 1. \`${cli(version)} plan\` → staging and production, each service with its address. It needs no credentials.
 2. \`${cli(version)} test\` → each service's \`build.test\` passes.
-3. \`${cli(version)} deploy --env staging --dry-run --build-id local\` → each service builds, and the backend's container answers \`${healthPath}\` with build \`local\` and stops on \`SIGTERM\`. It needs Docker and no credentials, ends with \`dry run passed\`, and leaves the built image in Docker. Its error names what to fix.
+3. \`${cli(version)} deploy --env staging --dry-run --build-id local\` → each service builds, and the backend's container answers \`${healthPath}\` with build \`local\` and stops on \`SIGTERM\`. It needs Docker and no credentials, and ends with \`dry run passed\`. Its error names what to fix.
 4. With a database, apply the migrations to a throwaway PostgreSQL: \`docker run -d --name migrations-check -e POSTGRES_PASSWORD=check postgres:17\`, wait until \`docker exec migrations-check pg_isready -h 127.0.0.1\` succeeds (without \`-h\` it can answer for the image's set-up server), run each file in name order with \`docker exec -i migrations-check psql -U postgres -v ON_ERROR_STOP=1 < <file>\`, then \`docker rm -f migrations-check\`. Every file must apply without an error.
 5. Only if the dry run says the container exited by itself (it needs variables to start, such as \`DATABASE_URL\`), check by hand: \`docker build --platform linux/amd64 --build-arg ${buildIdVariable}=local -t app .\`, then \`docker run -d --name app-check -p ${backendPort}:${backendPort} app\`, adding \`-e NAME=placeholder\` for any variable the app needs to start, such as \`DATABASE_URL\`. Then \`curl localhost:${backendPort}${healthPath}\` → JSON whose \`build_id\` is \`local\`. Finish with \`docker stop app-check\`, which should return at once, and \`docker rm app-check\`.
 

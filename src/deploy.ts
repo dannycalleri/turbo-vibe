@@ -271,7 +271,7 @@ async function deployServices(
     const absent = ownBuild.filter((name) => !run.buildSecrets?.[name]);
     if (run.dryRun && absent.length > 0) {
       io.stdout(
-        `${context.name}: not built, because the build secret ${absent.join(", ")} has no value here (a pull request from a fork receives none)\n`,
+        `${context.name}: not built, because the build secret ${absent.join(", ")} has no value here (a pull request from a fork receives none; locally, set it to build)\n`,
       );
       run.unchecked?.push(context.name);
       continue;

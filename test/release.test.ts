@@ -1559,7 +1559,7 @@ describe("build secrets", () => {
     );
     expect(code).toBe(0);
     expect(stdout).toContain(
-      "web: not built, because the build secret SENTRY_AUTH_TOKEN has no value here (a pull request from a fork receives none)\n",
+      "web: not built, because the build secret SENTRY_AUTH_TOKEN has no value here (a pull request from a fork receives none; locally, set it to build)\n",
     );
     expect(stdout).toContain(
       "dry run passed: web, api could not be fully built and checked (see above)",

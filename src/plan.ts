@@ -14,6 +14,8 @@ export interface PlannedService {
   url?: string;
   servedWith?: string;
   secrets?: string[];
+  publicValues?: string[];
+  buildSecrets?: string[];
 }
 
 export interface EnvironmentPlan {
@@ -46,6 +48,15 @@ export function derivePlan(config: Config): EnvironmentPlan[] {
         if ("secrets" in service && service.secrets?.length) {
           planned.secrets = [...service.secrets];
         }
+        if (service.kind === "frontend" && service.public?.length) {
+          planned.publicValues = [...service.public];
+        }
+        if (
+          (service.kind === "backend" || service.kind === "frontend") &&
+          service.build.secrets?.length
+        ) {
+          planned.buildSecrets = [...service.build.secrets];
+        }
         return planned;
       },
     );
@@ -62,9 +73,18 @@ export function formatPlan(plan: EnvironmentPlan[]): string {
           : "";
         const row =
           `  ${service.name}  ${service.kind}  ${service.target}  ${service.url ?? ""}${via}`.trimEnd();
-        return service.secrets
-          ? `${row}\n    secrets: ${service.secrets.join(", ")}`
-          : row;
+        return [
+          row,
+          ...(service.secrets
+            ? [`    secrets: ${service.secrets.join(", ")}`]
+            : []),
+          ...(service.publicValues
+            ? [`    public: ${service.publicValues.join(", ")}`]
+            : []),
+          ...(service.buildSecrets
+            ? [`    build secrets: ${service.buildSecrets.join(", ")}`]
+            : []),
+        ].join("\n");
       });
       return [`${environment} (${hostname})`, ...rows].join("\n");
     })

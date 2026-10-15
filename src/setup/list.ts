@@ -1,6 +1,6 @@
 import type { Config } from "../config/schema.js";
 import { environmentSecrets } from "../deploy.js";
-import { appPublic, buildSecrets } from "../secrets.js";
+import { appPublic, appSecrets, buildSecrets } from "../secrets.js";
 import { kindOf } from "../setup.js";
 import { cliRange } from "../version.js";
 import { stateBucketName } from "./cloudflare.js";
@@ -44,6 +44,17 @@ export function setupSteps(
       : []),
   ];
 
+  const ownValues = [
+    ...[...appSecrets(config).keys()].map(
+      (name) => `${name} (one per environment)`,
+    ),
+    ...[...appPublic(config).keys()].map(
+      (name) => `${name} (public, one per environment)`,
+    ),
+    ...[...buildSecrets(config).keys()].map(
+      (name) => `${name} (build only, one for the repository)`,
+    ),
+  ];
   const steps = [
     ...(container
       ? [`Subscribe to Workers Paid: ${cloudflareDashboard}/workers/plans`]
@@ -66,6 +77,11 @@ export function setupSteps(
     ...(vercel
       ? [
           "Create a Vercel access token, scoped to the team: https://vercel.com/account/settings/tokens",
+        ]
+      : []),
+    ...(ownValues.length > 0
+      ? [
+          `Have the application's own values ready, which setup asks for: ${ownValues.join(", ")}`,
         ]
       : []),
   ];

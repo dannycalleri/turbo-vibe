@@ -91,6 +91,26 @@ describe("formatPlan", () => {
     );
   });
 
+  it("lists a frontend's public values and a build's secrets by name", () => {
+    const text = formatPlan(
+      derivePlan(
+        config(`version: 1
+project: acme
+domain: acme.example.com
+services:
+  web:
+    kind: frontend
+    target: cloudflare-static
+    public: [VITE_POSTHOG_KEY]
+    build: { command: x, output: dist, secrets: [NPM_TOKEN] }
+`),
+      ),
+    );
+    expect(text).toContain(
+      "    public: VITE_POSTHOG_KEY\n    build secrets: NPM_TOKEN",
+    );
+  });
+
   it("lists each environment with its services", () => {
     expect(formatPlan(derivePlan(config(backendOnly)))).toBe(
       [

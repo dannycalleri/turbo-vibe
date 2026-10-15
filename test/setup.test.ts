@@ -1583,6 +1583,23 @@ describe("setup --list", () => {
     expect(capture).not.toHaveBeenCalled();
   });
 
+  it("tells the person to have the application's own values ready, by kind", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": project
+        .replace(
+          "    target: cloudflare-container\n",
+          "    target: cloudflare-container\n    secrets: [POSTMARK_TOKEN]\n",
+        )
+        .replace(
+          "    target: cloudflare-static\n",
+          "    target: cloudflare-static\n    public: [VITE_POSTHOG_KEY]\n",
+        ),
+    });
+    expect(result.stdout).toContain(
+      "Have the application's own values ready, which setup asks for: POSTMARK_TOKEN (one per environment), VITE_POSTHOG_KEY (public, one per environment)",
+    );
+  });
+
   it("names the build secrets setup stores once, for the repository", async () => {
     const result = await run(["setup", "--list"], {
       "turbo-vibe.yaml": project.replace(
