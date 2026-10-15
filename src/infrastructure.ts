@@ -8,14 +8,8 @@ import type {
   WorkosInputs,
 } from "./adapters/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
+import { stateSecrets, supabaseOrganization } from "./contract.js";
 import { hostOf, layout } from "./origins.js";
-
-export const stateSecrets = [
-  "TURBO_VIBE_STATE_BUCKET",
-  "AWS_ACCESS_KEY_ID",
-  "AWS_SECRET_ACCESS_KEY",
-  "CLOUDFLARE_ACCOUNT_ID",
-] as const;
 
 const cloudflareModule = fileURLToPath(
   new URL("../infra/cloudflare", import.meta.url),
@@ -38,7 +32,7 @@ export function requiredSecrets(config: Config): string[] {
   for (const service of Object.values(config.services)) {
     for (const name of adapterFor(service.target).secrets) names.add(name);
     if (service.kind === "database" && !service.organization)
-      names.add("SUPABASE_ORGANIZATION");
+      names.add(supabaseOrganization);
   }
   return [...names].sort();
 }

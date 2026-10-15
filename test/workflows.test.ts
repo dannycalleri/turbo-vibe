@@ -260,7 +260,7 @@ describe("secrets", () => {
 
   it("gives every CLI step every credential an adapter or the state bucket reads", async () => {
     const { adapters } = await import("../src/adapters/index.js");
-    const { stateSecrets } = await import("../src/infrastructure.js");
+    const { stateSecrets } = await import("../src/contract.js");
     const names = new Set([
       ...stateSecrets,
       ...Object.values(adapters).flatMap((adapter) => adapter.secrets),

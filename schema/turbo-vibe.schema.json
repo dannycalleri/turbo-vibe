@@ -74,6 +74,12 @@
                   "cloudflare-container"
                 ]
               },
+              "secrets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
               "build": {
                 "type": "object",
                 "properties": {
@@ -147,6 +153,12 @@
                   "vercel-static",
                   "vercel-nextjs"
                 ]
+              },
+              "secrets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               },
               "serve_with": {
                 "type": "string",

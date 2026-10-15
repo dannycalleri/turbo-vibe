@@ -9,12 +9,13 @@ import {
   type Outputs,
 } from "./builds.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
+import { stateSecrets } from "./contract.js";
 import {
   type Connection,
   runtimeUrl,
   transactionPoolerProblem,
 } from "./database.js";
-import { requiredSecrets, stateSecrets } from "./infrastructure.js";
+import { requiredSecrets } from "./infrastructure.js";
 import type { Io } from "./io.js";
 import { callbackUrl, hostOf, layout, originSettings } from "./origins.js";
 

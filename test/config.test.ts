@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TargetCatalog } from "../src/adapters/index.js";
 import { schemaUrl } from "../src/config/json-schema.js";
-import { parseConfig } from "../src/config/load.js";
+import { parseConfig, reservedNames } from "../src/config/load.js";
 import { major } from "../src/version.js";
 import { run } from "./harness.js";
 
@@ -371,5 +371,97 @@ describe("published JSON Schema", () => {
       committed,
       "schema/turbo-vibe.schema.json is stale: run `make schema`",
     ).toBe(stdout);
+  });
+});
+
+describe("secrets", () => {
+  const withSecrets = (names: string) =>
+    valid.replace(
+      "    target: cloudflare-container\n",
+      `    target: cloudflare-container\n    secrets: [${names}]\n`,
+    );
+  const message = (name: string, problem: string) => ({
+    line: 8,
+    message: `\`services.api.secrets\` names \`${name}\`, which ${problem}`,
+  });
+
+  it("accepts a backend's list of names", () => {
+    expect(
+      parseConfig(withSecrets("STRIPE_SECRET_KEY, POSTMARK_TOKEN")).ok,
+    ).toBe(true);
+  });
+
+  it.each([
+    [
+      "stripe_key",
+      "is not a variable name: use capital letters, digits and underscores, starting with a letter",
+    ],
+    ["GITHUB_TOKEN", "starts with GITHUB_, which GitHub reserves"],
+    [
+      "PORT",
+      "is where turbo-vibe puts the port the container listens on in the service; rename it in the application, such as APP_PORT",
+    ],
+    [
+      "DATABASE_URL",
+      "is where turbo-vibe puts the database's connection string in the service; rename it in the application, such as APP_DATABASE_URL",
+    ],
+    [
+      "AWS_ACCESS_KEY_ID",
+      "is where turbo-vibe keeps the state bucket's credentials in the same GitHub environments; rename it in the application, such as APP_AWS_ACCESS_KEY_ID",
+    ],
+    [
+      "CLOUDFLARE_API_TOKEN",
+      "is where turbo-vibe keeps the cloudflare-container target's credentials in the same GitHub environments; rename it in the application, such as APP_CLOUDFLARE_API_TOKEN",
+    ],
+    [
+      "SUPABASE_ORGANIZATION",
+      "is where turbo-vibe keeps the Supabase organization's slug in the same GitHub environments; rename it in the application, such as APP_SUPABASE_ORGANIZATION",
+    ],
+    [
+      "TURBO_VIBE_ANYTHING",
+      "starts with TURBO_VIBE_, which turbo-vibe keeps for its own settings; rename it in the application, such as APP_TURBO_VIBE_ANYTHING",
+    ],
+  ])("refuses %s", (name, problem) => {
+    expect(problems(withSecrets(name))).toEqual([message(name, problem)]);
+  });
+
+  it("refuses a name listed twice", () => {
+    expect(problems(withSecrets("A_KEY, A_KEY"))).toEqual([
+      message("A_KEY", "is listed twice"),
+    ]);
+  });
+
+  it("reserves every credential the adapters declare, so a new adapter needs no second edit", () => {
+    const catalog: TargetCatalog = {
+      "cloudflare-container": {
+        kind: "backend",
+        hostsStaticAssets: true,
+        secrets: ["NEW_VENDOR_TOKEN"],
+      },
+      "cloudflare-static": { kind: "frontend", hostsStaticAssets: true },
+    };
+    expect(reservedNames(catalog).credentials.NEW_VENDOR_TOKEN).toBe(
+      "the cloudflare-container target's credentials",
+    );
+    expect(problems(withSecrets("NEW_VENDOR_TOKEN"), catalog)).toEqual([
+      message(
+        "NEW_VENDOR_TOKEN",
+        "is where turbo-vibe keeps the cloudflare-container target's credentials in the same GitHub environments; rename it in the application, such as APP_NEW_VENDOR_TOKEN",
+      ),
+    ]);
+  });
+
+  it("refuses secrets on a static frontend, whose build is public", () => {
+    const source = valid.replace(
+      "    target: cloudflare-static\n",
+      "    target: cloudflare-static\n    secrets: [ANALYTICS_KEY]\n",
+    );
+    expect(problems(source)).toEqual([
+      {
+        line: 12,
+        message:
+          "service `web` (cloudflare-static) cannot have secrets: its build is public, so a value would reach the browser",
+      },
+    ]);
   });
 });

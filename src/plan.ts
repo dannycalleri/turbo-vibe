@@ -13,6 +13,7 @@ export interface PlannedService {
   target: string;
   url?: string;
   servedWith?: string;
+  secrets?: string[];
 }
 
 export interface EnvironmentPlan {
@@ -42,6 +43,9 @@ export function derivePlan(config: Config): EnvironmentPlan[] {
         if (service.kind === "frontend" && service.serve_with) {
           planned.servedWith = service.serve_with;
         }
+        if ("secrets" in service && service.secrets?.length) {
+          planned.secrets = [...service.secrets];
+        }
         return planned;
       },
     );
@@ -56,7 +60,11 @@ export function formatPlan(plan: EnvironmentPlan[]): string {
         const via = service.servedWith
           ? ` (served with ${service.servedWith})`
           : "";
-        return `  ${service.name}  ${service.kind}  ${service.target}  ${service.url ?? ""}${via}`.trimEnd();
+        const row =
+          `  ${service.name}  ${service.kind}  ${service.target}  ${service.url ?? ""}${via}`.trimEnd();
+        return service.secrets
+          ? `${row}\n    secrets: ${service.secrets.join(", ")}`
+          : row;
       });
       return [`${environment} (${hostname})`, ...rows].join("\n");
     })

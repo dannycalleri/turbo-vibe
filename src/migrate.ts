@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { missingVariables, readOutputs } from "./apply.js";
 import type { EnvironmentName } from "./config/schema.js";
+import { stateSecrets } from "./contract.js";
 import {
   type Connection,
   connectionUrl,
@@ -13,7 +14,6 @@ import {
   sessionEndpoint,
 } from "./database.js";
 import type { Project } from "./deploy.js";
-import { stateSecrets } from "./infrastructure.js";
 import type { Io } from "./io.js";
 
 const require = createRequire(import.meta.url);
