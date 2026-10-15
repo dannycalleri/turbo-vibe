@@ -315,6 +315,17 @@ A `vercel-nextjs` frontend is built in CI with `vercel build --prod`, which uses
 
 The build receives `BUILD_ID` and no kit credentials. To show it on a page, inline it at build time, as `examples/nextjs/next.config.mjs` does. A value read at request time would describe the environment, not the build. The kit adds `/_turbo-vibe/build-id` to the output for `smoke`. During the build it puts a temporary `.vercel/project.json` in `root`, and restores yours afterwards if you have run `vercel link` there. With a backend in the project, the app gets `TURBO_VIBE_API_URL` as a Vercel environment variable at runtime, as `vercel-static` does.
 
+The app's server code can read its own secrets, declared like a backend's (see [Your application's own secrets](#your-applications-own-secrets)):
+
+```yaml
+  web:
+    kind: frontend
+    target: vercel-nextjs
+    secrets: [OPENAI_API_KEY]
+```
+
+Before each deploy, preview and promotion, the kit sets each value on that environment's Vercel project as a sensitive environment variable, through Vercel's API, so the value never enters the OpenTofu state. Route handlers and server actions read it with `process.env`. A page that reads one must render per request: it calls `cookies()`, `headers()` or `connection()`, or exports `dynamic = "force-dynamic"`. Next.js renders other pages once, during `vercel build`, which receives no secrets. `examples/nextjs` shows whether `EXAMPLE_GREETING` reached its page.
+
 ### Credentials
 
 `setup` stores these in each GitHub environment. `apply` and `deploy` read them and stop, naming any that are missing, before they run anything (`deploy` needs the `CLOUDFLARE_*` ones, plus the state ones, the `WORKOS_*` ones when it has an identity service, and the `VERCEL_*` ones when it has a Vercel frontend):
@@ -336,7 +347,7 @@ OpenTofu 1.10 or later must be on `PATH` as `tofu`. Docker must be available to 
 
 ### Your application's own secrets
 
-A backend lists the names of the secrets it reads, and never their values:
+A backend, or a Next.js app's server code, lists the names of the secrets it reads, and never their values:
 
 ```yaml
   api:
@@ -346,7 +357,7 @@ A backend lists the names of the secrets it reads, and never their values:
 ```
 
 - **Where values live.** `setup` asks for each one in each GitHub environment, without echoing it: a test key for `staging` and `preview`, the live key for `production`. A second run keeps them; `setup --replace STRIPE_SECRET_KEY` asks again. `setup --list` names each one per environment, and `check` and `setup`'s final checks name a missing one.
-- **How they arrive.** `deploy`, `promote` and `preview deploy` put each value in the container's environment, through the same temporary `0600` file as `DATABASE_URL`. No value enters the repository, the OpenTofu state, a build record, a command line or the output, and no build sees one. The reusable workflows hand the environment's secrets to the steps that call the CLI as one variable, `TURBO_VIBE_SECRETS`, because a reusable workflow cannot name a project's own secrets; the CLI reads only the declared names.
+- **How they arrive.** `deploy`, `promote` and `preview deploy` give each value to the service that declares it: a container backend gets it in its environment, through the same temporary `0600` file as `DATABASE_URL`; a `vercel-nextjs` app gets it as a sensitive environment variable of that environment's Vercel project, set through Vercel's API (see [Next.js on Vercel](#nextjs-on-vercel-beta)). No value enters the repository, the OpenTofu state, a build record, a command line or the output, and no build sees one. The reusable workflows hand the environment's secrets to the steps that call the CLI as one variable, `TURBO_VIBE_SECRETS`, because a reusable workflow cannot name a project's own secrets; the CLI reads only the declared names.
 - **Before any change.** `apply`, `deploy`, `promote` and `preview deploy` stop, naming the secret and the GitHub environment, when a declared secret has no value. A pull request's dry run needs none, so a backend must start and answer `/api/health` without them.
 - **Names the kit already uses.** The secrets share each GitHub environment with the kit's credentials, so validation refuses `AWS_ACCESS_KEY_ID`, `DATABASE_URL`, `PORT` and the other names the kit sets or keeps. Rename the variable in the application, such as `APP_AWS_ACCESS_KEY_ID`.
 
