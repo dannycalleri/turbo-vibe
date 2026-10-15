@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.0.0-rc.2](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.1...v1.0.0-rc.2) (2026-10-15)
+
+
+### Features
+
+* **adopt:** a coding-assistant skill that adapts an existing project to turbo-vibe ([b87c144](https://github.com/dannycalleri/turbo-vibe/commit/b87c144f48378c3d139c7c05e29b788f18bb8e9a))
+* **adopt:** the adoption skill maps every kind of the application's own values ([3464642](https://github.com/dannycalleri/turbo-vibe/commit/34646429991e1da58406c972b65bff122956dd4c))
+* **adopt:** the adoption skill maps every kind of the application's own values ([bb3e0c5](https://github.com/dannycalleri/turbo-vibe/commit/bb3e0c58fd2683447c36c38ffbd50134dfeb10e1))
+* **config:** services declare the names of their own secrets ([89beebc](https://github.com/dannycalleri/turbo-vibe/commit/89beebcea1dff685b0a05176470508117e7121e6))
+* **deploy:** build with placeholders, and put each environment's public values into a copy before shipping ([a14d8c6](https://github.com/dannycalleri/turbo-vibe/commit/a14d8c6cc0f3a9ad3dd7e27f49ca741cf278d3bb))
+* **deploy:** give each backend its declared secrets, checked before any change ([4387893](https://github.com/dannycalleri/turbo-vibe/commit/4387893734b8d3a0438bacb6035b6050bd9f2f63))
+* **deploy:** give each build its own build secrets, and never ship output that holds one ([49e1e5c](https://github.com/dannycalleri/turbo-vibe/commit/49e1e5cda08fb0ed0584ca8594b0ac2675483333))
+* **deploy:** the dry run checks the backend's health route locally ([bc3652b](https://github.com/dannycalleri/turbo-vibe/commit/bc3652b02a79308106ca79d44c9513a518b204eb))
+* **examples:** the Next.js and Go examples show a public value per environment ([ff6461e](https://github.com/dannycalleri/turbo-vibe/commit/ff6461ea27fc749112e99379c3e685bb3cd60b6a))
+* **examples:** the Next.js example declares a secret and shows whether it arrived ([324c139](https://github.com/dannycalleri/turbo-vibe/commit/324c13908a8eedf599b856b70dd517f0b506f060))
+* **examples:** the Python example declares a secret and reports whether it arrived ([872436c](https://github.com/dannycalleri/turbo-vibe/commit/872436ce1588f82faac5c344fbe1ccc4f78ec90c))
+* **setup:** ask for each declared secret per environment, and name it when missing ([c8d1681](https://github.com/dannycalleri/turbo-vibe/commit/c8d168184b6847e9aaf2ac00aacb6c06a4154db0))
+* **setup:** frontends declare public values, which setup stores per environment as variables ([6c34343](https://github.com/dannycalleri/turbo-vibe/commit/6c343437dd9843d193582551976f1f6ff4fec448))
+* **setup:** services declare build secrets, which setup stores once as repository secrets ([a990c78](https://github.com/dannycalleri/turbo-vibe/commit/a990c787f0be816d6b1ac7431b21e22758a96a72))
+* **vercel:** set a Next.js app's declared secrets on its Vercel project before shipping ([1ce0d47](https://github.com/dannycalleri/turbo-vibe/commit/1ce0d47e20acd44c88c6e64da1d1ca0438ef5a7a))
+
+
+### Bug Fixes
+
+* **adopt:** what three rounds of adapting real-shaped projects with the skill taught ([425e316](https://github.com/dannycalleri/turbo-vibe/commit/425e316f9d860b9901b471fb49b2939ec3b3e134))
+* **adopt:** what three rounds of adapting real-shaped projects with the skill taught ([d10d9a6](https://github.com/dannycalleri/turbo-vibe/commit/d10d9a6d8ec1492c653a3d201c4b2c05333b4775))
+
 ## 1.0.0-rc.1 (2026-10-14)
 
 
