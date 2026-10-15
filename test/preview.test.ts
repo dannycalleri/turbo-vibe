@@ -239,6 +239,26 @@ describe("turbo-vibe preview deploy", () => {
     expect(worker.containers[0]).toMatchObject({ image: digest });
   });
 
+  it("names a declared secret the preview environment lacks before applying anything", async () => {
+    const calls = runner();
+    const { code, stderr } = await run(
+      ["preview", "deploy", "--branch", "feature-x", "--build-id", "abc123"],
+      {
+        "turbo-vibe.yaml": shop.replace(
+          "    target: cloudflare-container\n",
+          "    target: cloudflare-container\n    secrets: [STRIPE_SECRET_KEY]\n",
+        ),
+      },
+      env,
+      calls,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "preview-feature-x has no value for STRIPE_SECRET_KEY, declared in turbo-vibe.yaml; store it in the preview GitHub environment with `setup --env preview`\n",
+    );
+    expect(calls).not.toHaveBeenCalled();
+  });
+
   it("skips a project whose database is on the free plan, and says why", async () => {
     const calls = runner();
     const { code, stdout } = await run(

@@ -90,6 +90,26 @@ describe("turbo-vibe apply", () => {
     expect(runner).not.toHaveBeenCalled();
   });
 
+  it("names a declared secret with no value before changing anything, since the deploy after it would need it", async () => {
+    const runner = vi.fn(async () => 0);
+    const { code, stderr } = await run(
+      ["apply", "--env", "production"],
+      {
+        "turbo-vibe.yaml": files["turbo-vibe.yaml"].replace(
+          "    target: cloudflare-container\n",
+          "    target: cloudflare-container\n    secrets: [STRIPE_SECRET_KEY]\n",
+        ),
+      },
+      env,
+      runner,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "production has no value for STRIPE_SECRET_KEY, declared in turbo-vibe.yaml; store it in the production GitHub environment with `setup --env production`\n",
+    );
+    expect(runner).not.toHaveBeenCalled();
+  });
+
   it("writes the environment's root module and runs tofu init then apply in it", async () => {
     const runner = vi.fn(async () => 0);
     const { code, stdout, stderr, cwd } = await run(

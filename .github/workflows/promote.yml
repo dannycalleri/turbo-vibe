@@ -159,6 +159,7 @@ jobs:
           WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
           VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          TURBO_VIBE_SECRETS: ${{ toJSON(secrets) }}
           ALLOW_DELETIONS: ${{ inputs.allow-deletions && 'yes' || '' }}
       - run: turbo-vibe --config "$CONFIG" migrate --env production
         env:
@@ -190,6 +191,7 @@ jobs:
           WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
           VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          TURBO_VIBE_SECRETS: ${{ toJSON(secrets) }}
           BUILD_ID: ${{ steps.choose.outputs.build-id }}
       - run: turbo-vibe --config "$CONFIG" smoke --env production --build-id "$BUILD_ID"
         env:

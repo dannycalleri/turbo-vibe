@@ -1121,6 +1121,171 @@ describe("runtime secrets", () => {
     expect(stdout + stderr).not.toContain("sk_test");
   });
 
+  const withSecrets = project.replace(
+    "    target: cloudflare-container\n",
+    "    target: cloudflare-container\n    secrets: [STRIPE_SECRET_KEY, POSTMARK_TOKEN]\n",
+  );
+
+  it("gives the backend its declared secrets, a plain variable over the JSON object, and no build any of them", async () => {
+    const { code, cwd, uploaded, calls, stdout, stderr } =
+      await deployCapturingSecrets(withSecrets, {
+        STRIPE_SECRET_KEY: "sk_plain",
+        TURBO_VIBE_SECRETS: JSON.stringify({
+          STRIPE_SECRET_KEY: "sk_json",
+          POSTMARK_TOKEN: "pm_json",
+          UNDECLARED: "other",
+        }),
+      });
+    expect(code).toBe(0);
+    expect(uploaded).toEqual([
+      { STRIPE_SECRET_KEY: "sk_plain", POSTMARK_TOKEN: "pm_json" },
+    ]);
+    const worker = await readFile(
+      join(
+        cwd,
+        ".turbo-vibe",
+        "wrangler",
+        "staging",
+        "acme-api-staging",
+        "worker.js",
+      ),
+      "utf8",
+    );
+    expect(worker).toContain("STRIPE_SECRET_KEY: env.STRIPE_SECRET_KEY");
+    expect(worker).toContain("POSTMARK_TOKEN: env.POSTMARK_TOKEN");
+    expect(worker).not.toContain("UNDECLARED");
+    expect(calls.mock.calls[0]?.[2].env).toEqual({
+      BUILD_ID: "abc1230000000000000000000000000000000000",
+    });
+    const dockerBuild = calls.mock.calls.find(
+      ([command, args]) => command === "docker" && args[0] === "build",
+    );
+    expect(dockerBuild?.[2].env).not.toHaveProperty("STRIPE_SECRET_KEY");
+    expect(dockerBuild?.[2].env).not.toHaveProperty("TURBO_VIBE_SECRETS");
+    expect(stdout + stderr).not.toMatch(/sk_|pm_json/);
+  });
+
+  it("names a declared secret with no value before building anything", async () => {
+    const calls = runner();
+    const { code, stderr } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      { "turbo-vibe.yaml": withSecrets },
+      { ...env, STRIPE_SECRET_KEY: "sk_plain" },
+      calls,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "staging has no value for POSTMARK_TOKEN, declared in turbo-vibe.yaml; store it in the staging GitHub environment with `setup --env staging`\n",
+    );
+    expect(calls).not.toHaveBeenCalled();
+  });
+
+  it("needs no value in a dry run", async () => {
+    const { code } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+        "--dry-run",
+      ],
+      { "turbo-vibe.yaml": withSecrets },
+      {},
+      runner(),
+      undefined,
+      { capture: capturing() },
+    );
+    expect(code).toBe(0);
+  });
+
+  it("records no value in the build record", async () => {
+    const r2 = fakeR2();
+    const { code } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      { "turbo-vibe.yaml": withSecrets },
+      { ...env, STRIPE_SECRET_KEY: "sk_staging", POSTMARK_TOKEN: "pm_staging" },
+      runner(),
+      r2.fetch(),
+      { capture: capturing() },
+    );
+    expect(code).toBe(0);
+    expect(r2.objects.size).toBeGreaterThan(0);
+    for (const body of r2.objects.values())
+      expect(new TextDecoder().decode(body)).not.toMatch(
+        /sk_staging|pm_staging/,
+      );
+  });
+
+  it("promotes with production's values, and checks them only after choosing", async () => {
+    const uploaded: unknown[] = [];
+    const calls = runner((_command, args) => {
+      const index = args.indexOf("--secrets-file");
+      if (index >= 0)
+        void readFile(args[index + 1] as string, "utf8").then((body) =>
+          uploaded.push(JSON.parse(body)),
+        );
+      return undefined;
+    });
+    const r2 = () =>
+      fakeR2({
+        ...seeded(record({})),
+        "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+          "archive",
+      });
+    const chosen = await run(
+      ["promote", "--env", "production", "--choose"],
+      { "turbo-vibe.yaml": withSecrets },
+      production,
+      runner(),
+      r2().fetch(),
+    );
+    expect(chosen.code).toBe(0);
+    const { code } = await run(
+      ["promote", "--env", "production"],
+      { "turbo-vibe.yaml": withSecrets },
+      {
+        ...production,
+        TURBO_VIBE_SECRETS: JSON.stringify({
+          STRIPE_SECRET_KEY: "sk_live",
+          POSTMARK_TOKEN: "pm_live",
+        }),
+      },
+      calls,
+      r2().fetch(),
+    );
+    expect(code).toBe(0);
+    expect(uploaded).toEqual([
+      { STRIPE_SECRET_KEY: "sk_live", POSTMARK_TOKEN: "pm_live" },
+    ]);
+
+    const untouched = runner();
+    const missing = await run(
+      ["promote", "--env", "production"],
+      { "turbo-vibe.yaml": withSecrets },
+      { ...production, STRIPE_SECRET_KEY: "sk_live" },
+      untouched,
+      r2().fetch(),
+    );
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toBe(
+      "production has no value for POSTMARK_TOKEN, declared in turbo-vibe.yaml; store it in the production GitHub environment with `setup --env production`\n",
+    );
+    expect(untouched).not.toHaveBeenCalled();
+  });
+
   it("names missing WorkOS credentials before building anything", async () => {
     const calls = runner();
     const { code, stderr } = await run(

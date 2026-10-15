@@ -1,8 +1,9 @@
 import { checksFor, formatFindings, runChecks } from "./check.js";
 import type { Finding } from "./checks/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
-import { appSecrets, environmentSecrets } from "./deploy.js";
+import { environmentSecrets } from "./deploy.js";
 import type { Io } from "./io.js";
+import { appSecrets } from "./secrets.js";
 import {
   cloudflareSecrets,
   type Provided,

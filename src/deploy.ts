@@ -18,6 +18,7 @@ import {
 import { requiredSecrets } from "./infrastructure.js";
 import type { Io } from "./io.js";
 import { callbackUrl, hostOf, layout, originSettings } from "./origins.js";
+import { appSecrets, appSecretValues } from "./secrets.js";
 
 export interface Project {
   config: Config;
@@ -62,6 +63,9 @@ export function runtimeSecretNames(config: Config): string[] {
     ...(layout(config, "staging").crossOrigin ? originSecrets : []),
   ];
 }
+
+const declaredSecrets = (service: Config["services"][string]) =>
+  "secrets" in service ? (service.secrets ?? []) : [];
 
 function needsOutputs(config: Config): boolean {
   return Object.values(config.services).some(
@@ -126,10 +130,13 @@ function runtimeSecrets(
 // A frontend build bakes whatever it reads into public files, so it never sees a credential.
 function withoutCredentials(
   env: Readonly<Record<string, string | undefined>>,
+  config: Config,
 ): Record<string, string | undefined> {
   const credentials = new Set<string>([
     ...stateSecrets,
     ...Object.values(adapters).flatMap((adapter) => adapter.secrets),
+    ...appSecrets(config).keys(),
+    "TURBO_VIBE_SECRETS",
   ]);
   return Object.fromEntries(
     Object.entries(env).filter(([name]) => !credentials.has(name)),
@@ -147,17 +154,6 @@ export function deploySecrets(config: Config): string[] {
     for (const name of adapter.secrets) names.add(name);
   }
   return [...names];
-}
-
-export function appSecrets(config: Config): Map<string, string[]> {
-  const declared = new Map<string, string[]>();
-  for (const [name, service] of Object.entries(config.services)) {
-    if (!("secrets" in service)) continue;
-    for (const secret of service.secrets ?? []) {
-      declared.set(secret, [...(declared.get(secret) ?? []), name]);
-    }
-  }
-  return declared;
 }
 
 export function environmentSecrets(
@@ -182,6 +178,27 @@ interface DeployRun {
   store?: BuildStore;
   recorded?: Readonly<Record<string, Outputs>>;
   unchecked?: string[];
+  appSecrets?: Readonly<Record<string, string>>;
+}
+
+function serviceSecrets(
+  config: Config,
+  service: Config["services"][string],
+  run: DeployRun,
+): { secretNames: string[]; secrets: Record<string, string> } {
+  const own = declaredSecrets(service);
+  const values = Object.fromEntries(
+    own.flatMap((name) => {
+      const value = run.appSecrets?.[name];
+      return value === undefined ? [] : [[name, value]];
+    }),
+  );
+  return service.kind === "backend"
+    ? {
+        secretNames: [...runtimeSecretNames(config), ...own],
+        secrets: { ...run.secrets, ...values },
+      }
+    : { secretNames: own, secrets: values };
 }
 
 async function deployServices(
@@ -215,9 +232,8 @@ async function deployServices(
     const result = await adapter.deploy({
       ...context,
       buildId: run.buildId,
-      secretNames: runtimeSecretNames(config),
-      secrets: run.secrets,
-      buildEnv: withoutCredentials(io.env),
+      ...serviceSecrets(config, context.service, run),
+      buildEnv: withoutCredentials(io.env, config),
       outputs: run.outputs,
       dryRun: run.dryRun,
       configDir,
@@ -254,6 +270,8 @@ export async function deploy(
     return 1;
   }
   if (!dryRun && missingVariables(deploySecrets(config), io)) return 1;
+  const appSecrets = dryRun ? {} : appSecretValues(config, environment, io);
+  if (!appSecrets) return 1;
   const infra = dryRun ? {} : await environmentOutputs(config, environment, io);
   if (!infra) return 1;
   const secrets = dryRun ? {} : runtimeSecrets(config, environment, infra, io);
@@ -272,6 +290,7 @@ export async function deploy(
       secrets,
       outputs: infra,
       unchecked,
+      appSecrets,
       ...(store ? { store } : {}),
     },
     io,
@@ -355,6 +374,8 @@ export async function promote(
     io.stdout(`${chosen.buildId}\n`);
     return 0;
   }
+  const appSecrets = appSecretValues(config, environment, io);
+  if (!appSecrets) return 1;
   io.stdout(`promote build ${chosen.buildId} to production\n`);
   const infra = await environmentOutputs(config, environment, io);
   if (!infra) return 1;
@@ -367,6 +388,7 @@ export async function promote(
       buildId: chosen.buildId,
       dryRun: false,
       secrets,
+      appSecrets,
       outputs: infra,
       store,
       recorded: chosen.services,
