@@ -100,6 +100,7 @@ The reusable workflows run these for you. Each one also runs from a terminal.
 | Command | What it does |
 |---|---|
 | `init` | Writes `turbo-vibe.yaml` and the staging and production workflows from a few answers. |
+| `adopt` | Writes guidance that lets a coding assistant adapt an existing project to turbo-vibe and check it locally. |
 | `plan` | Lists the services each environment runs and where, from the file alone. |
 | `plan --env <env>` | Asks OpenTofu what applying that environment would create, change, replace or delete, per service. Changes nothing. |
 | `setup` | Creates the GitHub environments and stores every secret each one needs. `setup --list` prints what a person must do first. |
@@ -118,6 +119,8 @@ Every command validates the file before anything external runs, prints resource 
 <summary><strong>What each command does, in detail</strong></summary>
 
 **`init`** asks for the project's name, domain, and the target of each service, then writes `turbo-vibe.yaml` and the staging and production workflows. It never replaces existing files unless given `--force`. Every answer has a flag (`--name`, `--domain`, `--backend`, `--frontend`, `--database`, `--identity`, `--assistant`) for running it non-interactively. It treats a two-label domain (`example.com`) as the zone apex and anything longer as one level below the zone. For a domain on a multi-part suffix, such as `example.co.uk`, edit the hostnames it writes. Build commands, output directories and the Supabase region it fills in are marked as defaults to replace.
+
+**`adopt`** writes guidance for a coding assistant (`--assistant claude`, `cursor` or `both`) into an existing repository, which needs no `turbo-vibe.yaml` yet. Asked to make the project deployable with turbo-vibe, the assistant inspects the repository, maps each part to a target or names what turbo-vibe cannot run yet, changes the backend to the contract in [What a backend must do](#what-a-backend-must-do), writes the config and workflows with `init`, checks them with `plan`, `test` and `deploy --dry-run`, and leaves account setup and production to you. It never replaces existing files unless given `--force`.
 
 **`plan`** lists the services each environment runs and where, from the file alone. `plan --env <env>` asks OpenTofu what applying that environment would do and prints it per service: what it would create, change, replace or delete, with deletions and replacements listed apart. It prints resource addresses and actions only, never values, and changes nothing.
 
@@ -345,7 +348,7 @@ The image build dominates staging. Promotion skips it, which is why it costs les
 
 ### Coding assistants
 
-`init --assistant claude`, `cursor` or `both` writes guidance for coding assistants (`.claude/skills/turbo-vibe/SKILL.md`, `.cursor/rules/turbo-vibe.mdc`), stamped with the CLI's version. It teaches them to change infrastructure only through `turbo-vibe.yaml`, to show `plan --env` before proposing a change, to walk a person through `setup --list` and send them to a terminal for `setup` without ever handling a secret, and to leave production promotion to a person. In a project that already has `turbo-vibe.yaml`, `init --only-assistant --assistant claude` writes just the guidance.
+`init --assistant claude`, `cursor` or `both` writes guidance for coding assistants (`.claude/skills/turbo-vibe/SKILL.md`, `.cursor/rules/turbo-vibe.mdc`), stamped with the CLI's version. It teaches them to change infrastructure only through `turbo-vibe.yaml`, to show `plan --env` before proposing a change, to walk a person through `setup --list` and send them to a terminal for `setup` without ever handling a secret, and to leave production promotion to a person. In a project that already has `turbo-vibe.yaml`, `init --only-assistant --assistant claude` writes just the guidance. For a project that does not use turbo-vibe yet, `adopt --assistant claude` writes `.claude/skills/turbo-vibe-adopt/SKILL.md` (and `.cursor/rules/turbo-vibe-adopt.mdc` for Cursor), which takes the assistant from the existing code to a pull request; see [`adopt`](#commands).
 
 ## Contributing
 

@@ -1,5 +1,11 @@
 import { rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import {
+  backendPort,
+  backendPrefix,
+  buildIdVariable,
+  healthPath,
+} from "../contract.js";
 import { checkBuildId } from "../smoke.js";
 import { recordedOrBuilt, staticBuild } from "./assets.js";
 import { awaitRollout, existingRollouts } from "./rollout.js";
@@ -31,7 +37,7 @@ function dockerBuild(
       "--platform",
       "linux/amd64",
       "--build-arg",
-      `BUILD_ID=${context.buildId}`,
+      `${buildIdVariable}=${context.buildId}`,
       "--file",
       dockerfile,
       "--tag",
@@ -85,7 +91,15 @@ async function stopsOnSigterm(
   if (built !== 0) return built;
   const started = await io.capture(
     "docker",
-    ["run", "--detach", "--platform", "linux/amd64", "--env", "PORT=8080", tag],
+    [
+      "run",
+      "--detach",
+      "--platform",
+      "linux/amd64",
+      "--env",
+      `PORT=${backendPort}`,
+      tag,
+    ],
     options,
   );
   const id = started.stdout.trim();
@@ -177,7 +191,7 @@ export const cloudflareContainer: Adapter = {
   plan(context) {
     const route = servedFrontend(context)
       ? `${context.hostname}/*`
-      : `${context.hostname}/api/*`;
+      : `${context.hostname}${backendPrefix}*`;
     return {
       cloudflare: {
         workers: { [workerName(context)]: { routes: [route] } },
@@ -260,7 +274,7 @@ export const cloudflareContainer: Adapter = {
   smoke(context) {
     return checkBuildId(
       {
-        url: `https://${context.hostname}/api/health`,
+        url: `https://${context.hostname}${healthPath}`,
         read: async (response) => {
           const body: unknown = await response.json().catch(() => undefined);
           const buildId = (body as { build_id?: unknown } | undefined)

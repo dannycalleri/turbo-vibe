@@ -2,6 +2,8 @@
 
 turbo-vibe is the production step after the prototype: a staging copy and a production copy, the build tested on staging promoted unchanged, and a person approving the switch. Everything it creates lives in your own accounts. This guide takes a repository that already has a backend with a Dockerfile, and optionally a single-page app, to "merge deploys staging, one approved click deploys production". Follow it in order: each step names what you should see before moving on.
 
+**With a coding assistant:** run `npx @turbo-vibe/cli@1 adopt --assistant claude` at the repository root (`cursor` or `both` for the others; `@next` while only release candidates are published), then ask the assistant to make the project deployable with turbo-vibe. It follows the steps below, checks the result locally, and stops before anything that needs your accounts. The rest of this guide is the same work by hand.
+
 ## 1. Make the backend report its build
 
 The smoke test after every deploy asks the backend which build it is running.
@@ -20,7 +22,7 @@ The smoke test after every deploy asks the backend which build it is running.
   ENV BUILD_ID=$BUILD_ID
   ```
 
-- Serve every backend route under `/api/`. When the frontend is served from the same Worker, only `/api/*` reaches the backend.
+- Serve every backend route under `/api/`. Only `/api/*` reaches the backend, with or without a frontend; every other path is the frontend's, or answers nothing.
 - Exit on `SIGTERM`. Every deploy after the first replaces the running container: Cloudflare sends `SIGTERM` and waits up to 15 minutes before killing one that ignores it, and the deploy waits for that. A process running as the container's PID 1 ignores `SIGTERM` unless it handles it: Go servers exit by default, but Python and Node need a handler (or an init such as `tini` as the entrypoint). The test-and-build job checks this on every pull request: it starts the image, stops it with `docker stop`, and fails if Docker had to kill it.
 
 Check: `docker build --build-arg BUILD_ID=local -t app . && docker run -p 8080:8080 app`, then `curl localhost:8080/api/health` → `{"build_id":"local"}`. `docker stop` should return at once, not after its 10-second timeout.

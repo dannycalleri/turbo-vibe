@@ -14,7 +14,7 @@ import { jsonSchema } from "./config/json-schema.js";
 import { loadConfigFile } from "./config/load.js";
 import { type EnvironmentName, environmentNames } from "./config/schema.js";
 import { deploy, type Project, promote, smoke, test } from "./deploy.js";
-import { choices, init, labelled } from "./init.js";
+import { adopt, choices, init, labelled } from "./init.js";
 import type { Io } from "./io.js";
 import { migrate } from "./migrate.js";
 import { derivePlan, formatPlan } from "./plan.js";
@@ -169,6 +169,21 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
       exitCode = await init(
         given as Record<string, string>,
         { force: force === true, onlyAssistant: onlyAssistant === true },
+        io,
+      );
+    });
+
+  program
+    .command("adopt")
+    .description(
+      "write the coding assistant guidance that adapts an existing project to turbo-vibe",
+    )
+    .option("--assistant <which>", "claude, cursor or both")
+    .option("--force", "replace files that already exist")
+    .action(async (options: { assistant?: string; force?: boolean }) => {
+      exitCode = await adopt(
+        options.assistant,
+        { force: options.force === true },
         io,
       );
     });

@@ -5,7 +5,7 @@ import { parse } from "yaml";
 import { parseConfig } from "../src/config/load.js";
 import { type Answers, choices, configFor } from "../src/init.js";
 import { derivePlan } from "../src/plan.js";
-import { major, version } from "../src/version.js";
+import { cliRange, version, workflowRef } from "../src/version.js";
 import { run } from "./harness.js";
 
 const answers = (overrides: Partial<Answers> = {}): Answers => ({
@@ -126,7 +126,7 @@ describe("turbo-vibe init", () => {
     expect(
       await readFile(join(cwd, ".github/workflows/staging.yml"), "utf8"),
     ).toContain(
-      "uses: dannycalleri/turbo-vibe/.github/workflows/deploy.yml@v1",
+      `uses: dannycalleri/turbo-vibe/.github/workflows/deploy.yml@${workflowRef}\n`,
     );
     expect(
       await readFile(join(cwd, ".github/workflows/production.yml"), "utf8"),
@@ -184,9 +184,9 @@ describe("turbo-vibe init", () => {
     );
   });
 
-  it("points the config at the published schema for the running major version", () => {
+  it("points the config at the published schema of the running version line", () => {
     expect(configFor(answers()).split("\n")[0]).toBe(
-      `# yaml-language-server: $schema=https://unpkg.com/@turbo-vibe/cli@${major}/schema/turbo-vibe.schema.json`,
+      `# yaml-language-server: $schema=https://unpkg.com/@turbo-vibe/cli@${cliRange}/schema/turbo-vibe.schema.json`,
     );
   });
 

@@ -1,11 +1,16 @@
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { adapters } from "./adapters/index.js";
-import { type Assistant, assistantFiles, assistants } from "./assistant.js";
+import {
+  type Assistant,
+  adoptionFiles,
+  assistantFiles,
+  assistants,
+} from "./assistant.js";
 import { schemaUrl } from "./config/json-schema.js";
 import { parseConfig } from "./config/load.js";
 import type { Io } from "./io.js";
-import { major, version } from "./version.js";
+import { cliRange, version, workflowRef } from "./version.js";
 
 export const choices = {
   backend: ["cloudflare-container", "none"],
@@ -37,7 +42,7 @@ export function configFor(answers: Answers): string {
   const crossOrigin =
     answers.backend !== "none" && answers.frontend.startsWith("vercel-");
   const lines = [
-    `# yaml-language-server: $schema=${schemaUrl(major)}`,
+    `# yaml-language-server: $schema=${schemaUrl(cliRange)}`,
     "version: 1",
     `project: ${answers.name}`,
     `domain: ${answers.domain}`,
@@ -121,7 +126,7 @@ permissions:
 
 jobs:
   deploy:
-    uses: dannycalleri/turbo-vibe/.github/workflows/deploy.yml@v1
+    uses: dannycalleri/turbo-vibe/.github/workflows/deploy.yml@${workflowRef}
     with:
       allow-deletions: \${{ inputs.allow-deletions == true }}
     secrets: inherit
@@ -146,7 +151,7 @@ permissions:
 
 jobs:
   promote:
-    uses: dannycalleri/turbo-vibe/.github/workflows/promote.yml@v1
+    uses: dannycalleri/turbo-vibe/.github/workflows/promote.yml@${workflowRef}
     with:
       confirm-build: \${{ inputs.confirm-build }}
       allow-deletions: \${{ inputs.allow-deletions == true }}
@@ -230,6 +235,21 @@ export async function init(
     for (const { message } of parsed.problems) io.stderr(`${message}\n`);
     return 1;
   }
+  const written = await writeFiles(files, force, io);
+  if (written !== 0) return written;
+  if (!onlyAssistant) {
+    io.stdout(
+      "next: add .turbo-vibe/ to .gitignore, create the accounts in docs/bootstrap.md, then run `turbo-vibe setup` in a terminal\n",
+    );
+  }
+  return 0;
+}
+
+async function writeFiles(
+  files: Record<string, string>,
+  force: boolean,
+  io: Io,
+): Promise<number> {
   if (!force) {
     const existing: string[] = [];
     for (const name of Object.keys(files)) {
@@ -253,10 +273,42 @@ export async function init(
     await writeFile(join(io.cwd, name), content);
     io.stdout(`wrote ${name}\n`);
   }
-  if (!onlyAssistant) {
-    io.stdout(
-      "next: add .turbo-vibe/ to .gitignore, create the accounts in docs/bootstrap.md, then run `turbo-vibe setup` in a terminal\n",
-    );
+  return 0;
+}
+
+const adoptAssistants = ["claude", "cursor", "both"] as const;
+
+export async function adopt(
+  given: string | undefined,
+  { force }: { force: boolean },
+  io: Io,
+): Promise<number> {
+  let assistant = given;
+  if (!assistant) {
+    if (!io.ask) {
+      io.stderr(
+        `missing --assistant; pass ${adoptAssistants.join(", ")}, or run adopt in a terminal to be asked\n`,
+      );
+      return 1;
+    }
+    assistant = (
+      await io.ask(
+        `Coding assistant that will adapt the project (${adoptAssistants.join(", ")})`,
+      )
+    ).trim();
   }
+  if (!(adoptAssistants as readonly string[]).includes(assistant)) {
+    io.stderr(`--assistant must be one of ${adoptAssistants.join(", ")}\n`);
+    return 1;
+  }
+  const written = await writeFiles(
+    adoptionFiles(assistant as Assistant, version),
+    force,
+    io,
+  );
+  if (written !== 0) return written;
+  io.stdout(
+    'next: ask your coding assistant to "make this project deployable with turbo-vibe"; it follows the turbo-vibe-adopt guidance\n',
+  );
   return 0;
 }
