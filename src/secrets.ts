@@ -5,6 +5,24 @@ import {
 } from "./config/schema.js";
 import type { Io } from "./io.js";
 
+export function appPublic(config: Config): Map<string, string[]> {
+  const declared = new Map<string, string[]>();
+  for (const [name, service] of Object.entries(config.services)) {
+    if (service.kind !== "frontend") continue;
+    for (const value of service.public ?? []) {
+      declared.set(value, [...(declared.get(value) ?? []), name]);
+    }
+  }
+  return declared;
+}
+
+// A public value lands inside the framework's string literals and HTML, where these characters could end a string or open a tag.
+export function publicValueProblem(value: string): string | undefined {
+  return /["'\\<\r\n]/.test(value)
+    ? "a public value cannot hold a quote, a backslash, a < or a line break"
+    : undefined;
+}
+
 export function appSecrets(config: Config): Map<string, string[]> {
   const declared = new Map<string, string[]>();
   for (const [name, service] of Object.entries(config.services)) {

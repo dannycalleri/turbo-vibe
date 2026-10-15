@@ -25,6 +25,7 @@ interface FakeGitHub {
   refuseReviewers?: boolean;
   userReadable?: boolean;
   secrets?: Record<string, string[]>;
+  variables?: Record<string, string[]>;
   rules?: Record<string, string[]>;
 }
 
@@ -35,6 +36,7 @@ function fakeGh({
   refuseReviewers = false,
   userReadable = true,
   secrets = {},
+  variables = {},
   rules = {},
 }: FakeGitHub = {}) {
   const envs = new Map(Object.entries(environments));
@@ -44,16 +46,19 @@ function fakeGh({
     if (command !== "gh") return { code: 0, stdout: "{}" };
     if (!installed) throw new Error("spawn gh ENOENT");
     const [first, ...rest] = args;
-    if (first === "secret") {
+    if (first === "secret" || first === "variable") {
       const env = args[args.indexOf("--env") + 1] ?? "";
+      const listed = first === "secret" ? secrets : variables;
       if (rest[0] === "list")
         return {
           code: 0,
-          stdout: JSON.stringify(
-            (secrets[env] ?? []).map((name) => ({ name })),
-          ),
+          stdout: JSON.stringify((listed[env] ?? []).map((name) => ({ name }))),
         };
-      stored.push({ env, name: rest[1] ?? "", value: options.input });
+      stored.push({
+        env,
+        name: first === "variable" ? `variable ${rest[1]}` : (rest[1] ?? ""),
+        value: options.input,
+      });
       return { code: 0, stdout: "" };
     }
     if (first === "auth" && rest[0] === "token")
@@ -574,6 +579,76 @@ describe("setup", () => {
     expect(replaced.stored.map(({ env, name }) => [env, name])).toEqual([
       ["staging", "STRIPE_SECRET_KEY"],
     ]);
+  });
+
+  it("stores a public value as a variable in each environment, refuses one that could break out of a string, and keeps it on a re-run", async () => {
+    const withPublic = project.replace(
+      "    target: cloudflare-static\n",
+      "    target: cloudflare-static\n    public: [VITE_POSTHOG_KEY]\n",
+    );
+    const kept = {
+      staging: cloudflareKept,
+      production: [...cloudflareKept, "TURBO_VIBE_BUILDS_BUCKET"],
+    };
+    const answers = new Map([
+      ["staging", ['phc_"bad', "phc_staging"]],
+      ["production", ["phc_production"]],
+    ]);
+    const asked: string[] = [];
+    const first = fakeGh({ secrets: kept });
+    const result = await run(
+      ["setup", "--env", "staging", "production"],
+      { "turbo-vibe.yaml": withPublic },
+      {},
+      undefined,
+      fakeCloudflare().fetch,
+      {
+        capture: first.capture,
+        askSecret,
+        ask: async (question) => {
+          asked.push(question);
+          const environment = question.split(" ")[0] ?? "";
+          return answers.get(environment)?.shift() ?? ask(question);
+        },
+      },
+    );
+    expect(result.code).toBe(0);
+    expect(first.stored).toEqual([
+      {
+        env: "staging",
+        name: "variable VITE_POSTHOG_KEY",
+        value: "phc_staging",
+      },
+      {
+        env: "production",
+        name: "variable VITE_POSTHOG_KEY",
+        value: "phc_production",
+      },
+    ]);
+    expect(asked).toContain(
+      "staging VITE_POSTHOG_KEY (public value of web: the value for staging, which ends up in the built files)",
+    );
+    expect(result.stdout).toContain(
+      "a public value cannot hold a quote, a backslash, a < or a line break\n",
+    );
+
+    const again = fakeGh({
+      secrets: kept,
+      variables: {
+        staging: ["VITE_POSTHOG_KEY"],
+        production: ["VITE_POSTHOG_KEY"],
+      },
+    });
+    const rerun = await setup(
+      ["--env", "staging", "production"],
+      again,
+      true,
+      fakeCloudflare(),
+      withPublic,
+    );
+    expect(rerun.code).toBe(0);
+    expect(again.stored).toEqual([]);
+    expect(rerun.stdout).toContain("staging: kept VITE_POSTHOG_KEY\n");
   });
 
   it("stores nothing for an empty answer", async () => {
@@ -1461,6 +1536,18 @@ describe("setup --list", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(runner).not.toHaveBeenCalled();
     expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("names the public values setup stores as variables, per environment", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": project.replace(
+        "    target: cloudflare-static\n",
+        "    target: cloudflare-static\n    public: [VITE_POSTHOG_KEY]\n",
+      ),
+    });
+    expect(result.stdout).toContain(
+      "Public values setup stores as variables in each GitHub environment\n  staging: VITE_POSTHOG_KEY\n  production: VITE_POSTHOG_KEY\n",
+    );
   });
 
   it("names a declared secret in every environment's list", async () => {

@@ -464,6 +464,47 @@ describe("secrets", () => {
     expect(parseConfig(source).ok).toBe(true);
   });
 
+  it("accepts public values on a frontend, checked like secret names", () => {
+    const withPublic = (names: string) =>
+      valid.replace(
+        "    serve_with: api\n",
+        `    serve_with: api\n    public: [${names}]\n`,
+      );
+    expect(parseConfig(withPublic("VITE_POSTHOG_KEY")).ok).toBe(true);
+    expect(problems(withPublic("PORT"))).toEqual([
+      {
+        line: 13,
+        message:
+          "`services.web.public` names `PORT`, which is where turbo-vibe puts the port the container listens on in the service; rename it in the application, such as APP_PORT",
+      },
+    ]);
+  });
+
+  it("refuses a name that is both secret and public", () => {
+    const source = withSecrets("SHARED_KEY").replace(
+      "    serve_with: api\n",
+      "    serve_with: api\n    public: [SHARED_KEY]\n",
+    );
+    expect(problems(source)).toEqual([
+      {
+        line: 14,
+        message:
+          "`services.web.public` names `SHARED_KEY`, which `services.api.secrets` already declares; a value is either secret or public",
+      },
+    ]);
+  });
+
+  it("refuses public values on a backend, whose build inlines nothing", () => {
+    expect(
+      problems(
+        withSecrets("A_KEY").replace(
+          "    secrets: [A_KEY]\n",
+          "    public: [A_KEY]\n",
+        ),
+      ),
+    ).toEqual([{ line: 8, message: "unknown key `services.api.public`" }]);
+  });
+
   it("refuses secrets on a static frontend, whose build is public", () => {
     const source = valid.replace(
       "    target: cloudflare-static\n",

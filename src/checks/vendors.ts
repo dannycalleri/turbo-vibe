@@ -1,4 +1,5 @@
 import { environmentSecrets } from "../deploy.js";
+import { appPublic } from "../secrets.js";
 import type { Check, CheckContext, Finding } from "./types.js";
 import { fail, missing, ok, warn } from "./types.js";
 
@@ -318,5 +319,35 @@ export const github: Check = async (context) => {
           `add them in Settings → Environments → ${githubName} → Environment secrets`,
         ),
   );
+  const publicNames = [...appPublic(config).keys()].sort();
+  if (publicNames.length === 0) return findings;
+  const variables = await getJson<{ variables?: { name: string }[] }>(
+    context,
+    `${api}/variables?per_page=30`,
+    io.env.GITHUB_TOKEN,
+  );
+  if (!variables.body?.variables) {
+    findings.push(
+      warn(
+        "github",
+        `cannot list the ${githubName} environment's variables (HTTP ${variables.status})`,
+        "use a token with read access to environment variables",
+      ),
+    );
+    return findings;
+  }
+  const defined = new Set(
+    variables.body.variables.map((variable) => variable.name),
+  );
+  const undefinedNames = publicNames.filter((name) => !defined.has(name));
+  if (undefinedNames.length > 0) {
+    findings.push(
+      fail(
+        "github",
+        `the ${githubName} environment is missing the public values ${undefinedNames.join(", ")}`,
+        `run setup --env ${githubName}, or add them in Settings → Environments → ${githubName} → Environment variables`,
+      ),
+    );
+  }
   return findings;
 };

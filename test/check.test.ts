@@ -919,6 +919,30 @@ describe("against recorded fakes", () => {
       ).toEqual(["ok", "warn"]);
     });
 
+    it("names a public value that production lacks among its variables", async () => {
+      repo("production", ["required_reviewers"], []);
+      server.use(
+        http.get(
+          "https://api.github.com/repos/acme/app/environments/production/variables",
+          () => HttpResponse.json({ variables: [{ name: "OTHER" }] }),
+        ),
+      );
+      const findings = await github({
+        ...context(
+          `${container}  web:\n    kind: frontend\n    target: cloudflare-static\n    serve_with: api\n    public: [VITE_POSTHOG_KEY]\n    build: { command: x, output: dist }\n`,
+          githubEnv,
+        ),
+        environment: "production" as const,
+      });
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "fail",
+          message:
+            "the production environment is missing the public values VITE_POSTHOG_KEY",
+        }),
+      );
+    });
+
     it("names a declared secret that production lacks", async () => {
       repo("production", ["required_reviewers"], []);
       const findings = await github({

@@ -3,7 +3,7 @@ import type { Finding } from "./checks/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import { environmentSecrets } from "./deploy.js";
 import type { Io } from "./io.js";
-import { appSecrets } from "./secrets.js";
+import { appPublic, appSecrets, publicValueProblem } from "./secrets.js";
 import {
   cloudflareSecrets,
   type Provided,
@@ -243,6 +243,69 @@ async function presentSecrets(
   return new Set(listed.value.map((secret) => secret.name));
 }
 
+async function storeVariables(
+  config: Config,
+  repo: string,
+  environment: string,
+  replace: readonly string[],
+  io: Io,
+): Promise<boolean> {
+  const declared = appPublic(config);
+  if (declared.size === 0 || !io.ask) return true;
+  const listed = await ghRead<{ name: string }[]>(
+    [
+      "variable",
+      "list",
+      "--env",
+      environment,
+      "--repo",
+      repo,
+      "--json",
+      "name",
+    ],
+    io,
+  );
+  if (listed.status !== "found") {
+    io.stderr(`cannot list the variables of ${environment} in ${repo}\n`);
+    return false;
+  }
+  const present = new Set(listed.value.map((variable) => variable.name));
+  const kept: string[] = [];
+  for (const [name, services] of [...declared].sort()) {
+    if (present.has(name) && !replace.includes(name)) {
+      kept.push(name);
+      continue;
+    }
+    let value: string | undefined;
+    while (value === undefined) {
+      const answer = (
+        await io.ask(
+          `${environment} ${name} (public value of ${services.join(", ")}: the value for ${environment}, which ends up in the built files)`,
+        )
+      ).trim();
+      const problem = answer ? publicValueProblem(answer) : undefined;
+      if (problem) io.stdout(`${problem}\n`);
+      else value = answer;
+    }
+    if (!value) {
+      io.stdout(`${environment}: ${name} skipped, nothing entered\n`);
+      continue;
+    }
+    const stored = await gh(
+      ["variable", "set", name, "--env", environment, "--repo", repo],
+      io,
+      value,
+    );
+    if (stored?.code !== 0) {
+      io.stderr(`cannot store ${name} in ${environment}\n`);
+      return false;
+    }
+    io.stdout(`${environment}: stored ${name}\n`);
+  }
+  if (kept.length > 0) io.stdout(`${environment}: kept ${kept.join(", ")}\n`);
+  return true;
+}
+
 function question(config: Config, environment: string, name: string): string {
   const workos = kindOf(environment);
   const services = appSecrets(config).get(name);
@@ -371,9 +434,12 @@ export async function setup(
     return 1;
   }
   const needed = [
-    ...new Set(
-      options.env.flatMap((name) => environmentSecrets(config, kindOf(name))),
-    ),
+    ...new Set([
+      ...options.env.flatMap((name) =>
+        environmentSecrets(config, kindOf(name)),
+      ),
+      ...appPublic(config).keys(),
+    ]),
   ];
   const unknown = (options.replace ?? []).filter(
     (name) => !needed.includes(name),
@@ -472,6 +538,8 @@ export async function setup(
       io,
     );
     if (!result) return 1;
+    if (!(await storeVariables(config, repo, name, options.replace ?? [], io)))
+      return 1;
     stored.set(name, result);
   }
   // The new tokens' values exist only in GitHub now, so the bootstrap token may go only after every store succeeded.

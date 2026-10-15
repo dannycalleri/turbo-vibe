@@ -65,6 +65,7 @@ const frontend = z.strictObject({
   kind: z.literal("frontend"),
   target: z.string(),
   secrets: secretNames,
+  public: secretNames,
   serve_with: name.optional(),
   build: z.strictObject({
     command: z.string().min(1),

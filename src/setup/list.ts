@@ -1,5 +1,6 @@
 import type { Config } from "../config/schema.js";
 import { environmentSecrets } from "../deploy.js";
+import { appPublic } from "../secrets.js";
 import { kindOf } from "../setup.js";
 import { cliRange } from "../version.js";
 import { stateBucketName } from "./cloudflare.js";
@@ -121,6 +122,16 @@ export function setupSteps(
       (environment) =>
         `  ${environment}: ${environmentSecrets(config, kindOf(environment)).join(", ")}`,
     ),
+    ...(appPublic(config).size > 0
+      ? [
+          "",
+          "Public values setup stores as variables in each GitHub environment",
+          ...environments.map(
+            (environment) =>
+              `  ${environment}: ${[...appPublic(config).keys()].sort().join(", ")}`,
+          ),
+        ]
+      : []),
     "",
     "What one Cloudflare account leaves shared",
     ...limits.map((line) => `  - ${line}`),

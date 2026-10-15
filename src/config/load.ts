@@ -259,6 +259,30 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
   }
 
   const reserved = reservedNames(catalog);
+  const secretOwners = new Map<string, string>();
+  for (const [name, service] of Object.entries(config.services)) {
+    if (!("secrets" in service)) continue;
+    for (const secret of service.secrets ?? []) secretOwners.set(secret, name);
+  }
+  for (const [name, service] of Object.entries(config.services)) {
+    if (service.kind !== "frontend" || !service.public) continue;
+    const seen = new Set<string>();
+    for (const value of service.public) {
+      const owner = secretOwners.get(value);
+      const problem = seen.has(value)
+        ? "is listed twice"
+        : owner
+          ? `\`services.${owner}.secrets\` already declares; a value is either secret or public`
+          : nameProblem(value, reserved);
+      seen.add(value);
+      if (problem) {
+        problems.push({
+          path: ["services", name, "public"],
+          message: `\`services.${name}.public\` names \`${value}\`, which ${problem}`,
+        });
+      }
+    }
+  }
   for (const [name, service] of Object.entries(config.services)) {
     if (!("secrets" in service) || !service.secrets) continue;
     const target = catalog[service.target];
