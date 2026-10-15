@@ -53,6 +53,7 @@ A backend is served under `/api/` and a frontend under `/`.
 | `build.dockerfile` | path | required | The Dockerfile, relative to the config file. |
 | `build.context` | path | the Dockerfile's directory | The Docker build context. |
 | `build.test` | command | none | Run by `turbo-vibe test` before anything is built. |
+| `build.secrets` | list of names | none | Secrets only the build needs, such as `[NPM_TOKEN]`, passed to `docker build` as BuildKit secrets. One value for every environment, stored as a repository secret. See the README's [Secrets only the build needs](../README.md#secrets-only-the-build-needs). |
 | `container.instance_type` | `lite`, `basic`, `standard-1` … `standard-4` | `lite` | The Cloudflare container size. |
 | `container.sleep_after` | duration such as `30s`, `5m`, `1h` | `5m` | Idle time before the container sleeps. |
 | `container.max_instances` | integer ≥ 1 | `1` | How many container instances may run. |
@@ -69,6 +70,7 @@ A backend is served under `/api/` and a frontend under `/`.
 | `build.output` | path | required for `cloudflare-static` and `vercel-static` | The directory the build writes. |
 | `build.root` | path | `.` | `vercel-nextjs` only: the Next.js app's directory, where `build.command` runs. |
 | `build.test` | command | none | Run by `turbo-vibe test`. |
+| `build.secrets` | list of names | none | Secrets only the build command needs, such as `[SENTRY_AUTH_TOKEN]`, in its environment. One value for every environment, stored as a repository secret; the kit refuses to ship built files that hold one. |
 
 ### `kind: database`
 
@@ -95,7 +97,7 @@ These need more than one field, or the list of adapters, so the JSON Schema cann
 - **No two services at one path.** Two backends, or two frontends, would both be served at `/api/` or `/`.
 - **`serve_with`** names a backend service, and only `cloudflare-static` takes it.
 - **`build.output` and `build.root`.** `cloudflare-static` and `vercel-static` need `build.output`; `vercel-nextjs` builds its own output, so it takes `build.root` and refuses `build.output`; the other frontend targets refuse `build.root`.
-- **Secret and public names.** Each name in `secrets` and `public` is a variable name (capital letters, digits and underscores, starting with a letter), appears once in a service's list, does not start with `GITHUB_` or `TURBO_VIBE_`, and is not a name the kit sets in a service or keeps for its own credentials. The error names the conflict and suggests a prefixed name, such as `APP_AWS_ACCESS_KEY_ID`. A name is either secret or public, not both. Of the frontends, only `vercel-nextjs` takes `secrets`, for its server code; a static frontend's build is public.
+- **Secret and public names.** Each name in `secrets`, `public` and `build.secrets` is a variable name (capital letters, digits and underscores, starting with a letter), appears once in a service's list, does not start with `GITHUB_` or `TURBO_VIBE_`, and is not a name the kit sets in a service or keeps for its own credentials. The error names the conflict and suggests a prefixed name, such as `APP_AWS_ACCESS_KEY_ID`. A name belongs to one kind of list: runtime secret, public value or build secret. Of the frontends, only `vercel-nextjs` takes `secrets`, for its server code; a static frontend's build is public.
 - **Instance routing.** `instance_from` needs `max_instances` of 2 or more, and `max_instances` above 1 needs `instance_from`.
 - **`staging: branch`** needs `plan: paid`.
 - **Previews with a database** need `plan: paid`. `preview deploy` does not fail without it: it prints why there is no preview and exits successfully, so a pull request still passes.

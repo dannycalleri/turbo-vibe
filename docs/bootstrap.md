@@ -49,9 +49,13 @@ It does the zone and bucket work through a token named `turbo-vibe-<project>-set
    - **Hobby** forbids commercial use, and `check` warns about it. A commercial project needs **Pro**.
 2. Create an access token (Account Settings → Tokens), scoped to the team. `setup` asks for it once, finds the team from it, and asks you to choose only when the token sees more than one.
 
-## 6. The application's own secrets (projects that declare `secrets`)
+## 6. The application's own values (projects that declare `secrets`, `public` or `build.secrets`)
 
-Keep each secret's value for each environment at hand: a test key for `staging` and `preview`, a live key for `production`. `setup` asks for each declared name once per environment, without echoing it, and names the service that declares it. Nothing else is needed: the values go only to GitHub, and from there to the running service.
+Keep each value at hand before you run `setup`. Each kind is asked for and stored differently:
+
+- **Runtime secrets (`secrets`):** one value per environment, such as a test key for `staging` and `preview` and a live key for `production`. `setup` asks for each one per environment without echoing it, names the service that declares it, and stores it in that GitHub environment. The value reaches only the running service.
+- **Public values (`public`):** one value per environment. `setup` echoes each one as you type it and stores it as a variable of that GitHub environment, because it ends up in the built files.
+- **Build secrets (`build.secrets`):** one value for the whole repository. `setup` asks for each one once, without echoing it, and stores it as a repository secret. Only the build receives it.
 
 ## 7. Run setup
 

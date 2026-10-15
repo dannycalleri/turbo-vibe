@@ -379,6 +379,30 @@ Frameworks inline some values into the files they build: `NEXT_PUBLIC_*` in Next
 
 `examples/nextjs` shows `NEXT_PUBLIC_EXAMPLE_NAME` in a client component, and `examples/go-api`'s build script (`web/build.sh`) writes `EXAMPLE_PUBLIC_NAME` into its page.
 
+### Secrets only the build needs
+
+Some builds need a secret that the running app never reads: an `NPM_TOKEN` that installs a package from a private registry, a `SENTRY_AUTH_TOKEN` that uploads source maps. A service lists them under `build`:
+
+```yaml
+  api:
+    kind: backend
+    target: cloudflare-container
+    build:
+      dockerfile: Dockerfile
+      secrets: [NPM_TOKEN]
+```
+
+- **One value for every environment.** The kit builds once, on staging or in a preview, and promotes that build, so a build secret has a single value. `setup` asks for it once, without echoing it, and stores it as a repository secret. A same-repository pull request's dry run builds with it; a fork's receives none, and its dry run skips that service's build and says so.
+- **A frontend's build** gets its own build secrets in its environment, and nothing else of the kit's. After the build, the kit searches every built file for each value and stops before anything ships if it finds one, naming the secret and the file, never the value.
+- **A backend's `docker build`** gets each one as a BuildKit secret, `--secret id=<NAME>,env=<NAME>`. Read it in the step that needs it, and no image layer keeps it:
+
+  ```dockerfile
+  RUN --mount=type=secret,id=NPM_TOKEN NPM_TOKEN="$(cat /run/secrets/NPM_TOKEN)" npm ci
+  ```
+
+  The kit cannot search an image the way it searches files, so never copy the value into the image: no `ARG` or `ENV` for it, and no `COPY` of a file that holds it.
+- **Promotion** needs none, since it builds nothing. `deploy` and `preview deploy` stop before anything changes when a build secret has no value.
+
 ### Actions minutes per run
 
 Public repositories run GitHub's standard runners at no cost. In a private repository, each run spends minutes from the account's allowance (2,000 a month on GitHub Free). The test-and-build job below was measured on the kit's example. The deploy figures are estimates from their steps.
