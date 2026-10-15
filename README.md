@@ -217,7 +217,7 @@ npx @turbo-vibe/cli@1 preview remove --branch "$BRANCH"
 - **Removal:** `preview remove` deletes the preview's container application and destroys the preview's own state. It refuses to destroy anything that is not a preview.
 - **Promotion:** preview builds are never recorded, so they cannot be promoted.
 
-The reusable `preview.yml` workflow runs this for you on `pull_request` events: `opened`, `synchronize` and `reopened` deploy, `closed` removes. It runs in the `preview` GitHub environment, which `setup` creates with its own state bucket and tokens, so pull request code never receives the `staging` or `production` GitHub environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. The bootstrap checklist's [What one account leaves shared](docs/bootstrap.md#7-what-one-account-leaves-shared) lists every such limit. It posts the preview's URLs (or the reason there is none) as a comment on the pull request: a page at its root, and a backend with no page on its hostname at `/api/health`, which reports the build it runs. A pull request from a fork gets no preview, because its run receives no secrets, and the run says so. `.github/workflows/previews.yml` previews the kit's Python and Vercel examples.
+The reusable `preview.yml` workflow runs this for you on `pull_request` events: `opened`, `synchronize` and `reopened` deploy, `closed` removes. It runs in the `preview` GitHub environment, which `setup` creates with its own state bucket and tokens, so pull request code never receives the `staging` or `production` GitHub environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. The bootstrap checklist's [What one account leaves shared](docs/bootstrap.md#8-what-one-account-leaves-shared) lists every such limit. It posts the preview's URLs (or the reason there is none) as a comment on the pull request: a page at its root, and a backend with no page on its hostname at `/api/health`, which reports the build it runs. A pull request from a fork gets no preview, because its run receives no secrets, and the run says so. `.github/workflows/previews.yml` previews the kit's Python and Vercel examples.
 
 ### What a backend must do
 
@@ -333,6 +333,22 @@ The build receives `BUILD_ID` and no kit credentials. To show it on a page, inli
 | `VERCEL_API_TOKEN`, `VERCEL_TEAM_ID` | a Vercel access token and the team (or personal account) ID, for `vercel-static` frontends (`apply` and `deploy`) |
 
 OpenTofu 1.10 or later must be on `PATH` as `tofu`. Docker must be available to `deploy`, which builds container images. Add `.turbo-vibe/` to the project's `.gitignore`; `apply` and `deploy` write their working files there.
+
+### Your application's own secrets
+
+A backend lists the names of the secrets it reads, and never their values:
+
+```yaml
+  api:
+    kind: backend
+    target: cloudflare-container
+    secrets: [STRIPE_SECRET_KEY, POSTMARK_TOKEN]
+```
+
+- **Where values live.** `setup` asks for each one in each GitHub environment, without echoing it: a test key for `staging` and `preview`, the live key for `production`. A second run keeps them; `setup --replace STRIPE_SECRET_KEY` asks again. `setup --list` names each one per environment, and `check` and `setup`'s final checks name a missing one.
+- **How they arrive.** `deploy`, `promote` and `preview deploy` put each value in the container's environment, through the same temporary `0600` file as `DATABASE_URL`. No value enters the repository, the OpenTofu state, a build record, a command line or the output, and no build sees one. The reusable workflows hand the environment's secrets to the steps that call the CLI as one variable, `TURBO_VIBE_SECRETS`, because a reusable workflow cannot name a project's own secrets; the CLI reads only the declared names.
+- **Before any change.** `apply`, `deploy`, `promote` and `preview deploy` stop, naming the secret and the GitHub environment, when a declared secret has no value. A pull request's dry run needs none, so a backend must start and answer `/api/health` without them.
+- **Names the kit already uses.** The secrets share each GitHub environment with the kit's credentials, so validation refuses `AWS_ACCESS_KEY_ID`, `DATABASE_URL`, `PORT` and the other names the kit sets or keeps. Rename the variable in the application, such as `APP_AWS_ACCESS_KEY_ID`.
 
 ### Actions minutes per run
 

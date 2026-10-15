@@ -7,12 +7,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 class Handler(BaseHTTPRequestHandler):
     build_id = os.environ.get("BUILD_ID", "")
+    greeting_set = bool(os.environ.get("EXAMPLE_GREETING"))
 
     def do_GET(self):
         if self.path.split("?")[0] != "/api/health":
             self.send_error(404)
             return
-        body = json.dumps({"build_id": self.build_id}).encode()
+        body = json.dumps(
+            {"build_id": self.build_id, "greeting_set": self.greeting_set}
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")

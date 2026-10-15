@@ -9,6 +9,7 @@ services:
   api:
     kind: backend
     target: cloudflare-container
+    secrets: [EXAMPLE_GREETING]
     build:
       dockerfile: Dockerfile
       test: docker run --rm -v "$PWD":/src -w /src python:3.13-slim python -m unittest -v
