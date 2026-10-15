@@ -919,6 +919,28 @@ describe("against recorded fakes", () => {
       ).toEqual(["ok", "warn"]);
     });
 
+    it("names a declared secret that production lacks", async () => {
+      repo("production", ["required_reviewers"], []);
+      const findings = await github({
+        ...context(
+          container.replace(
+            "    target: cloudflare-container\n",
+            "    target: cloudflare-container\n    secrets: [STRIPE_SECRET_KEY]\n",
+          ),
+          githubEnv,
+        ),
+        environment: "production" as const,
+      });
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "fail",
+          message: expect.stringMatching(
+            /^the production environment is missing .*STRIPE_SECRET_KEY/,
+          ),
+        }),
+      );
+    });
+
     it("warns, without failing, when production has no reviewers, and names the secrets it lacks", async () => {
       repo("production", [], ["CLOUDFLARE_API_TOKEN"]);
       const production = {

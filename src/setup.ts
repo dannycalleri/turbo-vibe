@@ -1,7 +1,7 @@
 import { checksFor, formatFindings, runChecks } from "./check.js";
 import type { Finding } from "./checks/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
-import { environmentSecrets } from "./deploy.js";
+import { appSecrets, environmentSecrets } from "./deploy.js";
 import type { Io } from "./io.js";
 import {
   cloudflareSecrets,
@@ -242,8 +242,11 @@ async function presentSecrets(
   return new Set(listed.value.map((secret) => secret.name));
 }
 
-function question(environment: string, name: string): string {
+function question(config: Config, environment: string, name: string): string {
   const workos = kindOf(environment);
+  const services = appSecrets(config).get(name);
+  if (services)
+    return `${environment} ${name} (declared by ${services.join(", ")}: the value for ${environment})`;
   if (name === "WORKOS_API_KEY")
     return `${environment} WORKOS_API_KEY (API Keys of the WorkOS ${workos} environment)`;
   if (name === "WORKOS_CLIENT_ID")
@@ -269,7 +272,9 @@ async function storeSecrets(
   for (const name of needed.filter(store)) {
     let value = provided.values[name]?.trim();
     while (value === undefined) {
-      const answer = (await askSecret(question(environment, name))).trim();
+      const answer = (
+        await askSecret(question(config, environment, name))
+      ).trim();
       const problem =
         name === "WORKOS_API_KEY" && answer
           ? workosKeyProblem(environment, answer)

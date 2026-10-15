@@ -508,6 +508,74 @@ describe("setup", () => {
     expect(result.stdout + result.stderr).not.toContain("value of");
   });
 
+  it("asks for a declared secret once per environment, stores each value in its own environment, and keeps it on a re-run", async () => {
+    const withSecret = project.replace(
+      "    target: cloudflare-container\n",
+      "    target: cloudflare-container\n    secrets: [STRIPE_SECRET_KEY]\n",
+    );
+    const kept = {
+      staging: cloudflareKept,
+      production: [...cloudflareKept, "TURBO_VIBE_BUILDS_BUCKET"],
+    };
+    const first = fakeGh({ secrets: kept });
+    const result = await setup(
+      ["--env", "staging", "production"],
+      first,
+      true,
+      fakeCloudflare(),
+      withSecret,
+    );
+    expect(result.code).toBe(0);
+    expect(first.stored).toEqual([
+      {
+        env: "staging",
+        name: "STRIPE_SECRET_KEY",
+        value:
+          "value of staging STRIPE_SECRET_KEY (declared by api: the value for staging)",
+      },
+      {
+        env: "production",
+        name: "STRIPE_SECRET_KEY",
+        value:
+          "value of production STRIPE_SECRET_KEY (declared by api: the value for production)",
+      },
+    ]);
+
+    const again = fakeGh({
+      secrets: {
+        staging: [...kept.staging, "STRIPE_SECRET_KEY"],
+        production: [...kept.production, "STRIPE_SECRET_KEY"],
+      },
+    });
+    const rerun = await setup(
+      ["--env", "staging", "production"],
+      again,
+      true,
+      fakeCloudflare(),
+      withSecret,
+    );
+    expect(rerun.code).toBe(0);
+    expect(again.stored).toEqual([]);
+    expect(rerun.stdout).toMatch(/staging: kept .*STRIPE_SECRET_KEY/);
+
+    const replaced = fakeGh({
+      secrets: {
+        staging: [...kept.staging, "STRIPE_SECRET_KEY"],
+        production: [...kept.production, "STRIPE_SECRET_KEY"],
+      },
+    });
+    await setup(
+      ["--env", "staging", "--replace", "STRIPE_SECRET_KEY"],
+      replaced,
+      true,
+      fakeCloudflare(),
+      withSecret,
+    );
+    expect(replaced.stored.map(({ env, name }) => [env, name])).toEqual([
+      ["staging", "STRIPE_SECRET_KEY"],
+    ]);
+  });
+
   it("stores nothing for an empty answer", async () => {
     const gh = fakeGh({ secrets: { staging: cloudflareKept } });
     const result = await run(
@@ -1393,6 +1461,17 @@ describe("setup --list", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(runner).not.toHaveBeenCalled();
     expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("names a declared secret in every environment's list", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": project.replace(
+        "    target: cloudflare-container\n",
+        "    target: cloudflare-container\n    secrets: [STRIPE_SECRET_KEY]\n",
+      ),
+    });
+    expect(result.stdout).toMatch(/\n {2}staging: [^\n]*STRIPE_SECRET_KEY/);
+    expect(result.stdout).toMatch(/\n {2}production: [^\n]*STRIPE_SECRET_KEY/);
   });
 
   it("names the Vercel token and the Pro plan, and no Workers Paid, for a static site on Vercel", async () => {

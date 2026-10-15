@@ -149,6 +149,17 @@ export function deploySecrets(config: Config): string[] {
   return [...names];
 }
 
+export function appSecrets(config: Config): Map<string, string[]> {
+  const declared = new Map<string, string[]>();
+  for (const [name, service] of Object.entries(config.services)) {
+    if (!("secrets" in service)) continue;
+    for (const secret of service.secrets ?? []) {
+      declared.set(secret, [...(declared.get(secret) ?? []), name]);
+    }
+  }
+  return declared;
+}
+
 export function environmentSecrets(
   config: Config,
   environment: EnvironmentName,
@@ -157,6 +168,7 @@ export function environmentSecrets(
     ...new Set([
       ...requiredSecrets(config),
       ...deploySecrets(config),
+      ...appSecrets(config).keys(),
       ...(environment === "production" ? ["TURBO_VIBE_BUILDS_BUCKET"] : []),
     ]),
   ].sort();
