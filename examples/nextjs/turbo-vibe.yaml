@@ -10,5 +10,6 @@ services:
     kind: frontend
     target: vercel-nextjs
     secrets: [EXAMPLE_GREETING]
+    public: [NEXT_PUBLIC_EXAMPLE_NAME]
     build:
       command: npm ci

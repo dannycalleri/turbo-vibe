@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, readlink } from "node:fs/promises";
+import { access, mkdtemp, readdir, readFile, readlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import { vercelNextjs } from "../../src/adapters/vercel.js";
 import { loadConfigFile } from "../../src/config/load.js";
 import type { Io } from "../../src/io.js";
 import { spawnCapturer, spawnRunner } from "../../src/run.js";
+import { placeholder, withPublicValues } from "../../src/secrets.js";
 import { postgresSession } from "../../src/sql.js";
 
 const example = new URL(
@@ -43,7 +44,11 @@ describe("the Next.js example", () => {
       secretNames: [],
       secrets: {},
       publicValues: {},
-      buildEnv: { PATH: process.env.PATH, HOME: process.env.HOME },
+      buildEnv: {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        NEXT_PUBLIC_EXAMPLE_NAME: placeholder("NEXT_PUBLIC_EXAMPLE_NAME"),
+      },
       outputs: {},
       dryRun: true,
       configDir: dirname(example),
@@ -78,5 +83,36 @@ describe("the Next.js example", () => {
     await expect(
       access(join(dirname(example), ".vercel", "project.json")),
     ).rejects.toThrow();
+
+    const copy = join(workDir, "public");
+    expect(
+      await withPublicValues(
+        output,
+        copy,
+        { NEXT_PUBLIC_EXAMPLE_NAME: "staging-name" },
+        io,
+      ),
+    ).toBe(copy);
+    const holding = async (dir: string, text: string): Promise<string[]> => {
+      const found: string[] = [];
+      for (const entry of await readdir(dir, {
+        recursive: true,
+        withFileTypes: true,
+      })) {
+        if (!entry.isFile()) continue;
+        const path = join(entry.parentPath, entry.name);
+        if ((await readFile(path)).includes(text)) found.push(path);
+      }
+      return found;
+    };
+    expect(await holding(copy, "__TURBO_VIBE_PUBLIC_")).toEqual([]);
+    expect(
+      (await holding(join(copy, "static"), "staging-name")).some((path) =>
+        path.endsWith(".js"),
+      ),
+    ).toBe(true);
+    expect(
+      (await holding(join(copy, "functions"), "staging-name")).length,
+    ).toBeGreaterThan(0);
   });
 });

@@ -63,6 +63,7 @@ A backend is served under `/api/` and a frontend under `/`.
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `serve_with` | service name | none | `cloudflare-static` only: serve the files from that backend's Worker, on the same hostname. |
+| `public` | list of names | none | Public values the build inlines, such as `[NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY]`. The build sees a placeholder; each deploy puts that environment's value into a copy of the built files. See the README's [Public values in a frontend build](../README.md#public-values-in-a-frontend-build). |
 | `secrets` | list of names | none | `vercel-nextjs` only: the app's own secrets, which its server code reads; each environment's value is set on that environment's Vercel project. |
 | `build.command` | command | required | Builds the frontend. For `vercel-nextjs` it runs in `build.root`. |
 | `build.output` | path | required for `cloudflare-static` and `vercel-static` | The directory the build writes. |
@@ -94,7 +95,7 @@ These need more than one field, or the list of adapters, so the JSON Schema cann
 - **No two services at one path.** Two backends, or two frontends, would both be served at `/api/` or `/`.
 - **`serve_with`** names a backend service, and only `cloudflare-static` takes it.
 - **`build.output` and `build.root`.** `cloudflare-static` and `vercel-static` need `build.output`; `vercel-nextjs` builds its own output, so it takes `build.root` and refuses `build.output`; the other frontend targets refuse `build.root`.
-- **Secret names.** Each name in `secrets` is a variable name (capital letters, digits and underscores, starting with a letter), appears once in a service's list, does not start with `GITHUB_` or `TURBO_VIBE_`, and is not a name the kit sets in a service or keeps for its own credentials. The error names the conflict and suggests a prefixed name, such as `APP_AWS_ACCESS_KEY_ID`. Of the frontends, only `vercel-nextjs` takes `secrets`, for its server code; a static frontend's build is public.
+- **Secret and public names.** Each name in `secrets` and `public` is a variable name (capital letters, digits and underscores, starting with a letter), appears once in a service's list, does not start with `GITHUB_` or `TURBO_VIBE_`, and is not a name the kit sets in a service or keeps for its own credentials. The error names the conflict and suggests a prefixed name, such as `APP_AWS_ACCESS_KEY_ID`. A name is either secret or public, not both. Of the frontends, only `vercel-nextjs` takes `secrets`, for its server code; a static frontend's build is public.
 - **Instance routing.** `instance_from` needs `max_instances` of 2 or more, and `max_instances` above 1 needs `instance_from`.
 - **`staging: branch`** needs `plan: paid`.
 - **Previews with a database** need `plan: paid`. `preview deploy` does not fail without it: it prints why there is no preview and exits successfully, so a pull request still passes.

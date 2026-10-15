@@ -181,7 +181,7 @@ Moving between vendors is a different question. The kit sets up each host the sa
 A staging `deploy` builds every service once and records what it shipped in staging's state bucket, at `<project>/builds/<build id>.json`. Production reads those records from there and cannot change them:
 
 - the container image's registry digest (`docker build`, then `wrangler containers push`);
-- an archive of each static frontend's built files.
+- an archive of each static frontend's built files, with a placeholder where each [public value](#public-values-in-a-frontend-build) goes.
 
 `smoke --env staging` marks that record `passed` or `failed`.
 
@@ -360,6 +360,24 @@ A backend, or a Next.js app's server code, lists the names of the secrets it rea
 - **How they arrive.** `deploy`, `promote` and `preview deploy` give each value to the service that declares it: a container backend gets it in its environment, through the same temporary `0600` file as `DATABASE_URL`; a `vercel-nextjs` app gets it as a sensitive environment variable of that environment's Vercel project, set through Vercel's API (see [Next.js on Vercel](#nextjs-on-vercel-beta)). No value enters the repository, the OpenTofu state, a build record, a command line or the output, and no build sees one. The reusable workflows hand the environment's secrets to the steps that call the CLI as one variable, `TURBO_VIBE_SECRETS`, because a reusable workflow cannot name a project's own secrets; the CLI reads only the declared names.
 - **Before any change.** `apply`, `deploy`, `promote` and `preview deploy` stop, naming the secret and the GitHub environment, when a declared secret has no value. A pull request's dry run needs none, so a backend must start and answer `/api/health` without them.
 - **Names the kit already uses.** The secrets share each GitHub environment with the kit's credentials, so validation refuses `AWS_ACCESS_KEY_ID`, `DATABASE_URL`, `PORT` and the other names the kit sets or keeps. Rename the variable in the application, such as `APP_AWS_ACCESS_KEY_ID`.
+
+### Public values in a frontend build
+
+Frameworks inline some values into the files they build: `NEXT_PUBLIC_*` in Next.js, `import.meta.env.VITE_*` in Vite, or anything a build script writes. Such a value is public, but it often differs per environment, such as a test publishable key on staging and the live one in production. Since production receives the build that passed staging, a frontend lists those names, and the kit puts each environment's value in:
+
+```yaml
+  web:
+    kind: frontend
+    target: vercel-nextjs
+    public: [NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY]
+```
+
+- **Where values live.** `setup` asks for each one per environment, echoing it, and stores it as a variable of that GitHub environment. It refuses a value that holds a quote, a backslash, a `<` or a line break, because a value lands inside the framework's strings and HTML.
+- **How they arrive.** The build runs with each name set to a placeholder, `__TURBO_VIBE_PUBLIC_<NAME>__`, and the build record keeps those files. Before each deploy, preview and promotion, the kit copies the files and puts that environment's value in place of each placeholder, in every text file. It stops before anything ships if a placeholder is left or a value is missing.
+- **The guarantee.** Production gets the same build as staging, with production's public values. The code is the same; only the declared values differ, and the build record lists their names.
+- **Identifiers, not switches.** During the build, the code sees the placeholder, not the value. A key, an ID or a DSN works; a flag that the build compares, such as `if (process.env.NEXT_PUBLIC_FLAG === "on")`, would be decided with the placeholder. Subresource-integrity hashes do not survive the replacement.
+
+`examples/nextjs` shows `NEXT_PUBLIC_EXAMPLE_NAME` in a client component, and `examples/go-api`'s build script (`web/build.sh`) writes `EXAMPLE_PUBLIC_NAME` into its page.
 
 ### Actions minutes per run
 

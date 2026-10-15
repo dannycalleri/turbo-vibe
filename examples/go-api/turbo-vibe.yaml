@@ -18,6 +18,7 @@ services:
     kind: frontend
     target: cloudflare-static
     serve_with: api
+    public: [EXAMPLE_PUBLIC_NAME]
     build:
       command: web/build.sh
       output: web/dist
