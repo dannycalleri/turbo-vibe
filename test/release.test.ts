@@ -1779,6 +1779,119 @@ services:
     });
   });
 
+  describe("its own secrets", () => {
+    const withSecrets = app.replace(
+      "    target: vercel-nextjs\n",
+      "    target: vercel-nextjs\n    secrets: [OPENAI_API_KEY, STRIPE_SECRET_KEY]\n",
+    );
+    const values = {
+      TURBO_VIBE_SECRETS: JSON.stringify({
+        OPENAI_API_KEY: "sk-openai",
+        STRIPE_SECRET_KEY: "sk_stripe",
+      }),
+    };
+    const vercelApi = (failed: unknown[] = []) => {
+      const order: string[] = [];
+      const fetch = fakeR2().fetch((url) => {
+        order.push(`api ${url}`);
+        return Response.json({ created: {}, failed }, { status: 201 });
+      });
+      const calls = runner((_command, args) => {
+        if (args.includes("--prebuilt")) order.push("vercel deploy --prebuilt");
+        return undefined;
+      });
+      return { fetch, calls, order };
+    };
+    const deployStaging = (
+      fetch: typeof globalThis.fetch,
+      calls: ReturnType<typeof runner>,
+      extra: string[] = [],
+    ) =>
+      run(
+        [
+          "deploy",
+          "--env",
+          "staging",
+          "--build-id",
+          "abc1230000000000000000000000000000000000",
+          ...extra,
+        ],
+        { "turbo-vibe.yaml": withSecrets },
+        { ...vercelEnv, ...values },
+        calls,
+        fetch,
+        { capture: capturing(outputs("staging")) },
+      );
+
+    it("sets each one on the environment's Vercel project, as a sensitive production variable, before the output ships", async () => {
+      const { fetch, calls, order } = vercelApi();
+      const { code, stdout, stderr } = await deployStaging(fetch, calls);
+      expect(code).toBe(0);
+      const url =
+        "https://api.vercel.com/v10/projects/prj_staging/env?upsert=true&teamId=team_123";
+      expect(order).toEqual([
+        `api ${url}`,
+        `api ${url}`,
+        "vercel deploy --prebuilt",
+      ]);
+      const sent = fetch.mock.calls
+        .filter(([input]) => String(input).startsWith("https://api.vercel.com"))
+        .map(([, init]) => ({
+          method: init?.method,
+          authorization: (init?.headers as Record<string, string> | undefined)
+            ?.authorization,
+          body: JSON.parse(String(init?.body)),
+        }));
+      expect(sent).toEqual([
+        {
+          method: "POST",
+          authorization: "Bearer vercel-s3cr3t",
+          body: {
+            key: "OPENAI_API_KEY",
+            value: "sk-openai",
+            type: "sensitive",
+            target: ["production"],
+          },
+        },
+        {
+          method: "POST",
+          authorization: "Bearer vercel-s3cr3t",
+          body: {
+            key: "STRIPE_SECRET_KEY",
+            value: "sk_stripe",
+            type: "sensitive",
+            target: ["production"],
+          },
+        },
+      ]);
+      const build = calls.mock.calls.find(([, args]) => args.includes("build"));
+      expect(build?.[2].env).not.toHaveProperty("OPENAI_API_KEY");
+      expect(stdout + stderr).not.toMatch(/sk-openai|sk_stripe/);
+    });
+
+    it("stops before shipping when Vercel reports a failure, naming the key and never the value", async () => {
+      const { fetch, calls, order } = vercelApi([{ error: { code: "x" } }]);
+      const { code, stdout, stderr } = await deployStaging(fetch, calls);
+      expect(code).toBe(1);
+      expect(stderr).toContain(
+        "cannot set OPENAI_API_KEY on the Vercel project of web in staging (HTTP 201)\n",
+      );
+      expect(order).not.toContain("vercel deploy --prebuilt");
+      expect(stdout + stderr).not.toMatch(/sk-openai|sk_stripe/);
+    });
+
+    it("calls nothing in a dry run", async () => {
+      const { fetch, calls } = vercelApi();
+      const { code } = await deployStaging(fetch, calls, ["--dry-run"]);
+      expect(code).toBe(0);
+      expect(
+        fetch.mock.calls.some(([input]) =>
+          String(input).startsWith("https://api.vercel.com"),
+        ),
+      ).toBe(false);
+    });
+  });
+
   it("puts back the app's own vercel link file after building", async () => {
     const mine = '{"projectId":"prj_mine","orgId":"team_mine"}\n';
     const { code, cwd } = await run(

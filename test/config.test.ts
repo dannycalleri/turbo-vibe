@@ -451,6 +451,19 @@ describe("secrets", () => {
     ]);
   });
 
+  it("accepts secrets on a Next.js app, whose server code reads them", () => {
+    const source = valid
+      .replace(
+        "    target: cloudflare-static\n    serve_with: api\n",
+        "    target: vercel-nextjs\n    secrets: [OPENAI_API_KEY]\n",
+      )
+      .replace(
+        'build: { command: "pnpm build", output: web/dist }',
+        'build: { command: "npm ci" }',
+      );
+    expect(parseConfig(source).ok).toBe(true);
+  });
+
   it("refuses secrets on a static frontend, whose build is public", () => {
     const source = valid.replace(
       "    target: cloudflare-static\n",
