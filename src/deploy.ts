@@ -18,7 +18,12 @@ import {
 import { requiredSecrets } from "./infrastructure.js";
 import type { Io } from "./io.js";
 import { callbackUrl, hostOf, layout, originSettings } from "./origins.js";
-import { appSecrets, appSecretValues } from "./secrets.js";
+import {
+  appPublicValues,
+  appSecrets,
+  appSecretValues,
+  placeholder,
+} from "./secrets.js";
 
 export interface Project {
   config: Config;
@@ -179,6 +184,30 @@ interface DeployRun {
   recorded?: Readonly<Record<string, Outputs>>;
   unchecked?: string[];
   appSecrets?: Readonly<Record<string, string>>;
+  publicValues?: Readonly<Record<string, string>>;
+}
+
+function servicePublic(
+  service: Config["services"][string],
+  run: DeployRun,
+  cleaned: Record<string, string | undefined>,
+): {
+  publicValues: Record<string, string>;
+  buildEnv: Record<string, string | undefined>;
+} {
+  const names = service.kind === "frontend" ? (service.public ?? []) : [];
+  return {
+    publicValues: Object.fromEntries(
+      names.flatMap((name) => {
+        const value = run.publicValues?.[name];
+        return value === undefined ? [] : [[name, value]];
+      }),
+    ),
+    buildEnv: {
+      ...cleaned,
+      ...Object.fromEntries(names.map((name) => [name, placeholder(name)])),
+    },
+  };
 }
 
 function serviceSecrets(
@@ -233,7 +262,11 @@ async function deployServices(
       ...context,
       buildId: run.buildId,
       ...serviceSecrets(config, context.service, run),
-      buildEnv: withoutCredentials(io.env, config),
+      ...servicePublic(
+        context.service,
+        run,
+        withoutCredentials(io.env, config),
+      ),
       outputs: run.outputs,
       dryRun: run.dryRun,
       configDir,
@@ -272,6 +305,8 @@ export async function deploy(
   if (!dryRun && missingVariables(deploySecrets(config), io)) return 1;
   const appSecrets = dryRun ? {} : appSecretValues(config, environment, io);
   if (!appSecrets) return 1;
+  const publicValues = dryRun ? {} : appPublicValues(config, environment, io);
+  if (!publicValues) return 1;
   const infra = dryRun ? {} : await environmentOutputs(config, environment, io);
   if (!infra) return 1;
   const secrets = dryRun ? {} : runtimeSecrets(config, environment, infra, io);
@@ -291,6 +326,7 @@ export async function deploy(
       outputs: infra,
       unchecked,
       appSecrets,
+      publicValues,
       ...(store ? { store } : {}),
     },
     io,
@@ -376,6 +412,8 @@ export async function promote(
   }
   const appSecrets = appSecretValues(config, environment, io);
   if (!appSecrets) return 1;
+  const publicValues = appPublicValues(config, environment, io);
+  if (!publicValues) return 1;
   io.stdout(`promote build ${chosen.buildId} to production\n`);
   const infra = await environmentOutputs(config, environment, io);
   if (!infra) return 1;
@@ -389,6 +427,7 @@ export async function promote(
       dryRun: false,
       secrets,
       appSecrets,
+      publicValues,
       outputs: infra,
       store,
       recorded: chosen.services,

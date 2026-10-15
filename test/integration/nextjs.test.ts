@@ -42,6 +42,7 @@ describe("the Next.js example", () => {
       buildId: "integration",
       secretNames: [],
       secrets: {},
+      publicValues: {},
       buildEnv: { PATH: process.env.PATH, HOME: process.env.HOME },
       outputs: {},
       dryRun: true,

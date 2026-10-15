@@ -20,7 +20,7 @@ import {
   rootModule,
 } from "./infrastructure.js";
 import type { Io } from "./io.js";
-import { appSecretValues } from "./secrets.js";
+import { appPublicValues, appSecretValues } from "./secrets.js";
 
 export function missingVariables(names: Iterable<string>, io: Io): boolean {
   const missing = [...names].filter((name) => !io.env[name]).sort();
@@ -191,7 +191,11 @@ export async function apply(
   { allowDeletions = false }: { allowDeletions?: boolean } = {},
 ): Promise<number> {
   // The deploy after apply needs these; stopping here keeps infrastructure and migrations from changing first.
-  if (!appSecretValues(config, environment, io)) return 1;
+  if (
+    !appSecretValues(config, environment, io) ||
+    !appPublicValues(config, environment, io)
+  )
+    return 1;
   const prepared = await prepare(config, environment, io);
   if ("code" in prepared) return prepared.code;
   const planFile = join(prepared.dir, "tfplan");

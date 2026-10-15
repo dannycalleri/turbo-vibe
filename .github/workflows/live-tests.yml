@@ -65,6 +65,7 @@ jobs:
       - name: Run each example as a preview, then remove it
         env:
           TURBO_VIBE_SECRETS: ${{ toJSON(secrets) }}
+          TURBO_VIBE_VARS: ${{ toJSON(vars) }}
         run: |
           outcomes="$RUNNER_TEMP/outcomes"
           : > "$outcomes"

@@ -312,10 +312,18 @@ describe("secrets", () => {
             expect(passed, `${file} ${name}: ${step.run}`).toBe(
               "${{ toJSON(secrets) }}",
             );
+            expect(
+              step.env?.TURBO_VIBE_VARS,
+              `${file} ${name}: ${step.run}`,
+            ).toBe("${{ toJSON(vars) }}");
             found++;
           } else {
             expect(
               passed,
+              `${file} ${name}: ${step.name ?? step.run}`,
+            ).toBeUndefined();
+            expect(
+              step.env?.TURBO_VIBE_VARS,
               `${file} ${name}: ${step.name ?? step.run}`,
             ).toBeUndefined();
           }

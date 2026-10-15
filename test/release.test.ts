@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { BuildRecord } from "../src/builds.js";
@@ -1308,6 +1308,132 @@ describe("runtime secrets", () => {
   });
 });
 
+describe("public values", () => {
+  const withPublic = project.replace(
+    "    target: cloudflare-static\n",
+    "    target: cloudflare-static\n    public: [VITE_POSTHOG_KEY]\n",
+  );
+  const placeholderOf = "__TURBO_VIBE_PUBLIC_VITE_POSTHOG_KEY__";
+  // The fake build inlines the variable it is given, as Vite would.
+  const inlining = () =>
+    runner(async (command, _args, options) => {
+      if (command !== "sh") return undefined;
+      await mkdir(join(options.cwd, "dist"), { recursive: true });
+      await writeFile(
+        join(options.cwd, "dist", "app.js"),
+        `posthog.init("${options.env?.VITE_POSTHOG_KEY}")`,
+      );
+      return undefined;
+    });
+  const deployStaging = (
+    calls: ReturnType<typeof runner>,
+    extraEnv: Record<string, string>,
+    r2 = fakeR2(),
+    extra: string[] = [],
+  ) =>
+    run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+        ...extra,
+      ],
+      { "turbo-vibe.yaml": withPublic },
+      { ...env, ...extraEnv },
+      calls,
+      r2.fetch(),
+      { capture: capturing() },
+    );
+
+  it("builds with a placeholder, ships a copy with the environment's value, and records the placeholder files", async () => {
+    const calls = inlining();
+    const r2 = fakeR2();
+    const { code, cwd } = await deployStaging(
+      calls,
+      { TURBO_VIBE_VARS: JSON.stringify({ VITE_POSTHOG_KEY: "phc_staging" }) },
+      r2,
+    );
+    expect(code).toBe(0);
+    const build = calls.mock.calls.find(([command]) => command === "sh");
+    expect(build?.[2].env?.VITE_POSTHOG_KEY).toBe(placeholderOf);
+    const shipped = (await workerConfig(cwd, "staging", "acme-api-staging"))
+      .assets.directory as string;
+    expect(shipped).toBe(
+      join(cwd, ".turbo-vibe", "wrangler", "staging", "web-public"),
+    );
+    expect(await readFile(join(shipped, "app.js"), "utf8")).toBe(
+      'posthog.init("phc_staging")',
+    );
+    expect(await readFile(join(cwd, "dist", "app.js"), "utf8")).toContain(
+      placeholderOf,
+    );
+    const archive = calls.mock.calls.find(
+      ([command, args]) => command === "tar" && args[0] === "-czf",
+    );
+    expect(archive?.[1]).toContain(join(cwd, "dist"));
+    expect(
+      r2.record("acme/builds/abc1230000000000000000000000000000000000.json")
+        .services.web,
+    ).toMatchObject({ public: "VITE_POSTHOG_KEY" });
+  });
+
+  it("promotes from the recorded placeholder files with production's values", async () => {
+    const calls = runner(async (command, args) => {
+      if (command === "tar" && args[0] === "-xzf")
+        await writeFile(
+          join(args[3] as string, "app.js"),
+          `posthog.init("${placeholderOf}")`,
+        );
+      return undefined;
+    });
+    const r2 = fakeR2({
+      ...seeded(record({})),
+      "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+        "archive",
+    });
+    const { code, cwd } = await run(
+      ["promote", "--env", "production"],
+      { "turbo-vibe.yaml": withPublic },
+      {
+        ...production,
+        TURBO_VIBE_VARS: JSON.stringify({ VITE_POSTHOG_KEY: "phc_live" }),
+      },
+      calls,
+      r2.fetch(),
+    );
+    expect(code).toBe(0);
+    const shipped = (
+      await workerConfig(cwd, "production", "acme-api-production")
+    ).assets.directory as string;
+    expect(await readFile(join(shipped, "app.js"), "utf8")).toBe(
+      'posthog.init("phc_live")',
+    );
+  });
+
+  it("names a public value the environment lacks before building anything", async () => {
+    const calls = inlining();
+    const { code, stderr } = await deployStaging(calls, {});
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "staging has no public value for VITE_POSTHOG_KEY, declared in turbo-vibe.yaml; store it as a variable of the staging GitHub environment with `setup --env staging`\n",
+    );
+    expect(calls).not.toHaveBeenCalled();
+  });
+
+  it("needs no value in a dry run, and ships nothing", async () => {
+    const calls = inlining();
+    const { code, cwd } = await deployStaging(calls, {}, fakeR2(), [
+      "--dry-run",
+    ]);
+    expect(code).toBe(0);
+    expect(await readFile(join(cwd, "dist", "app.js"), "utf8")).toContain(
+      placeholderOf,
+    );
+  });
+});
+
 describe("a project with a database", () => {
   const withDb = `${project}  db:
     kind: database
@@ -1777,6 +1903,59 @@ services:
           "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
       },
     });
+  });
+
+  it("ships the environment's public value in the prebuilt output, and records the placeholder", async () => {
+    const withPublic = app.replace(
+      "    target: vercel-nextjs\n",
+      "    target: vercel-nextjs\n    public: [NEXT_PUBLIC_KEY]\n",
+    );
+    let shipped = "";
+    const calls = runner(async (_command, args, options) => {
+      if (args.includes("build") && args.includes("--standalone")) {
+        const output = join(options.cwd, ".vercel", "output", "static");
+        await mkdir(output, { recursive: true });
+        await writeFile(
+          join(output, "page.js"),
+          `key("${options.env?.NEXT_PUBLIC_KEY}")`,
+        );
+      }
+      if (args.includes("--prebuilt"))
+        shipped = await readFile(
+          join(options.cwd, ".vercel", "output", "static", "page.js"),
+          "utf8",
+        );
+      return undefined;
+    });
+    const { code, cwd } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      { "turbo-vibe.yaml": withPublic },
+      {
+        ...vercelEnv,
+        TURBO_VIBE_VARS: JSON.stringify({ NEXT_PUBLIC_KEY: "pk_staging" }),
+      },
+      calls,
+      fakeR2().fetch(),
+      { capture: capturing(outputs("staging")) },
+    );
+    expect(code).toBe(0);
+    expect(shipped).toBe('key("pk_staging")');
+    expect(
+      await readFile(
+        join(cwd, "app", ".vercel", "output", "static", "page.js"),
+        "utf8",
+      ),
+    ).toBe('key("__TURBO_VIBE_PUBLIC_NEXT_PUBLIC_KEY__")');
+    const archive = calls.mock.calls.find(
+      ([command, args]) => command === "tar" && args[0] === "-czf",
+    );
+    expect(archive?.[1]).toContain(join(cwd, "app", ".vercel", "output"));
   });
 
   describe("its own secrets", () => {
