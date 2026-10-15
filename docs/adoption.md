@@ -65,6 +65,26 @@ Check: `npx @turbo-vibe/cli@1 plan` → staging and production, each listing `ap
 
 Add `.turbo-vibe/` to `.gitignore`.
 
+### The application's own values
+
+List the values the application reads, by kind, so that `setup` asks for them and each environment gets its own:
+
+```yaml
+  api:
+    kind: backend
+    secrets: [STRIPE_SECRET_KEY]            # read at run time; one value per environment
+    build:
+      dockerfile: Dockerfile
+      secrets: [NPM_TOKEN]                  # only the build needs it; one value for the repository
+  web:
+    kind: frontend
+    public: [VITE_STRIPE_PUBLISHABLE_KEY]   # inlined by the build; one value per environment
+```
+
+- A `public` value must be an identifier, a key or a DSN, never a switch the build compares: during the build the code sees a placeholder, which each deploy replaces.
+- A Next.js page that reads a runtime secret must render per request: it calls `cookies()`, `headers()` or `connection()`, or exports `dynamic = "force-dynamic"`. A page rendered during the build sees no secret.
+- The kit sets some names itself, so validation refuses them and suggests a prefixed one, such as `APP_AWS_ACCESS_KEY_ID`. The README's [Your application's own secrets](../README.md#your-applications-own-secrets), [Public values in a frontend build](../README.md#public-values-in-a-frontend-build) and [Secrets only the build needs](../README.md#secrets-only-the-build-needs) say how each kind travels.
+
 ## 3. Add the two workflows
 
 `.github/workflows/staging.yml`:
@@ -119,7 +139,7 @@ jobs:
 
 Pass `with: { config: path/to/turbo-vibe.yaml }` if the file is not at the root. The `@v1` tag and the CLI version move together, so a workflow tag always runs the CLI it was released with.
 
-Pull requests, including from forks, run the test-and-build job with no secrets. Only `main` deploys staging: on every push, or when a maintainer runs **Staging** by hand. `setup` limits the `staging` and `production` environments to `main`, where GitHub offers deployment-branch rules (public repositories, and private ones on GitHub Pro, Team or Enterprise).
+Pull requests run the test-and-build job without any GitHub environment: a pull request from a fork gets no secrets at all, and one from a branch of this repository gets only the repository's build secrets (`build.secrets`), for its dry run. Only `main` deploys staging: on every push, or when a maintainer runs **Staging** by hand. `setup` limits the `staging` and `production` environments to `main`, where GitHub offers deployment-branch rules (public repositories, and private ones on GitHub Pro, Team or Enterprise).
 
 `apply` refuses to delete or replace a resource unless told to, so removing or renaming a service, or a change that forces a resource to be recreated, stops the run before anything changes. The log names each resource. If the deletion is intended, run the workflow again from the Actions tab on `main` with **allow-deletions** ticked. Locally, `turbo-vibe plan --env staging` shows the same list before you merge.
 
@@ -139,7 +159,7 @@ jobs:
     secrets: inherit
 ```
 
-Previews run in the `preview` GitHub environment, with its own state bucket and tokens, which `setup` creates when the config enables previews. Pull request code receives those, never the `staging` or `production` environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. The bootstrap checklist's [What one account leaves shared](bootstrap.md#7-what-one-account-leaves-shared) lists every such limit. A project with a database needs Supabase's paid plan for previews, because each preview gets its own database branch.
+Previews run in the `preview` GitHub environment, with its own state bucket and tokens, which `setup` creates when the config enables previews. Pull request code receives those, never the `staging` or `production` environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. The bootstrap checklist's [What one account leaves shared](bootstrap.md#8-what-one-account-leaves-shared) lists every such limit. A project with a database needs Supabase's paid plan for previews, because each preview gets its own database branch.
 
 ## 4. Create the accounts, tokens, and GitHub environments
 

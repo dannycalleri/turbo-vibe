@@ -11,6 +11,11 @@ import {
   adapters as defaultTargets,
   type TargetCatalog,
 } from "../adapters/index.js";
+import {
+  serviceVariables,
+  stateSecrets,
+  supabaseOrganization,
+} from "../contract.js";
 import { layout, parentDomain } from "../origins.js";
 import { pathFor } from "../plan.js";
 import { type Config, configSchema, environmentNames } from "./schema.js";
@@ -134,6 +139,47 @@ function isMissing(input: unknown, path: Path): boolean {
   );
 }
 
+export function reservedNames(catalog: TargetCatalog = defaultTargets): {
+  service: Readonly<Record<string, string>>;
+  credentials: Readonly<Record<string, string>>;
+} {
+  const credentials: Record<string, string> = {
+    [supabaseOrganization]: "the Supabase organization's slug",
+  };
+  for (const name of stateSecrets) {
+    credentials[name] = "the state bucket's credentials";
+  }
+  for (const [target, entry] of Object.entries(catalog)) {
+    for (const name of entry.secrets ?? []) {
+      credentials[name] ??= `the ${target} target's credentials`;
+    }
+  }
+  return { service: serviceVariables, credentials };
+}
+
+function nameProblem(
+  name: string,
+  reserved: ReturnType<typeof reservedNames>,
+): string | undefined {
+  if (!/^[A-Z][A-Z0-9_]*$/.test(name)) {
+    return "is not a variable name: use capital letters, digits and underscores, starting with a letter";
+  }
+  if (name.startsWith("GITHUB_")) {
+    return "starts with GITHUB_, which GitHub reserves";
+  }
+  const rename = `; rename it in the application, such as APP_${name}`;
+  const set = reserved.service[name];
+  if (set) return `is where turbo-vibe puts ${set} in the service${rename}`;
+  const stored = reserved.credentials[name];
+  if (stored) {
+    return `is where turbo-vibe keeps ${stored} in the same GitHub environments${rename}`;
+  }
+  if (name.startsWith("TURBO_VIBE_")) {
+    return `starts with TURBO_VIBE_, which turbo-vibe keeps for its own settings${rename}`;
+  }
+  return undefined;
+}
+
 function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
   const problems: Located[] = [];
   const available = Object.keys(catalog).join(", ");
@@ -209,6 +255,83 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
         path: ["services", name, "container", "max_instances"],
         message: `service \`${name}\` allows ${container.max_instances} instances but sets no instance_from, so every request still goes to one instance`,
       });
+    }
+  }
+
+  const reserved = reservedNames(catalog);
+  const secretOwners = new Map<string, string>();
+  for (const [name, service] of Object.entries(config.services)) {
+    if (!("secrets" in service)) continue;
+    for (const secret of service.secrets ?? []) secretOwners.set(secret, name);
+  }
+  const publicOwners = new Map<string, string>();
+  for (const [name, service] of Object.entries(config.services)) {
+    if (service.kind !== "frontend") continue;
+    for (const value of service.public ?? []) publicOwners.set(value, name);
+  }
+  for (const [name, service] of Object.entries(config.services)) {
+    if (service.kind !== "backend" && service.kind !== "frontend") continue;
+    const seen = new Set<string>();
+    for (const secret of service.build.secrets ?? []) {
+      const runtime = secretOwners.get(secret);
+      const shown = publicOwners.get(secret);
+      const problem = seen.has(secret)
+        ? "is listed twice"
+        : runtime
+          ? `\`services.${runtime}.secrets\` already declares; a build secret has one value for every environment, a runtime secret one per environment`
+          : shown
+            ? `\`services.${shown}.public\` already declares; a value is either secret or public`
+            : nameProblem(secret, reserved);
+      seen.add(secret);
+      if (problem) {
+        problems.push({
+          path: ["services", name, "build", "secrets"],
+          message: `\`services.${name}.build.secrets\` names \`${secret}\`, which ${problem}`,
+        });
+      }
+    }
+  }
+  for (const [name, service] of Object.entries(config.services)) {
+    if (service.kind !== "frontend" || !service.public) continue;
+    const seen = new Set<string>();
+    for (const value of service.public) {
+      const owner = secretOwners.get(value);
+      const problem = seen.has(value)
+        ? "is listed twice"
+        : owner
+          ? `\`services.${owner}.secrets\` already declares; a value is either secret or public`
+          : nameProblem(value, reserved);
+      seen.add(value);
+      if (problem) {
+        problems.push({
+          path: ["services", name, "public"],
+          message: `\`services.${name}.public\` names \`${value}\`, which ${problem}`,
+        });
+      }
+    }
+  }
+  for (const [name, service] of Object.entries(config.services)) {
+    if (!("secrets" in service) || !service.secrets) continue;
+    const target = catalog[service.target];
+    if (service.kind === "frontend" && target && !target.runsServerCode) {
+      problems.push({
+        path: ["services", name, "secrets"],
+        message: `service \`${name}\` (${service.target}) cannot have secrets: its build is public, so a value would reach the browser`,
+      });
+      continue;
+    }
+    const seen = new Set<string>();
+    for (const secret of service.secrets) {
+      const problem = seen.has(secret)
+        ? "is listed twice"
+        : nameProblem(secret, reserved);
+      seen.add(secret);
+      if (problem) {
+        problems.push({
+          path: ["services", name, "secrets"],
+          message: `\`services.${name}.secrets\` names \`${secret}\`, which ${problem}`,
+        });
+      }
     }
   }
 

@@ -260,7 +260,7 @@ describe("secrets", () => {
 
   it("gives every CLI step every credential an adapter or the state bucket reads", async () => {
     const { adapters } = await import("../src/adapters/index.js");
-    const { stateSecrets } = await import("../src/infrastructure.js");
+    const { stateSecrets } = await import("../src/contract.js");
     const names = new Set([
       ...stateSecrets,
       ...Object.values(adapters).flatMap((adapter) => adapter.secrets),
@@ -284,6 +284,61 @@ describe("secrets", () => {
       for (const step of cli)
         expect(JSON.stringify(secretsIn(step.env)), step.run).toBe(first);
     }
+  });
+
+  it("hands the environment's whole set of secrets only to the steps that apply, deploy, promote or deploy a preview", async () => {
+    const delivers =
+      /turbo-vibe --config "\$(?:CONFIG|config)" (apply --env|deploy --env staging --build-id "\$BUILD_ID"$|promote --env production --build-id|preview deploy)/m;
+    let found = 0;
+    let dryRuns = 0;
+    for (const file of [
+      "deploy.yml",
+      "promote.yml",
+      "preview.yml",
+      "live-tests.yml",
+    ]) {
+      const definition = await workflow(file);
+      expect(JSON.stringify(definition.env ?? {})).not.toContain(
+        "toJSON(secrets)",
+      );
+      for (const [name, job] of Object.entries(
+        definition.jobs as Record<string, { env?: object; steps?: Step[] }>,
+      )) {
+        expect(JSON.stringify(job.env ?? {}), `${file} ${name}`).not.toContain(
+          "toJSON(secrets)",
+        );
+        for (const step of job.steps ?? []) {
+          const passed = step.env?.TURBO_VIBE_SECRETS;
+          if (step.run?.includes("--dry-run")) {
+            expect(passed, `${file} ${name}: ${step.run}`).toBe(
+              "${{ toJSON(secrets) }}",
+            );
+            expect(step.env?.TURBO_VIBE_VARS).toBeUndefined();
+            dryRuns++;
+          } else if (delivers.test(step.run ?? "")) {
+            expect(passed, `${file} ${name}: ${step.run}`).toBe(
+              "${{ toJSON(secrets) }}",
+            );
+            expect(
+              step.env?.TURBO_VIBE_VARS,
+              `${file} ${name}: ${step.run}`,
+            ).toBe("${{ toJSON(vars) }}");
+            found++;
+          } else {
+            expect(
+              passed,
+              `${file} ${name}: ${step.name ?? step.run}`,
+            ).toBeUndefined();
+            expect(
+              step.env?.TURBO_VIBE_VARS,
+              `${file} ${name}: ${step.name ?? step.run}`,
+            ).toBeUndefined();
+          }
+        }
+      }
+    }
+    expect(found).toBe(6);
+    expect(dryRuns).toBe(1);
   });
 
   it("gives secrets to no step except those that call the CLI, and never to the job or through $GITHUB_ENV", async () => {

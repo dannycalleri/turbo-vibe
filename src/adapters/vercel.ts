@@ -76,6 +76,8 @@ async function shipPrebuilt(
     );
     return 1;
   }
+  const stored = await storeSecrets(context, projectId);
+  if (stored !== 0) return stored;
   return context.io.run(
     process.execPath,
     [vercelBin, "deploy", "--prebuilt", "--prod", "--yes"],
@@ -89,6 +91,43 @@ async function shipPrebuilt(
       },
     },
   );
+}
+
+// Through the API, not OpenTofu as for TURBO_VIBE_API_URL, so the values never enter the state.
+async function storeSecrets(
+  context: DeployContext,
+  projectId: string,
+): Promise<number> {
+  const { io } = context;
+  for (const [key, value] of Object.entries(context.secrets)) {
+    const url = new URL(`https://api.vercel.com/v10/projects/${projectId}/env`);
+    url.searchParams.set("upsert", "true");
+    if (io.env.VERCEL_TEAM_ID)
+      url.searchParams.set("teamId", io.env.VERCEL_TEAM_ID);
+    const response = await io.fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${io.env.VERCEL_API_TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        key,
+        value,
+        type: "sensitive",
+        target: ["production"],
+      }),
+    });
+    const body = (await response.json().catch(() => undefined)) as
+      | { failed?: unknown[] }
+      | undefined;
+    if (!response.ok || (body?.failed?.length ?? 0) > 0) {
+      io.stderr(
+        `cannot set ${key} on the Vercel project of ${context.name} in ${context.environment} (HTTP ${response.status})\n`,
+      );
+      return 1;
+    }
+  }
+  return 0;
 }
 
 function smoke(context: Parameters<NonNullable<Adapter["smoke"]>>[0]) {
@@ -195,6 +234,7 @@ export const vercelNextjs: Adapter = {
   readsOutputs: true,
   crossOrigin: true,
   stability: "beta",
+  runsServerCode: true,
   secrets,
   outputs: ["assets"],
   plan,

@@ -21,7 +21,7 @@ The schema checks each field on its own. The rules that relate fields to each ot
 | `version` | `1` | required | The file format version. |
 | `project` | name | required | The project's name, used in every resource the kit creates (`<project>-<service>-<environment>` for Workers). Lowercase letters, digits and hyphens, starting with a letter, at most 63 characters. |
 | `domain` | hostname | required | Production's hostname. |
-| `previews` | boolean | `false` | Allow `turbo-vibe preview deploy` for pull requests, in the `preview` GitHub environment with its own state bucket and tokens. A project with a database also needs `plan: paid`, because each preview's database is a Supabase branch. Within one Cloudflare account, previews' tokens still reach production's Workers and DNS; see the bootstrap checklist's [What one account leaves shared](bootstrap.md#7-what-one-account-leaves-shared). |
+| `previews` | boolean | `false` | Allow `turbo-vibe preview deploy` for pull requests, in the `preview` GitHub environment with its own state bucket and tokens. A project with a database also needs `plan: paid`, because each preview's database is a Supabase branch. Within one Cloudflare account, previews' tokens still reach production's Workers and DNS; see the bootstrap checklist's [What one account leaves shared](bootstrap.md#8-what-one-account-leaves-shared). |
 | `environments` | mapping | see below | Hostnames per environment. |
 | `services` | mapping of name → service | required, at least one | The services, keyed by a name (same rules as `project`). |
 
@@ -49,9 +49,11 @@ A backend is served under `/api/` and a frontend under `/`.
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
+| `secrets` | list of names | none | The application's own secrets, such as `[STRIPE_SECRET_KEY]`. Names only: each value lives in the GitHub environment it belongs to, and reaches the running container as an environment variable of that name. See the README's [Your application's own secrets](../README.md#your-applications-own-secrets). |
 | `build.dockerfile` | path | required | The Dockerfile, relative to the config file. |
 | `build.context` | path | the Dockerfile's directory | The Docker build context. |
 | `build.test` | command | none | Run by `turbo-vibe test` before anything is built. |
+| `build.secrets` | list of names | none | Secrets only the build needs, such as `[NPM_TOKEN]`, passed to `docker build` as BuildKit secrets. One value for every environment, stored as a repository secret. See the README's [Secrets only the build needs](../README.md#secrets-only-the-build-needs). |
 | `container.instance_type` | `lite`, `basic`, `standard-1` … `standard-4` | `lite` | The Cloudflare container size. |
 | `container.sleep_after` | duration such as `30s`, `5m`, `1h` | `5m` | Idle time before the container sleeps. |
 | `container.max_instances` | integer ≥ 1 | `1` | How many container instances may run. |
@@ -62,10 +64,13 @@ A backend is served under `/api/` and a frontend under `/`.
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `serve_with` | service name | none | `cloudflare-static` only: serve the files from that backend's Worker, on the same hostname. |
+| `public` | list of names | none | Public values the build inlines, such as `[NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY]`. The build sees a placeholder; each deploy puts that environment's value into a copy of the built files. See the README's [Public values in a frontend build](../README.md#public-values-in-a-frontend-build). |
+| `secrets` | list of names | none | `vercel-nextjs` only: the app's own secrets, which its server code reads; each environment's value is set on that environment's Vercel project. |
 | `build.command` | command | required | Builds the frontend. For `vercel-nextjs` it runs in `build.root`. |
 | `build.output` | path | required for `cloudflare-static` and `vercel-static` | The directory the build writes. |
 | `build.root` | path | `.` | `vercel-nextjs` only: the Next.js app's directory, where `build.command` runs. |
 | `build.test` | command | none | Run by `turbo-vibe test`. |
+| `build.secrets` | list of names | none | Secrets only the build command needs, such as `[SENTRY_AUTH_TOKEN]`, in its environment. One value for every environment, stored as a repository secret; the kit refuses to ship built files that hold one. |
 
 ### `kind: database`
 
@@ -92,6 +97,7 @@ These need more than one field, or the list of adapters, so the JSON Schema cann
 - **No two services at one path.** Two backends, or two frontends, would both be served at `/api/` or `/`.
 - **`serve_with`** names a backend service, and only `cloudflare-static` takes it.
 - **`build.output` and `build.root`.** `cloudflare-static` and `vercel-static` need `build.output`; `vercel-nextjs` builds its own output, so it takes `build.root` and refuses `build.output`; the other frontend targets refuse `build.root`.
+- **Secret and public names.** Each name in `secrets`, `public` and `build.secrets` is a variable name (capital letters, digits and underscores, starting with a letter), appears once in a service's list, does not start with `GITHUB_` or `TURBO_VIBE_`, and is not a name the kit sets in a service or keeps for its own credentials. The error names the conflict and suggests a prefixed name, such as `APP_AWS_ACCESS_KEY_ID`. A name belongs to one kind of list: runtime secret, public value or build secret. Of the frontends, only `vercel-nextjs` takes `secrets`, for its server code; a static frontend's build is public.
 - **Instance routing.** `instance_from` needs `max_instances` of 2 or more, and `max_instances` above 1 needs `instance_from`.
 - **`staging: branch`** needs `plan: paid`.
 - **Previews with a database** need `plan: paid`. `preview deploy` does not fail without it: it prints why there is no preview and exits successfully, so a pull request still passes.

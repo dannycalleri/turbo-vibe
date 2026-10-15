@@ -38,6 +38,10 @@ function dockerBuild(
       "linux/amd64",
       "--build-arg",
       `${buildIdVariable}=${context.buildId}`,
+      ...Object.keys(context.buildSecrets).flatMap((name) => [
+        "--secret",
+        `id=${name},env=${name}`,
+      ]),
       "--file",
       dockerfile,
       "--tag",
@@ -46,7 +50,7 @@ function dockerBuild(
         ? resolve(configDir, backend.build.context)
         : dirname(dockerfile),
     ],
-    { cwd: configDir, env: io.env },
+    { cwd: configDir, env: context.buildEnv },
   );
 }
 
@@ -92,7 +96,7 @@ async function meetsContract(
 ): Promise<number | "unchecked"> {
   const { io, configDir } = context;
   const tag = imageTag(context);
-  const options = { cwd: configDir, env: io.env };
+  const options = { cwd: configDir, env: context.buildEnv };
   const built = await dockerBuild(context, backend, tag);
   if (built !== 0) return built;
   const started = await io.capture(

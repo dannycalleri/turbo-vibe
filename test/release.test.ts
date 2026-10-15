@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { BuildRecord } from "../src/builds.js";
@@ -361,7 +361,7 @@ services:
         "api: the container exited by itself within 3 seconds, so its health route and whether it stops on SIGTERM are not checked\n",
       );
       expect(stdout).toContain(
-        "dry run passed: every service built, but api could not be checked (see above); nothing was uploaded\n",
+        "dry run passed: api could not be fully built and checked (see above); nothing was uploaded\n",
       );
       expect(capture).not.toHaveBeenCalledWith(
         "docker",
@@ -396,7 +396,7 @@ services:
     ]);
     expect(calls.mock.calls[2]?.[1]).toContain("--dry-run");
     expect(stdout).toContain(
-      "dry run passed: every service built, but api could not be checked (see above); nothing was uploaded\n",
+      "dry run passed: api could not be fully built and checked (see above); nothing was uploaded\n",
     );
     expect(
       (await workerConfig(cwd, "staging", "acme-api-staging")).containers[0],
@@ -1015,14 +1015,12 @@ describe("runtime secrets", () => {
   ) {
     const uploaded: unknown[] = [];
     const modes: number[] = [];
-    const calls = runner((_command, args) => {
+    const calls = runner(async (_command, args) => {
       const index = args.indexOf("--secrets-file");
       if (index >= 0) {
         const file = args[index + 1] as string;
-        void readFile(file, "utf8").then((body) =>
-          uploaded.push(JSON.parse(body)),
-        );
-        void stat(file).then((info) => modes.push(info.mode & 0o777));
+        uploaded.push(JSON.parse(await readFile(file, "utf8")));
+        modes.push((await stat(file)).mode & 0o777);
       }
       return undefined;
     });
@@ -1121,6 +1119,171 @@ describe("runtime secrets", () => {
     expect(stdout + stderr).not.toContain("sk_test");
   });
 
+  const withSecrets = project.replace(
+    "    target: cloudflare-container\n",
+    "    target: cloudflare-container\n    secrets: [STRIPE_SECRET_KEY, POSTMARK_TOKEN]\n",
+  );
+
+  it("gives the backend its declared secrets, a plain variable over the JSON object, and no build any of them", async () => {
+    const { code, cwd, uploaded, calls, stdout, stderr } =
+      await deployCapturingSecrets(withSecrets, {
+        STRIPE_SECRET_KEY: "sk_plain",
+        TURBO_VIBE_SECRETS: JSON.stringify({
+          STRIPE_SECRET_KEY: "sk_json",
+          POSTMARK_TOKEN: "pm_json",
+          UNDECLARED: "other",
+        }),
+      });
+    expect(code).toBe(0);
+    expect(uploaded).toEqual([
+      { STRIPE_SECRET_KEY: "sk_plain", POSTMARK_TOKEN: "pm_json" },
+    ]);
+    const worker = await readFile(
+      join(
+        cwd,
+        ".turbo-vibe",
+        "wrangler",
+        "staging",
+        "acme-api-staging",
+        "worker.js",
+      ),
+      "utf8",
+    );
+    expect(worker).toContain("STRIPE_SECRET_KEY: env.STRIPE_SECRET_KEY");
+    expect(worker).toContain("POSTMARK_TOKEN: env.POSTMARK_TOKEN");
+    expect(worker).not.toContain("UNDECLARED");
+    expect(calls.mock.calls[0]?.[2].env).toEqual({
+      BUILD_ID: "abc1230000000000000000000000000000000000",
+    });
+    const dockerBuild = calls.mock.calls.find(
+      ([command, args]) => command === "docker" && args[0] === "build",
+    );
+    expect(dockerBuild?.[2].env).not.toHaveProperty("STRIPE_SECRET_KEY");
+    expect(dockerBuild?.[2].env).not.toHaveProperty("TURBO_VIBE_SECRETS");
+    expect(stdout + stderr).not.toMatch(/sk_|pm_json/);
+  });
+
+  it("names a declared secret with no value before building anything", async () => {
+    const calls = runner();
+    const { code, stderr } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      { "turbo-vibe.yaml": withSecrets },
+      { ...env, STRIPE_SECRET_KEY: "sk_plain" },
+      calls,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "staging has no value for POSTMARK_TOKEN, declared in turbo-vibe.yaml; store it in the staging GitHub environment with `setup --env staging`\n",
+    );
+    expect(calls).not.toHaveBeenCalled();
+  });
+
+  it("needs no value in a dry run", async () => {
+    const { code } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+        "--dry-run",
+      ],
+      { "turbo-vibe.yaml": withSecrets },
+      {},
+      runner(),
+      undefined,
+      { capture: capturing() },
+    );
+    expect(code).toBe(0);
+  });
+
+  it("records no value in the build record", async () => {
+    const r2 = fakeR2();
+    const { code } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      { "turbo-vibe.yaml": withSecrets },
+      { ...env, STRIPE_SECRET_KEY: "sk_staging", POSTMARK_TOKEN: "pm_staging" },
+      runner(),
+      r2.fetch(),
+      { capture: capturing() },
+    );
+    expect(code).toBe(0);
+    expect(r2.objects.size).toBeGreaterThan(0);
+    for (const body of r2.objects.values())
+      expect(new TextDecoder().decode(body)).not.toMatch(
+        /sk_staging|pm_staging/,
+      );
+  });
+
+  it("promotes with production's values, and checks them only after choosing", async () => {
+    const uploaded: unknown[] = [];
+    const calls = runner(async (_command, args) => {
+      const index = args.indexOf("--secrets-file");
+      if (index >= 0)
+        uploaded.push(
+          JSON.parse(await readFile(args[index + 1] as string, "utf8")),
+        );
+      return undefined;
+    });
+    const r2 = () =>
+      fakeR2({
+        ...seeded(record({})),
+        "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+          "archive",
+      });
+    const chosen = await run(
+      ["promote", "--env", "production", "--choose"],
+      { "turbo-vibe.yaml": withSecrets },
+      production,
+      runner(),
+      r2().fetch(),
+    );
+    expect(chosen.code).toBe(0);
+    const { code } = await run(
+      ["promote", "--env", "production"],
+      { "turbo-vibe.yaml": withSecrets },
+      {
+        ...production,
+        TURBO_VIBE_SECRETS: JSON.stringify({
+          STRIPE_SECRET_KEY: "sk_live",
+          POSTMARK_TOKEN: "pm_live",
+        }),
+      },
+      calls,
+      r2().fetch(),
+    );
+    expect(code).toBe(0);
+    expect(uploaded).toEqual([
+      { STRIPE_SECRET_KEY: "sk_live", POSTMARK_TOKEN: "pm_live" },
+    ]);
+
+    const untouched = runner();
+    const missing = await run(
+      ["promote", "--env", "production"],
+      { "turbo-vibe.yaml": withSecrets },
+      { ...production, STRIPE_SECRET_KEY: "sk_live" },
+      untouched,
+      r2().fetch(),
+    );
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toBe(
+      "production has no value for POSTMARK_TOKEN, declared in turbo-vibe.yaml; store it in the production GitHub environment with `setup --env production`\n",
+    );
+    expect(untouched).not.toHaveBeenCalled();
+  });
+
   it("names missing WorkOS credentials before building anything", async () => {
     const calls = runner();
     const { code, stderr } = await run(
@@ -1140,6 +1303,282 @@ describe("runtime secrets", () => {
     expect(code).toBe(1);
     expect(stderr).toBe("missing environment variables: WORKOS_API_KEY\n");
     expect(calls).not.toHaveBeenCalled();
+  });
+});
+
+describe("public values", () => {
+  const withPublic = project.replace(
+    "    target: cloudflare-static\n",
+    "    target: cloudflare-static\n    public: [VITE_POSTHOG_KEY]\n",
+  );
+  const placeholderOf = "__TURBO_VIBE_PUBLIC_VITE_POSTHOG_KEY__";
+  // The fake build inlines the variable it is given, as Vite would.
+  const inlining = () =>
+    runner(async (command, _args, options) => {
+      if (command !== "sh") return undefined;
+      await mkdir(join(options.cwd, "dist"), { recursive: true });
+      await writeFile(
+        join(options.cwd, "dist", "app.js"),
+        `posthog.init("${options.env?.VITE_POSTHOG_KEY}")`,
+      );
+      return undefined;
+    });
+  const deployStaging = (
+    calls: ReturnType<typeof runner>,
+    extraEnv: Record<string, string>,
+    r2 = fakeR2(),
+    extra: string[] = [],
+  ) =>
+    run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+        ...extra,
+      ],
+      { "turbo-vibe.yaml": withPublic },
+      { ...env, ...extraEnv },
+      calls,
+      r2.fetch(),
+      { capture: capturing() },
+    );
+
+  it("builds with a placeholder, ships a copy with the environment's value, and records the placeholder files", async () => {
+    const calls = inlining();
+    const r2 = fakeR2();
+    const { code, cwd } = await deployStaging(
+      calls,
+      { TURBO_VIBE_VARS: JSON.stringify({ VITE_POSTHOG_KEY: "phc_staging" }) },
+      r2,
+    );
+    expect(code).toBe(0);
+    const build = calls.mock.calls.find(([command]) => command === "sh");
+    expect(build?.[2].env?.VITE_POSTHOG_KEY).toBe(placeholderOf);
+    const shipped = (await workerConfig(cwd, "staging", "acme-api-staging"))
+      .assets.directory as string;
+    expect(shipped).toBe(
+      join(cwd, ".turbo-vibe", "wrangler", "staging", "web-public"),
+    );
+    expect(await readFile(join(shipped, "app.js"), "utf8")).toBe(
+      'posthog.init("phc_staging")',
+    );
+    expect(await readFile(join(cwd, "dist", "app.js"), "utf8")).toContain(
+      placeholderOf,
+    );
+    const archive = calls.mock.calls.find(
+      ([command, args]) => command === "tar" && args[0] === "-czf",
+    );
+    expect(archive?.[1]).toContain(join(cwd, "dist"));
+    expect(
+      r2.record("acme/builds/abc1230000000000000000000000000000000000.json")
+        .services.web,
+    ).toMatchObject({ public: "VITE_POSTHOG_KEY" });
+  });
+
+  it("promotes from the recorded placeholder files with production's values", async () => {
+    const calls = runner(async (command, args) => {
+      if (command === "tar" && args[0] === "-xzf")
+        await writeFile(
+          join(args[3] as string, "app.js"),
+          `posthog.init("${placeholderOf}")`,
+        );
+      return undefined;
+    });
+    const r2 = fakeR2({
+      ...seeded(record({})),
+      "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+        "archive",
+    });
+    const { code, cwd } = await run(
+      ["promote", "--env", "production"],
+      { "turbo-vibe.yaml": withPublic },
+      {
+        ...production,
+        TURBO_VIBE_VARS: JSON.stringify({ VITE_POSTHOG_KEY: "phc_live" }),
+      },
+      calls,
+      r2.fetch(),
+    );
+    expect(code).toBe(0);
+    const shipped = (
+      await workerConfig(cwd, "production", "acme-api-production")
+    ).assets.directory as string;
+    expect(await readFile(join(shipped, "app.js"), "utf8")).toBe(
+      'posthog.init("phc_live")',
+    );
+  });
+
+  it("names a public value the environment lacks before building anything", async () => {
+    const calls = inlining();
+    const { code, stderr } = await deployStaging(calls, {});
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "staging has no public value for VITE_POSTHOG_KEY, declared in turbo-vibe.yaml; store it as a variable of the staging GitHub environment with `setup --env staging`\n",
+    );
+    expect(calls).not.toHaveBeenCalled();
+  });
+
+  it("needs no value in a dry run, and ships nothing", async () => {
+    const calls = inlining();
+    const { code, cwd } = await deployStaging(calls, {}, fakeR2(), [
+      "--dry-run",
+    ]);
+    expect(code).toBe(0);
+    expect(await readFile(join(cwd, "dist", "app.js"), "utf8")).toContain(
+      placeholderOf,
+    );
+  });
+});
+
+describe("build secrets", () => {
+  const withBuildSecrets = project
+    .replace(
+      'build: { dockerfile: Dockerfile, test: "go test ./..." }',
+      'build: { dockerfile: Dockerfile, test: "go test ./...", secrets: [NPM_TOKEN] }',
+    )
+    .replace(
+      'build: { command: "pnpm build", output: dist, test: "pnpm test" }',
+      'build: { command: "pnpm build", output: dist, test: "pnpm test", secrets: [SENTRY_AUTH_TOKEN] }',
+    );
+  const tokens = {
+    TURBO_VIBE_SECRETS: JSON.stringify({
+      NPM_TOKEN: "npm_s3cr3t",
+      SENTRY_AUTH_TOKEN: "sntrys_s3cr3t",
+    }),
+  };
+  const deployStaging = (
+    calls: ReturnType<typeof runner>,
+    extraEnv: Record<string, string>,
+    extra: string[] = [],
+    capture = capturing(),
+  ) =>
+    run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+        ...extra,
+      ],
+      { "turbo-vibe.yaml": withBuildSecrets },
+      { ...env, ...extraEnv },
+      calls,
+      fakeR2().fetch(),
+      { capture },
+    );
+
+  it("gives each build exactly its own build secrets: the frontend in its environment, docker as BuildKit secrets", async () => {
+    const calls = runner();
+    const { code, stdout, stderr } = await deployStaging(calls, tokens);
+    expect(code).toBe(0);
+    const frontend = calls.mock.calls.find(([command]) => command === "sh");
+    expect(frontend?.[2].env?.SENTRY_AUTH_TOKEN).toBe("sntrys_s3cr3t");
+    expect(frontend?.[2].env).not.toHaveProperty("NPM_TOKEN");
+    expect(frontend?.[2].env).not.toHaveProperty("TURBO_VIBE_SECRETS");
+    const docker = calls.mock.calls.find(
+      ([command, args]) => command === "docker" && args[0] === "build",
+    );
+    expect(docker?.[1]).toEqual(
+      expect.arrayContaining(["--secret", "id=NPM_TOKEN,env=NPM_TOKEN"]),
+    );
+    expect(docker?.[1].join(" ")).not.toContain("npm_s3cr3t");
+    expect(docker?.[2].env?.NPM_TOKEN).toBe("npm_s3cr3t");
+    expect(docker?.[2].env).not.toHaveProperty("SENTRY_AUTH_TOKEN");
+    expect(stdout + stderr).not.toMatch(/s3cr3t/);
+  });
+
+  it("stops before shipping when a built file holds a build secret, without printing it", async () => {
+    const calls = runner(async (command, _args, options) => {
+      if (command !== "sh") return undefined;
+      await mkdir(join(options.cwd, "dist"), { recursive: true });
+      await writeFile(
+        join(options.cwd, "dist", "app.js"),
+        `const t="${options.env?.SENTRY_AUTH_TOKEN}"`,
+      );
+      return undefined;
+    });
+    const { code, stdout, stderr } = await deployStaging(calls, tokens);
+    expect(code).toBe(1);
+    expect(stderr).toContain(
+      "app.js holds the value of the build secret SENTRY_AUTH_TOKEN; nothing was shipped\n",
+    );
+    expect(
+      calls.mock.calls.some(([command]) => command === process.execPath),
+    ).toBe(false);
+    expect(stdout + stderr).not.toMatch(/s3cr3t/);
+  });
+
+  it("names a build secret with no value before building anything", async () => {
+    const calls = runner();
+    const { code, stderr } = await deployStaging(calls, {});
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "the repository has no value for NPM_TOKEN, SENTRY_AUTH_TOKEN, the build secret declared in turbo-vibe.yaml; store it as a repository secret with `setup`\n",
+    );
+    expect(calls).not.toHaveBeenCalled();
+  });
+
+  it("names every missing value at once, of every kind", async () => {
+    const calls = runner();
+    const { code, stderr } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      {
+        "turbo-vibe.yaml": withBuildSecrets.replace(
+          "    target: cloudflare-container\n",
+          "    target: cloudflare-container\n    secrets: [POSTMARK_TOKEN]\n",
+        ),
+      },
+      env,
+      calls,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain("staging has no value for POSTMARK_TOKEN");
+    expect(stderr).toContain(
+      "the repository has no value for NPM_TOKEN, SENTRY_AUTH_TOKEN",
+    );
+    expect(calls).not.toHaveBeenCalled();
+  });
+
+  it("skips a build whose secret is missing in a dry run, and says the service was not checked", async () => {
+    const calls = runner();
+    const { code, stdout } = await deployStaging(
+      calls,
+      { TURBO_VIBE_SECRETS: JSON.stringify({ NPM_TOKEN: "npm_s3cr3t" }) },
+      ["--dry-run"],
+    );
+    expect(code).toBe(0);
+    expect(stdout).toContain(
+      "web: not built, because the build secret SENTRY_AUTH_TOKEN has no value here (a pull request from a fork receives none; locally, set it to build)\n",
+    );
+    expect(stdout).toContain(
+      "dry run passed: web, api could not be fully built and checked (see above)",
+    );
+    expect(calls.mock.calls.some(([command]) => command === "sh")).toBe(false);
+  });
+
+  it("promotes without any build secret, since nothing is built", async () => {
+    const r2 = fakeR2({
+      ...seeded(record({})),
+      "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+        "archive",
+    });
+    const { code } = await run(
+      ["promote", "--env", "production"],
+      { "turbo-vibe.yaml": withBuildSecrets },
+      production,
+      runner(),
+      r2.fetch(),
+    );
+    expect(code).toBe(0);
   });
 });
 
@@ -1611,6 +2050,172 @@ services:
         assets:
           "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
       },
+    });
+  });
+
+  it("ships the environment's public value in the prebuilt output, and records the placeholder", async () => {
+    const withPublic = app.replace(
+      "    target: vercel-nextjs\n",
+      "    target: vercel-nextjs\n    public: [NEXT_PUBLIC_KEY]\n",
+    );
+    let shipped = "";
+    const calls = runner(async (_command, args, options) => {
+      if (args.includes("build") && args.includes("--standalone")) {
+        const output = join(options.cwd, ".vercel", "output", "static");
+        await mkdir(output, { recursive: true });
+        await writeFile(
+          join(output, "page.js"),
+          `key("${options.env?.NEXT_PUBLIC_KEY}")`,
+        );
+      }
+      if (args.includes("--prebuilt"))
+        shipped = await readFile(
+          join(options.cwd, ".vercel", "output", "static", "page.js"),
+          "utf8",
+        );
+      return undefined;
+    });
+    const { code, cwd } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      { "turbo-vibe.yaml": withPublic },
+      {
+        ...vercelEnv,
+        TURBO_VIBE_VARS: JSON.stringify({ NEXT_PUBLIC_KEY: "pk_staging" }),
+      },
+      calls,
+      fakeR2().fetch(),
+      { capture: capturing(outputs("staging")) },
+    );
+    expect(code).toBe(0);
+    expect(shipped).toBe('key("pk_staging")');
+    expect(
+      await readFile(
+        join(cwd, "app", ".vercel", "output", "static", "page.js"),
+        "utf8",
+      ),
+    ).toBe('key("__TURBO_VIBE_PUBLIC_NEXT_PUBLIC_KEY__")');
+    const archive = calls.mock.calls.find(
+      ([command, args]) => command === "tar" && args[0] === "-czf",
+    );
+    expect(archive?.[1]).toContain(join(cwd, "app", ".vercel", "output"));
+  });
+
+  describe("its own secrets", () => {
+    const withSecrets = app.replace(
+      "    target: vercel-nextjs\n",
+      "    target: vercel-nextjs\n    secrets: [OPENAI_API_KEY, STRIPE_SECRET_KEY]\n",
+    );
+    const values = {
+      TURBO_VIBE_SECRETS: JSON.stringify({
+        OPENAI_API_KEY: "sk-openai",
+        STRIPE_SECRET_KEY: "sk_stripe",
+      }),
+    };
+    const vercelApi = (failed: unknown[] = []) => {
+      const order: string[] = [];
+      const fetch = fakeR2().fetch((url) => {
+        order.push(`api ${url}`);
+        return Response.json({ created: {}, failed }, { status: 201 });
+      });
+      const calls = runner((_command, args) => {
+        if (args.includes("--prebuilt")) order.push("vercel deploy --prebuilt");
+        return undefined;
+      });
+      return { fetch, calls, order };
+    };
+    const deployStaging = (
+      fetch: typeof globalThis.fetch,
+      calls: ReturnType<typeof runner>,
+      extra: string[] = [],
+    ) =>
+      run(
+        [
+          "deploy",
+          "--env",
+          "staging",
+          "--build-id",
+          "abc1230000000000000000000000000000000000",
+          ...extra,
+        ],
+        { "turbo-vibe.yaml": withSecrets },
+        { ...vercelEnv, ...values },
+        calls,
+        fetch,
+        { capture: capturing(outputs("staging")) },
+      );
+
+    it("sets each one on the environment's Vercel project, as a sensitive production variable, before the output ships", async () => {
+      const { fetch, calls, order } = vercelApi();
+      const { code, stdout, stderr } = await deployStaging(fetch, calls);
+      expect(code).toBe(0);
+      const url =
+        "https://api.vercel.com/v10/projects/prj_staging/env?upsert=true&teamId=team_123";
+      expect(order).toEqual([
+        `api ${url}`,
+        `api ${url}`,
+        "vercel deploy --prebuilt",
+      ]);
+      const sent = fetch.mock.calls
+        .filter(([input]) => String(input).startsWith("https://api.vercel.com"))
+        .map(([, init]) => ({
+          method: init?.method,
+          authorization: (init?.headers as Record<string, string> | undefined)
+            ?.authorization,
+          body: JSON.parse(String(init?.body)),
+        }));
+      expect(sent).toEqual([
+        {
+          method: "POST",
+          authorization: "Bearer vercel-s3cr3t",
+          body: {
+            key: "OPENAI_API_KEY",
+            value: "sk-openai",
+            type: "sensitive",
+            target: ["production"],
+          },
+        },
+        {
+          method: "POST",
+          authorization: "Bearer vercel-s3cr3t",
+          body: {
+            key: "STRIPE_SECRET_KEY",
+            value: "sk_stripe",
+            type: "sensitive",
+            target: ["production"],
+          },
+        },
+      ]);
+      const build = calls.mock.calls.find(([, args]) => args.includes("build"));
+      expect(build?.[2].env).not.toHaveProperty("OPENAI_API_KEY");
+      expect(stdout + stderr).not.toMatch(/sk-openai|sk_stripe/);
+    });
+
+    it("stops before shipping when Vercel reports a failure, naming the key and never the value", async () => {
+      const { fetch, calls, order } = vercelApi([{ error: { code: "x" } }]);
+      const { code, stdout, stderr } = await deployStaging(fetch, calls);
+      expect(code).toBe(1);
+      expect(stderr).toContain(
+        "cannot set OPENAI_API_KEY on the Vercel project of web in staging (HTTP 201)\n",
+      );
+      expect(order).not.toContain("vercel deploy --prebuilt");
+      expect(stdout + stderr).not.toMatch(/sk-openai|sk_stripe/);
+    });
+
+    it("calls nothing in a dry run", async () => {
+      const { fetch, calls } = vercelApi();
+      const { code } = await deployStaging(fetch, calls, ["--dry-run"]);
+      expect(code).toBe(0);
+      expect(
+        fetch.mock.calls.some(([input]) =>
+          String(input).startsWith("https://api.vercel.com"),
+        ),
+      ).toBe(false);
     });
   });
 

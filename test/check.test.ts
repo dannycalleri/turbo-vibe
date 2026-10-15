@@ -919,6 +919,77 @@ describe("against recorded fakes", () => {
       ).toEqual(["ok", "warn"]);
     });
 
+    it("names a build secret the repository lacks", async () => {
+      repo("production", ["required_reviewers"], []);
+      server.use(
+        http.get("https://api.github.com/repos/acme/app/actions/secrets", () =>
+          HttpResponse.json({ secrets: [{ name: "OTHER" }] }),
+        ),
+      );
+      const findings = await github({
+        ...context(
+          container.replace(
+            "build: { dockerfile: Dockerfile }",
+            "build: { dockerfile: Dockerfile, secrets: [NPM_TOKEN] }",
+          ),
+          githubEnv,
+        ),
+        environment: "production" as const,
+      });
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "fail",
+          message: "the repository is missing the build secrets NPM_TOKEN",
+        }),
+      );
+    });
+
+    it("names a public value that production lacks among its variables", async () => {
+      repo("production", ["required_reviewers"], []);
+      server.use(
+        http.get(
+          "https://api.github.com/repos/acme/app/environments/production/variables",
+          () => HttpResponse.json({ variables: [{ name: "OTHER" }] }),
+        ),
+      );
+      const findings = await github({
+        ...context(
+          `${container}  web:\n    kind: frontend\n    target: cloudflare-static\n    serve_with: api\n    public: [VITE_POSTHOG_KEY]\n    build: { command: x, output: dist }\n`,
+          githubEnv,
+        ),
+        environment: "production" as const,
+      });
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "fail",
+          message:
+            "the production environment is missing the public values VITE_POSTHOG_KEY",
+        }),
+      );
+    });
+
+    it("names a declared secret that production lacks", async () => {
+      repo("production", ["required_reviewers"], []);
+      const findings = await github({
+        ...context(
+          container.replace(
+            "    target: cloudflare-container\n",
+            "    target: cloudflare-container\n    secrets: [STRIPE_SECRET_KEY]\n",
+          ),
+          githubEnv,
+        ),
+        environment: "production" as const,
+      });
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "fail",
+          message: expect.stringMatching(
+            /^the production environment is missing .*STRIPE_SECRET_KEY/,
+          ),
+        }),
+      );
+    });
+
     it("warns, without failing, when production has no reviewers, and names the secrets it lacks", async () => {
       repo("production", [], ["CLOUDFLARE_API_TOKEN"]);
       const production = {

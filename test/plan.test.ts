@@ -75,6 +75,42 @@ describe("derivePlan", () => {
 });
 
 describe("formatPlan", () => {
+  it("lists a service's secret names under it, and never a value", () => {
+    const text = formatPlan(
+      derivePlan(
+        config(
+          backendOnly.replace(
+            "    target: cloudflare-container\n",
+            "    target: cloudflare-container\n    secrets: [STRIPE_SECRET_KEY, POSTMARK_TOKEN]\n",
+          ),
+        ),
+      ),
+    );
+    expect(text).toContain(
+      "  api  backend  cloudflare-container  https://staging.acme.example.com/api/\n    secrets: STRIPE_SECRET_KEY, POSTMARK_TOKEN\n",
+    );
+  });
+
+  it("lists a frontend's public values and a build's secrets by name", () => {
+    const text = formatPlan(
+      derivePlan(
+        config(`version: 1
+project: acme
+domain: acme.example.com
+services:
+  web:
+    kind: frontend
+    target: cloudflare-static
+    public: [VITE_POSTHOG_KEY]
+    build: { command: x, output: dist, secrets: [NPM_TOKEN] }
+`),
+      ),
+    );
+    expect(text).toContain(
+      "    public: VITE_POSTHOG_KEY\n    build secrets: NPM_TOKEN",
+    );
+  });
+
   it("lists each environment with its services", () => {
     expect(formatPlan(derivePlan(config(backendOnly)))).toBe(
       [

@@ -1,5 +1,5 @@
 import { BuildStore } from "../builds.js";
-import { stateSecrets } from "../infrastructure.js";
+import { stateSecrets } from "../contract.js";
 import type { Check, CheckContext, Finding } from "./types.js";
 import { fail, missing, ok } from "./types.js";
 

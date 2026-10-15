@@ -15,6 +15,7 @@ import app
 class HealthTest(unittest.TestCase):
     def setUp(self):
         app.Handler.build_id = "abc123"
+        app.Handler.greeting_set = False
         self.server = app.serve(0)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -25,7 +26,14 @@ class HealthTest(unittest.TestCase):
 
     def test_health_reports_the_build_id(self):
         with urllib.request.urlopen(f"{self.base}/api/health") as response:
-            self.assertEqual(json.load(response), {"build_id": "abc123"})
+            self.assertEqual(
+                json.load(response), {"build_id": "abc123", "greeting_set": False}
+            )
+
+    def test_health_says_whether_the_declared_secret_reached_it(self):
+        app.Handler.greeting_set = True
+        with urllib.request.urlopen(f"{self.base}/api/health") as response:
+            self.assertTrue(json.load(response)["greeting_set"])
 
     def test_other_paths_are_not_found(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:

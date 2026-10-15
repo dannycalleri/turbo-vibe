@@ -9,14 +9,24 @@ import {
   type Outputs,
 } from "./builds.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
+import { stateSecrets } from "./contract.js";
 import {
   type Connection,
   runtimeUrl,
   transactionPoolerProblem,
 } from "./database.js";
-import { requiredSecrets, stateSecrets } from "./infrastructure.js";
+import { requiredSecrets } from "./infrastructure.js";
 import type { Io } from "./io.js";
 import { callbackUrl, hostOf, layout, originSettings } from "./origins.js";
+import {
+  appPublicValues,
+  appSecrets,
+  appSecretValues,
+  buildSecrets,
+  buildSecretValues,
+  missingBuildSecrets,
+  placeholder,
+} from "./secrets.js";
 
 export interface Project {
   config: Config;
@@ -61,6 +71,9 @@ export function runtimeSecretNames(config: Config): string[] {
     ...(layout(config, "staging").crossOrigin ? originSecrets : []),
   ];
 }
+
+const declaredSecrets = (service: Config["services"][string]) =>
+  "secrets" in service ? (service.secrets ?? []) : [];
 
 function needsOutputs(config: Config): boolean {
   return Object.values(config.services).some(
@@ -125,10 +138,14 @@ function runtimeSecrets(
 // A frontend build bakes whatever it reads into public files, so it never sees a credential.
 function withoutCredentials(
   env: Readonly<Record<string, string | undefined>>,
+  config: Config,
 ): Record<string, string | undefined> {
   const credentials = new Set<string>([
     ...stateSecrets,
     ...Object.values(adapters).flatMap((adapter) => adapter.secrets),
+    ...appSecrets(config).keys(),
+    ...buildSecrets(config).keys(),
+    "TURBO_VIBE_SECRETS",
   ]);
   return Object.fromEntries(
     Object.entries(env).filter(([name]) => !credentials.has(name)),
@@ -156,6 +173,7 @@ export function environmentSecrets(
     ...new Set([
       ...requiredSecrets(config),
       ...deploySecrets(config),
+      ...appSecrets(config).keys(),
       ...(environment === "production" ? ["TURBO_VIBE_BUILDS_BUCKET"] : []),
     ]),
   ].sort();
@@ -169,6 +187,52 @@ interface DeployRun {
   store?: BuildStore;
   recorded?: Readonly<Record<string, Outputs>>;
   unchecked?: string[];
+  appSecrets?: Readonly<Record<string, string>>;
+  publicValues?: Readonly<Record<string, string>>;
+  buildSecrets?: Readonly<Record<string, string>>;
+}
+
+function servicePublic(
+  service: Config["services"][string],
+  run: DeployRun,
+  cleaned: Record<string, string | undefined>,
+): {
+  publicValues: Record<string, string>;
+  buildEnv: Record<string, string | undefined>;
+} {
+  const names = service.kind === "frontend" ? (service.public ?? []) : [];
+  return {
+    publicValues: Object.fromEntries(
+      names.flatMap((name) => {
+        const value = run.publicValues?.[name];
+        return value === undefined ? [] : [[name, value]];
+      }),
+    ),
+    buildEnv: {
+      ...cleaned,
+      ...Object.fromEntries(names.map((name) => [name, placeholder(name)])),
+    },
+  };
+}
+
+function serviceSecrets(
+  config: Config,
+  service: Config["services"][string],
+  run: DeployRun,
+): { secretNames: string[]; secrets: Record<string, string> } {
+  const own = declaredSecrets(service);
+  const values = Object.fromEntries(
+    own.flatMap((name) => {
+      const value = run.appSecrets?.[name];
+      return value === undefined ? [] : [[name, value]];
+    }),
+  );
+  return service.kind === "backend"
+    ? {
+        secretNames: [...runtimeSecretNames(config), ...own],
+        secrets: { ...run.secrets, ...values },
+      }
+    : { secretNames: own, secrets: values };
 }
 
 async function deployServices(
@@ -199,12 +263,34 @@ async function deployServices(
     io.stdout(
       `deploy ${context.name} (${context.service.target}) to ${environment}\n`,
     );
+    const service = context.service;
+    const ownBuild =
+      service.kind === "backend" || service.kind === "frontend"
+        ? (service.build.secrets ?? [])
+        : [];
+    const absent = ownBuild.filter((name) => !run.buildSecrets?.[name]);
+    if (run.dryRun && absent.length > 0) {
+      io.stdout(
+        `${context.name}: not built, because the build secret ${absent.join(", ")} has no value here (a pull request from a fork receives none; locally, set it to build)\n`,
+      );
+      run.unchecked?.push(context.name);
+      continue;
+    }
+    const buildSecretsOwn = Object.fromEntries(
+      ownBuild.flatMap((name) => {
+        const value = run.buildSecrets?.[name];
+        return value === undefined ? [] : [[name, value]];
+      }),
+    );
     const result = await adapter.deploy({
       ...context,
       buildId: run.buildId,
-      secretNames: runtimeSecretNames(config),
-      secrets: run.secrets,
-      buildEnv: withoutCredentials(io.env),
+      ...serviceSecrets(config, context.service, run),
+      ...servicePublic(context.service, run, {
+        ...withoutCredentials(io.env, config),
+        ...buildSecretsOwn,
+      }),
+      buildSecrets: buildSecretsOwn,
       outputs: run.outputs,
       dryRun: run.dryRun,
       configDir,
@@ -241,6 +327,12 @@ export async function deploy(
     return 1;
   }
   if (!dryRun && missingVariables(deploySecrets(config), io)) return 1;
+  const appSecrets = dryRun ? {} : appSecretValues(config, environment, io);
+  const publicValues = dryRun ? {} : appPublicValues(config, environment, io);
+  const build = buildSecretValues(config, io);
+  const buildMissing = !dryRun && build.missing.length > 0;
+  if (buildMissing) io.stderr(missingBuildSecrets(build.missing));
+  if (!appSecrets || !publicValues || buildMissing) return 1;
   const infra = dryRun ? {} : await environmentOutputs(config, environment, io);
   if (!infra) return 1;
   const secrets = dryRun ? {} : runtimeSecrets(config, environment, infra, io);
@@ -259,6 +351,9 @@ export async function deploy(
       secrets,
       outputs: infra,
       unchecked,
+      appSecrets,
+      publicValues,
+      buildSecrets: build.values,
       ...(store ? { store } : {}),
     },
     io,
@@ -268,7 +363,7 @@ export async function deploy(
     const checked =
       unchecked.length === 0
         ? "every service built and checked"
-        : `every service built, but ${unchecked.join(", ")} could not be checked (see above)`;
+        : `${unchecked.join(", ")} could not be fully built and checked (see above)`;
     io.stdout(
       `dry run passed: ${checked}; nothing was uploaded${database(config) ? ", and the database is not checked in a dry run" : ""}\n`,
     );
@@ -342,6 +437,10 @@ export async function promote(
     io.stdout(`${chosen.buildId}\n`);
     return 0;
   }
+  const appSecrets = appSecretValues(config, environment, io);
+  if (!appSecrets) return 1;
+  const publicValues = appPublicValues(config, environment, io);
+  if (!publicValues) return 1;
   io.stdout(`promote build ${chosen.buildId} to production\n`);
   const infra = await environmentOutputs(config, environment, io);
   if (!infra) return 1;
@@ -354,6 +453,8 @@ export async function promote(
       buildId: chosen.buildId,
       dryRun: false,
       secrets,
+      appSecrets,
+      publicValues,
       outputs: infra,
       store,
       recorded: chosen.services,

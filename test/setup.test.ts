@@ -25,6 +25,7 @@ interface FakeGitHub {
   refuseReviewers?: boolean;
   userReadable?: boolean;
   secrets?: Record<string, string[]>;
+  variables?: Record<string, string[]>;
   rules?: Record<string, string[]>;
 }
 
@@ -35,6 +36,7 @@ function fakeGh({
   refuseReviewers = false,
   userReadable = true,
   secrets = {},
+  variables = {},
   rules = {},
 }: FakeGitHub = {}) {
   const envs = new Map(Object.entries(environments));
@@ -44,16 +46,21 @@ function fakeGh({
     if (command !== "gh") return { code: 0, stdout: "{}" };
     if (!installed) throw new Error("spawn gh ENOENT");
     const [first, ...rest] = args;
-    if (first === "secret") {
-      const env = args[args.indexOf("--env") + 1] ?? "";
+    if (first === "secret" || first === "variable") {
+      const env = args.includes("--env")
+        ? (args[args.indexOf("--env") + 1] ?? "")
+        : "repository";
+      const listed = first === "secret" ? secrets : variables;
       if (rest[0] === "list")
         return {
           code: 0,
-          stdout: JSON.stringify(
-            (secrets[env] ?? []).map((name) => ({ name })),
-          ),
+          stdout: JSON.stringify((listed[env] ?? []).map((name) => ({ name }))),
         };
-      stored.push({ env, name: rest[1] ?? "", value: options.input });
+      stored.push({
+        env,
+        name: first === "variable" ? `variable ${rest[1]}` : (rest[1] ?? ""),
+        value: options.input,
+      });
       return { code: 0, stdout: "" };
     }
     if (first === "auth" && rest[0] === "token")
@@ -506,6 +513,187 @@ describe("setup", () => {
     expect(cloudflare.fetch).not.toHaveBeenCalled();
     for (const call of gh.calls()) expect(call).not.toContain("value of");
     expect(result.stdout + result.stderr).not.toContain("value of");
+  });
+
+  it("asks for a declared secret once per environment, stores each value in its own environment, and keeps it on a re-run", async () => {
+    const withSecret = project.replace(
+      "    target: cloudflare-container\n",
+      "    target: cloudflare-container\n    secrets: [STRIPE_SECRET_KEY]\n",
+    );
+    const kept = {
+      staging: cloudflareKept,
+      production: [...cloudflareKept, "TURBO_VIBE_BUILDS_BUCKET"],
+    };
+    const first = fakeGh({ secrets: kept });
+    const result = await setup(
+      ["--env", "staging", "production"],
+      first,
+      true,
+      fakeCloudflare(),
+      withSecret,
+    );
+    expect(result.code).toBe(0);
+    expect(first.stored).toEqual([
+      {
+        env: "staging",
+        name: "STRIPE_SECRET_KEY",
+        value:
+          "value of staging STRIPE_SECRET_KEY (declared by api: the value for staging)",
+      },
+      {
+        env: "production",
+        name: "STRIPE_SECRET_KEY",
+        value:
+          "value of production STRIPE_SECRET_KEY (declared by api: the value for production)",
+      },
+    ]);
+
+    const again = fakeGh({
+      secrets: {
+        staging: [...kept.staging, "STRIPE_SECRET_KEY"],
+        production: [...kept.production, "STRIPE_SECRET_KEY"],
+      },
+    });
+    const rerun = await setup(
+      ["--env", "staging", "production"],
+      again,
+      true,
+      fakeCloudflare(),
+      withSecret,
+    );
+    expect(rerun.code).toBe(0);
+    expect(again.stored).toEqual([]);
+    expect(rerun.stdout).toMatch(/staging: kept .*STRIPE_SECRET_KEY/);
+
+    const replaced = fakeGh({
+      secrets: {
+        staging: [...kept.staging, "STRIPE_SECRET_KEY"],
+        production: [...kept.production, "STRIPE_SECRET_KEY"],
+      },
+    });
+    await setup(
+      ["--env", "staging", "--replace", "STRIPE_SECRET_KEY"],
+      replaced,
+      true,
+      fakeCloudflare(),
+      withSecret,
+    );
+    expect(replaced.stored.map(({ env, name }) => [env, name])).toEqual([
+      ["staging", "STRIPE_SECRET_KEY"],
+    ]);
+  });
+
+  it("stores a public value as a variable in each environment, refuses one that could break out of a string, and keeps it on a re-run", async () => {
+    const withPublic = project.replace(
+      "    target: cloudflare-static\n",
+      "    target: cloudflare-static\n    public: [VITE_POSTHOG_KEY]\n",
+    );
+    const kept = {
+      staging: cloudflareKept,
+      production: [...cloudflareKept, "TURBO_VIBE_BUILDS_BUCKET"],
+    };
+    const answers = new Map([
+      ["staging", ['phc_"bad', "phc_staging"]],
+      ["production", ["phc_production"]],
+    ]);
+    const asked: string[] = [];
+    const first = fakeGh({ secrets: kept });
+    const result = await run(
+      ["setup", "--env", "staging", "production"],
+      { "turbo-vibe.yaml": withPublic },
+      {},
+      undefined,
+      fakeCloudflare().fetch,
+      {
+        capture: first.capture,
+        askSecret,
+        ask: async (question) => {
+          asked.push(question);
+          const environment = question.split(" ")[0] ?? "";
+          return answers.get(environment)?.shift() ?? ask(question);
+        },
+      },
+    );
+    expect(result.code).toBe(0);
+    expect(first.stored).toEqual([
+      {
+        env: "staging",
+        name: "variable VITE_POSTHOG_KEY",
+        value: "phc_staging",
+      },
+      {
+        env: "production",
+        name: "variable VITE_POSTHOG_KEY",
+        value: "phc_production",
+      },
+    ]);
+    expect(asked).toContain(
+      "staging VITE_POSTHOG_KEY (public value of web: the value for staging, which ends up in the built files)",
+    );
+    expect(result.stdout).toContain(
+      "a public value cannot hold a quote, a backslash, a < or a line break\n",
+    );
+
+    const again = fakeGh({
+      secrets: kept,
+      variables: {
+        staging: ["VITE_POSTHOG_KEY"],
+        production: ["VITE_POSTHOG_KEY"],
+      },
+    });
+    const rerun = await setup(
+      ["--env", "staging", "production"],
+      again,
+      true,
+      fakeCloudflare(),
+      withPublic,
+    );
+    expect(rerun.code).toBe(0);
+    expect(again.stored).toEqual([]);
+    expect(rerun.stdout).toContain("staging: kept VITE_POSTHOG_KEY\n");
+  });
+
+  it("stores a build secret once, as a repository secret, and keeps it on a re-run", async () => {
+    const withBuildSecret = project.replace(
+      'build: { dockerfile: Dockerfile, test: "go test ./..." }',
+      'build: { dockerfile: Dockerfile, test: "go test ./...", secrets: [NPM_TOKEN] }',
+    );
+    const kept = {
+      staging: cloudflareKept,
+      production: [...cloudflareKept, "TURBO_VIBE_BUILDS_BUCKET"],
+    };
+    const first = fakeGh({ secrets: kept });
+    const result = await setup(
+      ["--env", "staging", "production"],
+      first,
+      true,
+      fakeCloudflare(),
+      withBuildSecret,
+    );
+    expect(result.code).toBe(0);
+    expect(first.stored).toEqual([
+      {
+        env: "repository",
+        name: "NPM_TOKEN",
+        value:
+          "value of NPM_TOKEN (build secret of api: one value for every environment, which only the build receives)",
+      },
+    ]);
+    expect(first.calls()).toContain("secret set NPM_TOKEN --repo acme/app");
+
+    const again = fakeGh({
+      secrets: { ...kept, repository: ["NPM_TOKEN"] },
+    });
+    const rerun = await setup(
+      ["--env", "staging", "production"],
+      again,
+      true,
+      fakeCloudflare(),
+      withBuildSecret,
+    );
+    expect(rerun.code).toBe(0);
+    expect(again.stored).toEqual([]);
+    expect(rerun.stdout).toContain("repository: kept NPM_TOKEN\n");
   });
 
   it("stores nothing for an empty answer", async () => {
@@ -1393,6 +1581,58 @@ describe("setup --list", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(runner).not.toHaveBeenCalled();
     expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("tells the person to have the application's own values ready, by kind", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": project
+        .replace(
+          "    target: cloudflare-container\n",
+          "    target: cloudflare-container\n    secrets: [POSTMARK_TOKEN]\n",
+        )
+        .replace(
+          "    target: cloudflare-static\n",
+          "    target: cloudflare-static\n    public: [VITE_POSTHOG_KEY]\n",
+        ),
+    });
+    expect(result.stdout).toContain(
+      "Have the application's own values ready, which setup asks for: POSTMARK_TOKEN (one per environment), VITE_POSTHOG_KEY (public, one per environment)",
+    );
+  });
+
+  it("names the build secrets setup stores once, for the repository", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": project.replace(
+        'build: { dockerfile: Dockerfile, test: "go test ./..." }',
+        "build: { dockerfile: Dockerfile, secrets: [NPM_TOKEN] }",
+      ),
+    });
+    expect(result.stdout).toContain(
+      "Build secrets setup stores once, as repository secrets\n  NPM_TOKEN\n",
+    );
+  });
+
+  it("names the public values setup stores as variables, per environment", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": project.replace(
+        "    target: cloudflare-static\n",
+        "    target: cloudflare-static\n    public: [VITE_POSTHOG_KEY]\n",
+      ),
+    });
+    expect(result.stdout).toContain(
+      "Public values setup stores as variables in each GitHub environment\n  staging: VITE_POSTHOG_KEY\n  production: VITE_POSTHOG_KEY\n",
+    );
+  });
+
+  it("names a declared secret in every environment's list", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": project.replace(
+        "    target: cloudflare-container\n",
+        "    target: cloudflare-container\n    secrets: [STRIPE_SECRET_KEY]\n",
+      ),
+    });
+    expect(result.stdout).toMatch(/\n {2}staging: [^\n]*STRIPE_SECRET_KEY/);
+    expect(result.stdout).toMatch(/\n {2}production: [^\n]*STRIPE_SECRET_KEY/);
   });
 
   it("names the Vercel token and the Pro plan, and no Workers Paid, for a static site on Vercel", async () => {

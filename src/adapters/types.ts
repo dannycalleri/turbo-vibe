@@ -22,6 +22,8 @@ export interface DeployContext extends ServiceContext {
   buildId: string;
   secretNames: readonly string[];
   secrets: Readonly<Record<string, string>>;
+  publicValues: Readonly<Record<string, string>>;
+  buildSecrets: Readonly<Record<string, string>>;
   buildEnv: Readonly<Record<string, string | undefined>>;
   outputs: Readonly<Record<string, unknown>>;
   recorded?: Outputs;
@@ -88,6 +90,7 @@ export interface Adapter {
   buildsOwnOutput?: boolean;
   crossOrigin?: boolean;
   stability?: "beta";
+  runsServerCode?: boolean;
   secrets: readonly string[];
   outputs: readonly string[];
   plan(context: ServiceContext): Infrastructure;

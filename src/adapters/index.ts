@@ -7,7 +7,8 @@ import { workos } from "./workos.js";
 export type TargetCatalog = Readonly<
   Record<
     string,
-    Pick<Adapter, "kind" | "hostsStaticAssets" | "buildsOwnOutput">
+    Pick<Adapter, "kind" | "hostsStaticAssets" | "buildsOwnOutput"> &
+      Partial<Pick<Adapter, "secrets" | "runsServerCode">>
   >
 >;
 

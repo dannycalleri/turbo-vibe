@@ -49,7 +49,15 @@ It does the zone and bucket work through a token named `turbo-vibe-<project>-set
    - **Hobby** forbids commercial use, and `check` warns about it. A commercial project needs **Pro**.
 2. Create an access token (Account Settings → Tokens), scoped to the team. `setup` asks for it once, finds the team from it, and asks you to choose only when the token sees more than one.
 
-## 6. Run setup
+## 6. The application's own values (projects that declare `secrets`, `public` or `build.secrets`)
+
+Keep each value at hand before you run `setup`. Each kind is asked for and stored differently:
+
+- **Runtime secrets (`secrets`):** one value per environment, such as a test key for `staging` and `preview` and a live key for `production`. `setup` asks for each one per environment without echoing it, names the service that declares it, and stores it in that GitHub environment. The value reaches only the running service.
+- **Public values (`public`):** one value per environment. `setup` echoes each one as you type it and stores it as a variable of that GitHub environment, because it ends up in the built files.
+- **Build secrets (`build.secrets`):** one value for the whole repository. `setup` asks for each one once, without echoing it, and stores it as a repository secret. Only the build receives it.
+
+## 7. Run setup
 
 In a terminal, in the repository:
 
@@ -67,7 +75,7 @@ npx @turbo-vibe/cli@1 setup
 
 `setup` stores values that you never see, such as the Cloudflare tokens, so you cannot export them to run `check` in your shell. To verify an environment again, run `setup` again: it checks the values it stores in that run, and lists the ones it kept. To check a kept secret, set it again with `--replace <SECRET>`. `check` changes nothing except one probe object it writes to the state bucket and deletes, to prove R2 enforces state locking. To run it on a GitHub environment's stored secrets, add it as a step to a workflow job that uses that environment.
 
-## 7. What one account leaves shared
+## 8. What one account leaves shared
 
 Each environment has its own GitHub environment, state bucket and tokens, and `staging` and `production` accept runs from `main` only. Some things are still shared, because Cloudflare cannot narrow them within one account and zone:
 

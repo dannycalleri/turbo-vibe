@@ -1,3 +1,5 @@
+import { PublicName } from "./public-name";
+
 export const dynamic = "force-dynamic";
 
 export default function Page() {
@@ -6,6 +8,13 @@ export default function Page() {
       <h1>turbo-vibe Next.js example</h1>
       <p>
         Build: <code id="build">{process.env.TURBO_VIBE_BUILD_ID}</code>
+      </p>
+      <p>
+        Greeting set:{" "}
+        <code id="greeting">{process.env.EXAMPLE_GREETING ? "yes" : "no"}</code>
+      </p>
+      <p>
+        Public name, inlined at build time: <PublicName />
       </p>
       <p>Rendered on the server at {new Date().toISOString()}</p>
     </main>

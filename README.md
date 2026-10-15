@@ -181,7 +181,7 @@ Moving between vendors is a different question. The kit sets up each host the sa
 A staging `deploy` builds every service once and records what it shipped in staging's state bucket, at `<project>/builds/<build id>.json`. Production reads those records from there and cannot change them:
 
 - the container image's registry digest (`docker build`, then `wrangler containers push`);
-- an archive of each static frontend's built files.
+- an archive of each static frontend's built files, with a placeholder where each [public value](#public-values-in-a-frontend-build) goes.
 
 `smoke --env staging` marks that record `passed` or `failed`.
 
@@ -217,7 +217,7 @@ npx @turbo-vibe/cli@1 preview remove --branch "$BRANCH"
 - **Removal:** `preview remove` deletes the preview's container application and destroys the preview's own state. It refuses to destroy anything that is not a preview.
 - **Promotion:** preview builds are never recorded, so they cannot be promoted.
 
-The reusable `preview.yml` workflow runs this for you on `pull_request` events: `opened`, `synchronize` and `reopened` deploy, `closed` removes. It runs in the `preview` GitHub environment, which `setup` creates with its own state bucket and tokens, so pull request code never receives the `staging` or `production` GitHub environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. The bootstrap checklist's [What one account leaves shared](docs/bootstrap.md#7-what-one-account-leaves-shared) lists every such limit. It posts the preview's URLs (or the reason there is none) as a comment on the pull request: a page at its root, and a backend with no page on its hostname at `/api/health`, which reports the build it runs. A pull request from a fork gets no preview, because its run receives no secrets, and the run says so. `.github/workflows/previews.yml` previews the kit's Python and Vercel examples.
+The reusable `preview.yml` workflow runs this for you on `pull_request` events: `opened`, `synchronize` and `reopened` deploy, `closed` removes. It runs in the `preview` GitHub environment, which `setup` creates with its own state bucket and tokens, so pull request code never receives the `staging` or `production` GitHub environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. The bootstrap checklist's [What one account leaves shared](docs/bootstrap.md#8-what-one-account-leaves-shared) lists every such limit. It posts the preview's URLs (or the reason there is none) as a comment on the pull request: a page at its root, and a backend with no page on its hostname at `/api/health`, which reports the build it runs. A pull request from a fork gets no preview, because its run receives no secrets, and the run says so. `.github/workflows/previews.yml` previews the kit's Python and Vercel examples.
 
 ### What a backend must do
 
@@ -315,6 +315,17 @@ A `vercel-nextjs` frontend is built in CI with `vercel build --prod`, which uses
 
 The build receives `BUILD_ID` and no kit credentials. To show it on a page, inline it at build time, as `examples/nextjs/next.config.mjs` does. A value read at request time would describe the environment, not the build. The kit adds `/_turbo-vibe/build-id` to the output for `smoke`. During the build it puts a temporary `.vercel/project.json` in `root`, and restores yours afterwards if you have run `vercel link` there. With a backend in the project, the app gets `TURBO_VIBE_API_URL` as a Vercel environment variable at runtime, as `vercel-static` does.
 
+The app's server code can read its own secrets, declared like a backend's (see [Your application's own secrets](#your-applications-own-secrets)):
+
+```yaml
+  web:
+    kind: frontend
+    target: vercel-nextjs
+    secrets: [OPENAI_API_KEY]
+```
+
+Before each deploy, preview and promotion, the kit sets each value on that environment's Vercel project as a sensitive environment variable, through Vercel's API, so the value never enters the OpenTofu state. Route handlers and server actions read it with `process.env`. A page that reads one must render per request: it calls `cookies()`, `headers()` or `connection()`, or exports `dynamic = "force-dynamic"`. Next.js renders other pages once, during `vercel build`, which receives no secrets. `examples/nextjs` shows whether `EXAMPLE_GREETING` reached its page.
+
 ### Credentials
 
 `setup` stores these in each GitHub environment. `apply` and `deploy` read them and stop, naming any that are missing, before they run anything (`deploy` needs the `CLOUDFLARE_*` ones, plus the state ones, the `WORKOS_*` ones when it has an identity service, and the `VERCEL_*` ones when it has a Vercel frontend):
@@ -333,6 +344,64 @@ The build receives `BUILD_ID` and no kit credentials. To show it on a page, inli
 | `VERCEL_API_TOKEN`, `VERCEL_TEAM_ID` | a Vercel access token and the team (or personal account) ID, for `vercel-static` frontends (`apply` and `deploy`) |
 
 OpenTofu 1.10 or later must be on `PATH` as `tofu`. Docker must be available to `deploy`, which builds container images. Add `.turbo-vibe/` to the project's `.gitignore`; `apply` and `deploy` write their working files there.
+
+### Your application's own secrets
+
+A backend, or a Next.js app's server code, lists the names of the secrets it reads, and never their values:
+
+```yaml
+  api:
+    kind: backend
+    target: cloudflare-container
+    secrets: [STRIPE_SECRET_KEY, POSTMARK_TOKEN]
+```
+
+- **Where values live.** `setup` asks for each one in each GitHub environment, without echoing it: a test key for `staging` and `preview`, the live key for `production`. A second run keeps them; `setup --replace STRIPE_SECRET_KEY` asks again. `setup --list` names each one per environment, and `check` and `setup`'s final checks name a missing one.
+- **How they arrive.** `deploy`, `promote` and `preview deploy` give each value to the service that declares it: a container backend gets it in its environment, through the same temporary `0600` file as `DATABASE_URL`; a `vercel-nextjs` app gets it as a sensitive environment variable of that environment's Vercel project, set through Vercel's API (see [Next.js on Vercel](#nextjs-on-vercel-beta)). No value enters the repository, the OpenTofu state, a build record, a command line or the output, and no build sees one. The reusable workflows hand the environment's secrets to the steps that call the CLI as one variable, `TURBO_VIBE_SECRETS`, because a reusable workflow cannot name a project's own secrets; the CLI reads only the declared names.
+- **Before any change.** `apply`, `deploy`, `promote` and `preview deploy` stop, naming the secret and the GitHub environment, when a declared secret has no value. A pull request's dry run needs none, so a backend must start and answer `/api/health` without them.
+- **Names the kit already uses.** The secrets share each GitHub environment with the kit's credentials, so validation refuses `AWS_ACCESS_KEY_ID`, `DATABASE_URL`, `PORT` and the other names the kit sets or keeps. Rename the variable in the application, such as `APP_AWS_ACCESS_KEY_ID`.
+
+### Public values in a frontend build
+
+Frameworks inline some values into the files they build: `NEXT_PUBLIC_*` in Next.js, `import.meta.env.VITE_*` in Vite, or anything a build script writes. Such a value is public, but it often differs per environment, such as a test publishable key on staging and the live one in production. Since production receives the build that passed staging, a frontend lists those names, and the kit puts each environment's value in:
+
+```yaml
+  web:
+    kind: frontend
+    target: vercel-nextjs
+    public: [NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY]
+```
+
+- **Where values live.** `setup` asks for each one per environment, echoing it, and stores it as a variable of that GitHub environment. It refuses a value that holds a quote, a backslash, a `<` or a line break, because a value lands inside the framework's strings and HTML.
+- **How they arrive.** The build runs with each name set to a placeholder, `__TURBO_VIBE_PUBLIC_<NAME>__`, and the build record keeps those files. Before each deploy, preview and promotion, the kit copies the files and puts that environment's value in place of each placeholder, in every text file. It stops before anything ships if a placeholder is left or a value is missing.
+- **The guarantee.** Production gets the same build as staging, with production's public values. The code is the same; only the declared values differ, and the build record lists their names.
+- **Identifiers, not switches.** During the build, the code sees the placeholder, not the value. A key, an ID or a DSN works; a flag that the build compares, such as `if (process.env.NEXT_PUBLIC_FLAG === "on")`, would be decided with the placeholder. Subresource-integrity hashes do not survive the replacement.
+
+`examples/nextjs` shows `NEXT_PUBLIC_EXAMPLE_NAME` in a client component, and `examples/go-api`'s build script (`web/build.sh`) writes `EXAMPLE_PUBLIC_NAME` into its page.
+
+### Secrets only the build needs
+
+Some builds need a secret that the running app never reads: an `NPM_TOKEN` that installs a package from a private registry, a `SENTRY_AUTH_TOKEN` that uploads source maps. A service lists them under `build`:
+
+```yaml
+  api:
+    kind: backend
+    target: cloudflare-container
+    build:
+      dockerfile: Dockerfile
+      secrets: [NPM_TOKEN]
+```
+
+- **One value for every environment.** The kit builds once, on staging or in a preview, and promotes that build, so a build secret has a single value. `setup` asks for it once, without echoing it, and stores it as a repository secret. A same-repository pull request's dry run builds with it; a fork's receives none, and its dry run skips that service's build and says so.
+- **A frontend's build** gets its own build secrets in its environment, and nothing else of the kit's. After the build, the kit searches every built file for each value and stops before anything ships if it finds one, naming the secret and the file, never the value.
+- **A backend's `docker build`** gets each one as a BuildKit secret, `--secret id=<NAME>,env=<NAME>`. Read it in the step that needs it, and no image layer keeps it:
+
+  ```dockerfile
+  RUN --mount=type=secret,id=NPM_TOKEN NPM_TOKEN="$(cat /run/secrets/NPM_TOKEN)" npm ci
+  ```
+
+  The kit cannot search an image the way it searches files, so never copy the value into the image: no `ARG` or `ENV` for it, and no `COPY` of a file that holds it.
+- **Promotion** needs none, since it builds nothing. `deploy` and `preview deploy` stop before anything changes when a build secret has no value.
 
 ### Actions minutes per run
 

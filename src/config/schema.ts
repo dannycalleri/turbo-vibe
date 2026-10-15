@@ -19,13 +19,17 @@ const environment = z.strictObject({
   api_hostname: hostname.optional(),
 });
 
+const secretNames = z.array(z.string()).optional();
+
 const backend = z.strictObject({
   kind: z.literal("backend"),
   target: z.string(),
+  secrets: secretNames,
   build: z.strictObject({
     dockerfile: z.string().min(1),
     context: z.string().min(1).optional(),
     test: z.string().min(1).optional(),
+    secrets: secretNames,
   }),
   container: z
     .strictObject({
@@ -61,12 +65,15 @@ const backend = z.strictObject({
 const frontend = z.strictObject({
   kind: z.literal("frontend"),
   target: z.string(),
+  secrets: secretNames,
+  public: secretNames,
   serve_with: name.optional(),
   build: z.strictObject({
     command: z.string().min(1),
     output: z.string().min(1).optional(),
     root: z.string().min(1).optional(),
     test: z.string().min(1).optional(),
+    secrets: secretNames,
   }),
 });
 

@@ -117,6 +117,8 @@ jobs:
           WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
           VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          TURBO_VIBE_SECRETS: ${{ toJSON(secrets) }}
+          TURBO_VIBE_VARS: ${{ toJSON(vars) }}
         run: |
           set -o pipefail
           turbo-vibe --config "$CONFIG" preview deploy --branch "$BRANCH" --build-id "$BUILD_ID" | tee "$RUNNER_TEMP/preview.txt"

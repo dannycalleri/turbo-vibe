@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TargetCatalog } from "../src/adapters/index.js";
 import { schemaUrl } from "../src/config/json-schema.js";
-import { parseConfig } from "../src/config/load.js";
+import { parseConfig, reservedNames } from "../src/config/load.js";
 import { major } from "../src/version.js";
 import { run } from "./harness.js";
 
@@ -371,5 +371,189 @@ describe("published JSON Schema", () => {
       committed,
       "schema/turbo-vibe.schema.json is stale: run `make schema`",
     ).toBe(stdout);
+  });
+});
+
+describe("secrets", () => {
+  const withSecrets = (names: string) =>
+    valid.replace(
+      "    target: cloudflare-container\n",
+      `    target: cloudflare-container\n    secrets: [${names}]\n`,
+    );
+  const message = (name: string, problem: string) => ({
+    line: 8,
+    message: `\`services.api.secrets\` names \`${name}\`, which ${problem}`,
+  });
+
+  it("accepts a backend's list of names", () => {
+    expect(
+      parseConfig(withSecrets("STRIPE_SECRET_KEY, POSTMARK_TOKEN")).ok,
+    ).toBe(true);
+  });
+
+  it.each([
+    [
+      "stripe_key",
+      "is not a variable name: use capital letters, digits and underscores, starting with a letter",
+    ],
+    ["GITHUB_TOKEN", "starts with GITHUB_, which GitHub reserves"],
+    [
+      "PORT",
+      "is where turbo-vibe puts the port the container listens on in the service; rename it in the application, such as APP_PORT",
+    ],
+    [
+      "DATABASE_URL",
+      "is where turbo-vibe puts the database's connection string in the service; rename it in the application, such as APP_DATABASE_URL",
+    ],
+    [
+      "AWS_ACCESS_KEY_ID",
+      "is where turbo-vibe keeps the state bucket's credentials in the same GitHub environments; rename it in the application, such as APP_AWS_ACCESS_KEY_ID",
+    ],
+    [
+      "CLOUDFLARE_API_TOKEN",
+      "is where turbo-vibe keeps the cloudflare-container target's credentials in the same GitHub environments; rename it in the application, such as APP_CLOUDFLARE_API_TOKEN",
+    ],
+    [
+      "SUPABASE_ORGANIZATION",
+      "is where turbo-vibe keeps the Supabase organization's slug in the same GitHub environments; rename it in the application, such as APP_SUPABASE_ORGANIZATION",
+    ],
+    [
+      "TURBO_VIBE_ANYTHING",
+      "starts with TURBO_VIBE_, which turbo-vibe keeps for its own settings; rename it in the application, such as APP_TURBO_VIBE_ANYTHING",
+    ],
+  ])("refuses %s", (name, problem) => {
+    expect(problems(withSecrets(name))).toEqual([message(name, problem)]);
+  });
+
+  it("refuses a name listed twice", () => {
+    expect(problems(withSecrets("A_KEY, A_KEY"))).toEqual([
+      message("A_KEY", "is listed twice"),
+    ]);
+  });
+
+  it("reserves every credential the adapters declare, so a new adapter needs no second edit", () => {
+    const catalog: TargetCatalog = {
+      "cloudflare-container": {
+        kind: "backend",
+        hostsStaticAssets: true,
+        secrets: ["NEW_VENDOR_TOKEN"],
+      },
+      "cloudflare-static": { kind: "frontend", hostsStaticAssets: true },
+    };
+    expect(reservedNames(catalog).credentials.NEW_VENDOR_TOKEN).toBe(
+      "the cloudflare-container target's credentials",
+    );
+    expect(problems(withSecrets("NEW_VENDOR_TOKEN"), catalog)).toEqual([
+      message(
+        "NEW_VENDOR_TOKEN",
+        "is where turbo-vibe keeps the cloudflare-container target's credentials in the same GitHub environments; rename it in the application, such as APP_NEW_VENDOR_TOKEN",
+      ),
+    ]);
+  });
+
+  it("accepts secrets on a Next.js app, whose server code reads them", () => {
+    const source = valid
+      .replace(
+        "    target: cloudflare-static\n    serve_with: api\n",
+        "    target: vercel-nextjs\n    secrets: [OPENAI_API_KEY]\n",
+      )
+      .replace(
+        'build: { command: "pnpm build", output: web/dist }',
+        'build: { command: "npm ci" }',
+      );
+    expect(parseConfig(source).ok).toBe(true);
+  });
+
+  it("accepts public values on a frontend, checked like secret names", () => {
+    const withPublic = (names: string) =>
+      valid.replace(
+        "    serve_with: api\n",
+        `    serve_with: api\n    public: [${names}]\n`,
+      );
+    expect(parseConfig(withPublic("VITE_POSTHOG_KEY")).ok).toBe(true);
+    expect(problems(withPublic("PORT"))).toEqual([
+      {
+        line: 13,
+        message:
+          "`services.web.public` names `PORT`, which is where turbo-vibe puts the port the container listens on in the service; rename it in the application, such as APP_PORT",
+      },
+    ]);
+  });
+
+  it("refuses a name that is both secret and public", () => {
+    const source = withSecrets("SHARED_KEY").replace(
+      "    serve_with: api\n",
+      "    serve_with: api\n    public: [SHARED_KEY]\n",
+    );
+    expect(problems(source)).toEqual([
+      {
+        line: 14,
+        message:
+          "`services.web.public` names `SHARED_KEY`, which `services.api.secrets` already declares; a value is either secret or public",
+      },
+    ]);
+  });
+
+  it("accepts build secrets on a backend and a frontend, checked like the others", () => {
+    const source = valid
+      .replace(
+        'build: { dockerfile: Dockerfile, test: "make check" }',
+        'build: { dockerfile: Dockerfile, test: "make check", secrets: [NPM_TOKEN] }',
+      )
+      .replace(
+        'build: { command: "pnpm build", output: web/dist }',
+        'build: { command: "pnpm build", output: web/dist, secrets: [SENTRY_AUTH_TOKEN] }',
+      );
+    expect(parseConfig(source).ok).toBe(true);
+    expect(
+      problems(
+        source.replace("secrets: [NPM_TOKEN]", "secrets: [GITHUB_TOKEN]"),
+      ),
+    ).toEqual([
+      {
+        line: 8,
+        message:
+          "`services.api.build.secrets` names `GITHUB_TOKEN`, which starts with GITHUB_, which GitHub reserves",
+      },
+    ]);
+  });
+
+  it("refuses a build secret that is also a runtime secret", () => {
+    const source = withSecrets("NPM_TOKEN").replace(
+      'build: { dockerfile: Dockerfile, test: "make check" }',
+      'build: { dockerfile: Dockerfile, test: "make check", secrets: [NPM_TOKEN] }',
+    );
+    expect(problems(source)).toEqual([
+      {
+        line: 9,
+        message:
+          "`services.api.build.secrets` names `NPM_TOKEN`, which `services.api.secrets` already declares; a build secret has one value for every environment, a runtime secret one per environment",
+      },
+    ]);
+  });
+
+  it("refuses public values on a backend, whose build inlines nothing", () => {
+    expect(
+      problems(
+        withSecrets("A_KEY").replace(
+          "    secrets: [A_KEY]\n",
+          "    public: [A_KEY]\n",
+        ),
+      ),
+    ).toEqual([{ line: 8, message: "unknown key `services.api.public`" }]);
+  });
+
+  it("refuses secrets on a static frontend, whose build is public", () => {
+    const source = valid.replace(
+      "    target: cloudflare-static\n",
+      "    target: cloudflare-static\n    secrets: [ANALYTICS_KEY]\n",
+    );
+    expect(problems(source)).toEqual([
+      {
+        line: 12,
+        message:
+          "service `web` (cloudflare-static) cannot have secrets: its build is public, so a value would reach the browser",
+      },
+    ]);
   });
 });
