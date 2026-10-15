@@ -130,7 +130,7 @@ Every command validates the file before anything external runs, prints resource 
 
 **`apply`** writes the environment's OpenTofu root, saves a plan, prints its summary, and applies that plan. It refuses a plan that deletes or replaces a resource outside a preview unless given `--allow-deletions` (the reusable workflows' `allow-deletions` input).
 
-**`deploy --dry-run`** builds everything and validates the Worker without credentials. `deploy --env production` is refused, so production only ever runs promoted builds.
+**`deploy --dry-run`** builds everything and validates the Worker without credentials. It starts each backend image, and fails unless the container answers `/api/health` with the build ID and stops on `SIGTERM`. `deploy --env production` is refused, so production only ever runs promoted builds.
 
 **`promote --choose`** prints the build it would promote and changes nothing. `promote --build-id <id>` promotes exactly that build, and refuses it unless it passed on staging. `promote --confirm <id>` refuses unless `<id>` is the build it would choose.
 
@@ -230,7 +230,7 @@ ENV BUILD_ID=$BUILD_ID
 
 The ID lives in the image, so `smoke` proves which image is serving, and a promoted image reports the same ID in every environment. `smoke` fails unless it matches the build just deployed. A frontend's build command receives `BUILD_ID` too; the kit adds `/_turbo-vibe/build-id` to its output so `smoke` can check the page as well.
 
-The backend must also exit on `SIGTERM`: Cloudflare waits up to 15 minutes for a container that ignores it, and every rollout waits with it. `deploy --dry-run` starts the image and fails if `docker stop` has to kill it. The [adoption guide](docs/adoption.md#1-make-the-backend-report-its-build) has the checks to run locally.
+The backend must also exit on `SIGTERM`: Cloudflare waits up to 15 minutes for a container that ignores it, and every rollout waits with it. `deploy --dry-run` starts the image and fails unless `/api/health` reports the build ID it was given and `docker stop` stops it without killing it. The [adoption guide](docs/adoption.md#1-make-the-backend-report-its-build) has the checks to run locally.
 
 ### Sessions on their own container
 

@@ -79,8 +79,14 @@ async function buildAndPush(
   return digest;
 }
 
+const healthBuildId = async (response: Response) => {
+  const body: unknown = await response.json().catch(() => undefined);
+  const buildId = (body as { build_id?: unknown } | undefined)?.build_id;
+  return typeof buildId === "string" ? buildId : undefined;
+};
+
 // A deploy replaces running instances with SIGTERM, and Cloudflare waits 15 minutes before killing one that ignores it.
-async function stopsOnSigterm(
+async function meetsContract(
   context: DeployContext,
   backend: Backend,
 ): Promise<number> {
@@ -98,13 +104,15 @@ async function stopsOnSigterm(
       "linux/amd64",
       "--env",
       `PORT=${backendPort}`,
+      "--publish",
+      `127.0.0.1::${backendPort}`,
       tag,
     ],
     options,
   );
   const id = started.stdout.trim();
   if (started.code !== 0 || !id) {
-    io.stderr(`cannot start ${tag} to check that it stops on SIGTERM\n`);
+    io.stderr(`cannot start ${tag} to check its health route and SIGTERM\n`);
     return 1;
   }
   try {
@@ -116,10 +124,40 @@ async function stopsOnSigterm(
     );
     if (running.stdout.trim() !== "true") {
       io.stdout(
-        `${context.name}: the container exited by itself within 3 seconds, so whether it stops on SIGTERM is not checked\n`,
+        `${context.name}: the container exited by itself within 3 seconds, so its health route and whether it stops on SIGTERM are not checked\n`,
       );
       return 0;
     }
+    const published = await io.capture(
+      "docker",
+      ["port", id, `${backendPort}/tcp`],
+      options,
+    );
+    const port = published.stdout.trim().split("\n")[0]?.split(":").pop();
+    if (published.code !== 0 || !/^\d+$/.test(port ?? "")) {
+      io.stderr(
+        `${context.name}: the container published no port for ${backendPort}, so its health route is not reachable; it may have stopped (see docker logs) or the Docker daemon may not be local\n`,
+      );
+      return 1;
+    }
+    const health = await checkBuildId(
+      {
+        url: `http://127.0.0.1:${port}${healthPath}`,
+        read: healthBuildId,
+      },
+      context.buildId,
+      io,
+      { attempts: 10, delayMs: 1_000 },
+    );
+    if (!health.ok) {
+      io.stderr(
+        `${context.name}: ${health.message}. The smoke test after every deploy asks GET ${healthPath} on port ${backendPort} (also given as PORT) for JSON whose build_id is the ${buildIdVariable} build argument, so listen on 0.0.0.0, serve that route, and put ARG ${buildIdVariable} and ENV ${buildIdVariable}=$${buildIdVariable} in the Dockerfile's final stage\n`,
+      );
+      return 1;
+    }
+    io.stdout(
+      `${context.name}: the container answers ${healthPath} with build ${context.buildId}\n`,
+    );
     await io.run("docker", ["stop", "--time", "10", id], options);
     const exited = await io.capture(
       "docker",
@@ -209,7 +247,7 @@ export const cloudflareContainer: Adapter = {
       return { code: 1 };
     }
     if (context.dryRun && !context.recorded) {
-      const stopped = await stopsOnSigterm(context, context.service);
+      const stopped = await meetsContract(context, context.service);
       if (stopped !== 0) return { code: stopped };
     }
     let image = context.recorded?.image;
@@ -275,12 +313,7 @@ export const cloudflareContainer: Adapter = {
     return checkBuildId(
       {
         url: `https://${context.hostname}${healthPath}`,
-        read: async (response) => {
-          const body: unknown = await response.json().catch(() => undefined);
-          const buildId = (body as { build_id?: unknown } | undefined)
-            ?.build_id;
-          return typeof buildId === "string" ? buildId : undefined;
-        },
+        read: healthBuildId,
       },
       context.buildId,
       context.io,

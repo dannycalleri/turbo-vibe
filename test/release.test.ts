@@ -190,43 +190,55 @@ services:
     });
   });
 
-  describe("checks in a dry run that the container stops on SIGTERM", () => {
+  describe("checks in a dry run that the container answers its health route and stops on SIGTERM", () => {
+    const buildId = "abc1230000000000000000000000000000000000";
+    const healthUrl = "http://127.0.0.1:55001/api/health";
+
     function container(running: string, exitCode: string) {
       return vi.fn(async (_command: string, args: readonly string[]) => ({
         code: 0,
         stdout:
           args[0] === "run"
             ? "c0ffee\n"
-            : args.includes("{{.State.Running}}")
-              ? `${running}\n`
-              : `${exitCode}\n`,
+            : args[0] === "port"
+              ? "127.0.0.1:55001\n"
+              : args.includes("{{.State.Running}}")
+                ? `${running}\n`
+                : `${exitCode}\n`,
       }));
     }
 
-    async function dryRun(capture: ReturnType<typeof container>) {
+    const answering = (body: string) =>
+      vi.fn(async () => new Response(body, { status: 200 }));
+
+    async function dryRun(
+      capture: ReturnType<typeof container>,
+      fetch: typeof globalThis.fetch = answering(
+        JSON.stringify({ build_id: buildId, status: "ok" }),
+      ),
+    ) {
       const calls = runner();
       const result = await run(
-        [
-          "deploy",
-          "--env",
-          "staging",
-          "--build-id",
-          "abc1230000000000000000000000000000000000",
-          "--dry-run",
-        ],
+        ["deploy", "--env", "staging", "--build-id", buildId, "--dry-run"],
         { "turbo-vibe.yaml": project },
         {},
         calls,
-        undefined,
+        fetch,
         { capture },
       );
       return { ...result, calls };
     }
 
-    it("passes a container that exits when docker stop sends SIGTERM, and removes it", async () => {
+    it("passes a container that reports the build and exits on SIGTERM, and removes it", async () => {
       const capture = container("true", "0");
-      const { code, stdout, calls } = await dryRun(capture);
+      const fetch = answering(
+        JSON.stringify({ build_id: buildId, status: "ok" }),
+      );
+      const { code, stdout, calls } = await dryRun(capture, fetch);
       expect(code).toBe(0);
+      expect(stdout).toContain(
+        `api: the container answers /api/health with build ${buildId}\n`,
+      );
       expect(stdout).toContain("api: the container stops on SIGTERM\n");
       expect(capture).toHaveBeenCalledWith(
         "docker",
@@ -237,15 +249,83 @@ services:
           "linux/amd64",
           "--env",
           "PORT=8080",
-          "acme-api:abc1230000000000000000000000000000000000",
+          "--publish",
+          "127.0.0.1::8080",
+          `acme-api:${buildId}`,
         ],
         expect.anything(),
       );
+      expect(fetch).toHaveBeenCalledWith(healthUrl, expect.anything());
       expect(calls).toHaveBeenCalledWith(
         "docker",
         ["stop", "--time", "10", "c0ffee"],
         expect.anything(),
       );
+      expect(calls).toHaveBeenCalledWith(
+        "docker",
+        ["rm", "--force", "c0ffee"],
+        expect.anything(),
+      );
+    });
+
+    it.each([
+      [
+        "reports another build",
+        answering(JSON.stringify({ build_id: "local" })),
+        `${healthUrl} reports build local, expected ${buildId}`,
+      ],
+      [
+        "answers without JSON",
+        answering("ok"),
+        `${healthUrl} reports build (none), expected ${buildId}`,
+      ],
+      [
+        "does not answer",
+        vi.fn(async () => {
+          throw new Error("connection refused");
+        }),
+        `${healthUrl} unreachable: connection refused`,
+      ],
+    ])(
+      "fails a container whose health route %s, says how to fix it, and removes it",
+      async (_case, fetch, problem) => {
+        const { code, stderr, calls } = await dryRun(
+          container("true", "0"),
+          fetch as typeof globalThis.fetch,
+        );
+        expect(code).toBe(1);
+        expect(stderr).toContain(
+          `api: ${problem}. The smoke test after every deploy asks GET /api/health on port 8080`,
+        );
+        expect(stderr).toContain("ARG BUILD_ID and ENV BUILD_ID=$BUILD_ID");
+        expect(calls).not.toHaveBeenCalledWith(
+          "docker",
+          expect.arrayContaining(["stop"]),
+          expect.anything(),
+        );
+        expect(
+          calls.mock.calls.some(([command]) => command === process.execPath),
+        ).toBe(false);
+        expect(calls).toHaveBeenCalledWith(
+          "docker",
+          ["rm", "--force", "c0ffee"],
+          expect.anything(),
+        );
+      },
+    );
+
+    it("stops without probing when the container published no port", async () => {
+      const base = container("true", "0");
+      const capture = vi.fn(async (command: string, args: readonly string[]) =>
+        args[0] === "port" ? { code: 1, stdout: "" } : base(command, args),
+      );
+      const fetch = answering("{}");
+      const { code, stderr, calls } = await dryRun(capture, fetch);
+      expect(code).toBe(1);
+      expect(stderr).toContain(
+        "api: the container published no port for 8080, so its health route is not reachable",
+      );
+      expect(fetch).not.toHaveBeenCalled();
       expect(calls).toHaveBeenCalledWith(
         "docker",
         ["rm", "--force", "c0ffee"],
@@ -273,7 +353,7 @@ services:
       const { code, stdout, calls } = await dryRun(container("false", "1"));
       expect(code).toBe(0);
       expect(stdout).toContain(
-        "api: the container exited by itself within 3 seconds, so whether it stops on SIGTERM is not checked\n",
+        "api: the container exited by itself within 3 seconds, so its health route and whether it stops on SIGTERM are not checked\n",
       );
       expect(calls).not.toHaveBeenCalledWith(
         "docker",

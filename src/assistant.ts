@@ -177,8 +177,8 @@ Run each command, fix what fails, and run it again:
 
 1. \`${cli(version)} plan\` → staging and production, each service with its address. It needs no credentials.
 2. \`${cli(version)} test\` → each service's \`build.test\` passes.
-3. \`${cli(version)} deploy --env staging --dry-run --build-id local\` → each service builds, and the backend's image starts and stops on \`SIGTERM\`. It needs Docker and no credentials.
-4. With Docker: \`docker build --platform linux/amd64 --build-arg ${buildIdVariable}=local -t app .\`, then \`docker run -d --name app-check -p ${backendPort}:${backendPort} app\`, adding \`-e NAME=placeholder\` for any variable the app needs to start, such as \`DATABASE_URL\`. Then \`curl localhost:${backendPort}${healthPath}\` → JSON whose \`build_id\` is \`local\`. Finish with \`docker stop app-check\`, which should return at once, and \`docker rm app-check\`.
+3. \`${cli(version)} deploy --env staging --dry-run --build-id local\` → each service builds, and the backend's container answers \`${healthPath}\` with build \`local\` and stops on \`SIGTERM\`. It needs Docker and no credentials. Its error names what to fix.
+4. Only if the dry run says the container exited by itself (it needs variables to start, such as \`DATABASE_URL\`), check by hand: \`docker build --platform linux/amd64 --build-arg ${buildIdVariable}=local -t app .\`, then \`docker run -d --name app-check -p ${backendPort}:${backendPort} app\`, adding \`-e NAME=placeholder\` for any variable the app needs to start, such as \`DATABASE_URL\`. Then \`curl localhost:${backendPort}${healthPath}\` → JSON whose \`build_id\` is \`local\`. Finish with \`docker stop app-check\`, which should return at once, and \`docker rm app-check\`.
 
 Report what passed, what you could not run, and why.
 
