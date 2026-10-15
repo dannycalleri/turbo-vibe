@@ -22,6 +22,9 @@ import {
   appPublicValues,
   appSecrets,
   appSecretValues,
+  buildSecrets,
+  buildSecretValues,
+  missingBuildSecrets,
   placeholder,
 } from "./secrets.js";
 
@@ -141,6 +144,7 @@ function withoutCredentials(
     ...stateSecrets,
     ...Object.values(adapters).flatMap((adapter) => adapter.secrets),
     ...appSecrets(config).keys(),
+    ...buildSecrets(config).keys(),
     "TURBO_VIBE_SECRETS",
   ]);
   return Object.fromEntries(
@@ -185,6 +189,7 @@ interface DeployRun {
   unchecked?: string[];
   appSecrets?: Readonly<Record<string, string>>;
   publicValues?: Readonly<Record<string, string>>;
+  buildSecrets?: Readonly<Record<string, string>>;
 }
 
 function servicePublic(
@@ -258,15 +263,34 @@ async function deployServices(
     io.stdout(
       `deploy ${context.name} (${context.service.target}) to ${environment}\n`,
     );
+    const service = context.service;
+    const ownBuild =
+      service.kind === "backend" || service.kind === "frontend"
+        ? (service.build.secrets ?? [])
+        : [];
+    const absent = ownBuild.filter((name) => !run.buildSecrets?.[name]);
+    if (run.dryRun && absent.length > 0) {
+      io.stdout(
+        `${context.name}: not built, because the build secret ${absent.join(", ")} has no value here (a pull request from a fork receives none)\n`,
+      );
+      run.unchecked?.push(context.name);
+      continue;
+    }
+    const buildSecretsOwn = Object.fromEntries(
+      ownBuild.flatMap((name) => {
+        const value = run.buildSecrets?.[name];
+        return value === undefined ? [] : [[name, value]];
+      }),
+    );
     const result = await adapter.deploy({
       ...context,
       buildId: run.buildId,
       ...serviceSecrets(config, context.service, run),
-      ...servicePublic(
-        context.service,
-        run,
-        withoutCredentials(io.env, config),
-      ),
+      ...servicePublic(context.service, run, {
+        ...withoutCredentials(io.env, config),
+        ...buildSecretsOwn,
+      }),
+      buildSecrets: buildSecretsOwn,
       outputs: run.outputs,
       dryRun: run.dryRun,
       configDir,
@@ -304,9 +328,11 @@ export async function deploy(
   }
   if (!dryRun && missingVariables(deploySecrets(config), io)) return 1;
   const appSecrets = dryRun ? {} : appSecretValues(config, environment, io);
-  if (!appSecrets) return 1;
   const publicValues = dryRun ? {} : appPublicValues(config, environment, io);
-  if (!publicValues) return 1;
+  const build = buildSecretValues(config, io);
+  const buildMissing = !dryRun && build.missing.length > 0;
+  if (buildMissing) io.stderr(missingBuildSecrets(build.missing));
+  if (!appSecrets || !publicValues || buildMissing) return 1;
   const infra = dryRun ? {} : await environmentOutputs(config, environment, io);
   if (!infra) return 1;
   const secrets = dryRun ? {} : runtimeSecrets(config, environment, infra, io);
@@ -327,6 +353,7 @@ export async function deploy(
       unchecked,
       appSecrets,
       publicValues,
+      buildSecrets: build.values,
       ...(store ? { store } : {}),
     },
     io,
@@ -336,7 +363,7 @@ export async function deploy(
     const checked =
       unchecked.length === 0
         ? "every service built and checked"
-        : `every service built, but ${unchecked.join(", ")} could not be checked (see above)`;
+        : `${unchecked.join(", ")} could not be fully built and checked (see above)`;
     io.stdout(
       `dry run passed: ${checked}; nothing was uploaded${database(config) ? ", and the database is not checked in a dry run" : ""}\n`,
     );

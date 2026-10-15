@@ -44,6 +44,7 @@ describe("the Next.js example", () => {
       secretNames: [],
       secrets: {},
       publicValues: {},
+      buildSecrets: {},
       buildEnv: {
         PATH: process.env.PATH,
         HOME: process.env.HOME,

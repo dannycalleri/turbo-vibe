@@ -180,3 +180,39 @@ export async function withPublicValues(
   }
   return copy;
 }
+
+export function buildSecretValues(
+  config: Config,
+  io: Io,
+): { values: Record<string, string>; missing: string[] } {
+  const object = secretsObject(io);
+  const values: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const name of [...buildSecrets(config).keys()].sort()) {
+    const fromObject = object[name];
+    const value =
+      io.env[name] || (typeof fromObject === "string" ? fromObject : "");
+    if (value) values[name] = value;
+    else missing.push(name);
+  }
+  return { values, missing };
+}
+
+export async function leakedBuildSecret(
+  dir: string,
+  values: Readonly<Record<string, string>>,
+): Promise<{ file: string; name: string } | undefined> {
+  const entries = Object.entries(values);
+  if (entries.length === 0) return undefined;
+  for (const path of await files(dir)) {
+    const bytes = await readFile(path);
+    for (const [name, value] of entries) {
+      if (bytes.includes(value))
+        return { file: path.slice(dir.length + 1), name };
+    }
+  }
+  return undefined;
+}
+
+export const missingBuildSecrets = (names: readonly string[]) =>
+  `the repository has no value for ${names.join(", ")}, the build secret declared in turbo-vibe.yaml; store it as a repository secret with \`setup\`\n`;

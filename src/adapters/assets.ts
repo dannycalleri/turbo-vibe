@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { Outputs } from "../builds.js";
-import { withPublicValues } from "../secrets.js";
+import { leakedBuildSecret, withPublicValues } from "../secrets.js";
 import type { DeployContext } from "./types.js";
 import { buildIdPath } from "./wrangler.js";
 
@@ -14,6 +14,15 @@ export async function recordedOrBuilt(
     return typeof dir === "number" ? dir : withPublic(context, { dir });
   }
   const dir = await build();
+  if (typeof dir !== "number") {
+    const leaked = await leakedBuildSecret(dir, context.buildSecrets);
+    if (leaked) {
+      context.io.stderr(
+        `${leaked.file} holds the value of the build secret ${leaked.name}; nothing was shipped\n`,
+      );
+      return 1;
+    }
+  }
   if (typeof dir === "number" || !context.store)
     return typeof dir === "number" ? dir : withPublic(context, { dir });
   const archived = await archiveAssets(context, dir, context.store);

@@ -290,6 +290,7 @@ describe("secrets", () => {
     const delivers =
       /turbo-vibe --config "\$(?:CONFIG|config)" (apply --env|deploy --env staging --build-id "\$BUILD_ID"$|promote --env production --build-id|preview deploy)/m;
     let found = 0;
+    let dryRuns = 0;
     for (const file of [
       "deploy.yml",
       "promote.yml",
@@ -308,7 +309,13 @@ describe("secrets", () => {
         );
         for (const step of job.steps ?? []) {
           const passed = step.env?.TURBO_VIBE_SECRETS;
-          if (delivers.test(step.run ?? "")) {
+          if (step.run?.includes("--dry-run")) {
+            expect(passed, `${file} ${name}: ${step.run}`).toBe(
+              "${{ toJSON(secrets) }}",
+            );
+            expect(step.env?.TURBO_VIBE_VARS).toBeUndefined();
+            dryRuns++;
+          } else if (delivers.test(step.run ?? "")) {
             expect(passed, `${file} ${name}: ${step.run}`).toBe(
               "${{ toJSON(secrets) }}",
             );
@@ -331,6 +338,7 @@ describe("secrets", () => {
       }
     }
     expect(found).toBe(6);
+    expect(dryRuns).toBe(1);
   });
 
   it("gives secrets to no step except those that call the CLI, and never to the job or through $GITHUB_ENV", async () => {

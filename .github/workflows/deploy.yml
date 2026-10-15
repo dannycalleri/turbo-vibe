@@ -87,6 +87,8 @@ jobs:
           echo "$bin" >> "$GITHUB_PATH"
       - run: turbo-vibe --config "$CONFIG" test
       - run: turbo-vibe --config "$CONFIG" deploy --env staging --build-id "$BUILD_ID" --dry-run
+        env:
+          TURBO_VIBE_SECRETS: ${{ toJSON(secrets) }}
 
   staging:
     name: Deploy staging

@@ -49,6 +49,7 @@ describe("a promoted backend", () => {
       secretNames: [],
       secrets: {},
       publicValues: {},
+      buildSecrets: {},
       buildEnv: {},
       outputs: {},
       dryRun: true,

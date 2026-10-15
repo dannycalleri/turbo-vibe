@@ -8,6 +8,12 @@ import { requiredSecrets } from "./infrastructure.js";
 import type { Io } from "./io.js";
 import { migrate } from "./migrate.js";
 import { hostnameFor, hostOf, layout } from "./origins.js";
+import {
+  appPublicValues,
+  appSecretValues,
+  buildSecretValues,
+  missingBuildSecrets,
+} from "./secrets.js";
 
 const maxLabel = 63;
 // A certificate's common name holds at most 64 characters; Vercel issues one per hostname.
@@ -90,6 +96,11 @@ export async function deployPreview(
     return 0;
   }
   const environment = previewFor(branch, config);
+  const secrets = appSecretValues(config, environment, io);
+  const publicValues = appPublicValues(config, environment, io);
+  const missing = buildSecretValues(config, io).missing;
+  if (missing.length > 0) io.stderr(missingBuildSecrets(missing));
+  if (!secrets || !publicValues || missing.length > 0) return 1;
   for (const step of [
     () => apply(config, environment, io),
     () => migrate(project, environment, io),

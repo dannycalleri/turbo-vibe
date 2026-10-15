@@ -23,6 +23,7 @@ export interface DeployContext extends ServiceContext {
   secretNames: readonly string[];
   secrets: Readonly<Record<string, string>>;
   publicValues: Readonly<Record<string, string>>;
+  buildSecrets: Readonly<Record<string, string>>;
   buildEnv: Readonly<Record<string, string | undefined>>;
   outputs: Readonly<Record<string, unknown>>;
   recorded?: Outputs;

@@ -361,7 +361,7 @@ services:
         "api: the container exited by itself within 3 seconds, so its health route and whether it stops on SIGTERM are not checked\n",
       );
       expect(stdout).toContain(
-        "dry run passed: every service built, but api could not be checked (see above); nothing was uploaded\n",
+        "dry run passed: api could not be fully built and checked (see above); nothing was uploaded\n",
       );
       expect(capture).not.toHaveBeenCalledWith(
         "docker",
@@ -396,7 +396,7 @@ services:
     ]);
     expect(calls.mock.calls[2]?.[1]).toContain("--dry-run");
     expect(stdout).toContain(
-      "dry run passed: every service built, but api could not be checked (see above); nothing was uploaded\n",
+      "dry run passed: api could not be fully built and checked (see above); nothing was uploaded\n",
     );
     expect(
       (await workerConfig(cwd, "staging", "acme-api-staging")).containers[0],
@@ -1431,6 +1431,156 @@ describe("public values", () => {
     expect(await readFile(join(cwd, "dist", "app.js"), "utf8")).toContain(
       placeholderOf,
     );
+  });
+});
+
+describe("build secrets", () => {
+  const withBuildSecrets = project
+    .replace(
+      'build: { dockerfile: Dockerfile, test: "go test ./..." }',
+      'build: { dockerfile: Dockerfile, test: "go test ./...", secrets: [NPM_TOKEN] }',
+    )
+    .replace(
+      'build: { command: "pnpm build", output: dist, test: "pnpm test" }',
+      'build: { command: "pnpm build", output: dist, test: "pnpm test", secrets: [SENTRY_AUTH_TOKEN] }',
+    );
+  const tokens = {
+    TURBO_VIBE_SECRETS: JSON.stringify({
+      NPM_TOKEN: "npm_s3cr3t",
+      SENTRY_AUTH_TOKEN: "sntrys_s3cr3t",
+    }),
+  };
+  const deployStaging = (
+    calls: ReturnType<typeof runner>,
+    extraEnv: Record<string, string>,
+    extra: string[] = [],
+    capture = capturing(),
+  ) =>
+    run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+        ...extra,
+      ],
+      { "turbo-vibe.yaml": withBuildSecrets },
+      { ...env, ...extraEnv },
+      calls,
+      fakeR2().fetch(),
+      { capture },
+    );
+
+  it("gives each build exactly its own build secrets: the frontend in its environment, docker as BuildKit secrets", async () => {
+    const calls = runner();
+    const { code, stdout, stderr } = await deployStaging(calls, tokens);
+    expect(code).toBe(0);
+    const frontend = calls.mock.calls.find(([command]) => command === "sh");
+    expect(frontend?.[2].env?.SENTRY_AUTH_TOKEN).toBe("sntrys_s3cr3t");
+    expect(frontend?.[2].env).not.toHaveProperty("NPM_TOKEN");
+    expect(frontend?.[2].env).not.toHaveProperty("TURBO_VIBE_SECRETS");
+    const docker = calls.mock.calls.find(
+      ([command, args]) => command === "docker" && args[0] === "build",
+    );
+    expect(docker?.[1]).toEqual(
+      expect.arrayContaining(["--secret", "id=NPM_TOKEN,env=NPM_TOKEN"]),
+    );
+    expect(docker?.[1].join(" ")).not.toContain("npm_s3cr3t");
+    expect(docker?.[2].env?.NPM_TOKEN).toBe("npm_s3cr3t");
+    expect(docker?.[2].env).not.toHaveProperty("SENTRY_AUTH_TOKEN");
+    expect(stdout + stderr).not.toMatch(/s3cr3t/);
+  });
+
+  it("stops before shipping when a built file holds a build secret, without printing it", async () => {
+    const calls = runner(async (command, _args, options) => {
+      if (command !== "sh") return undefined;
+      await mkdir(join(options.cwd, "dist"), { recursive: true });
+      await writeFile(
+        join(options.cwd, "dist", "app.js"),
+        `const t="${options.env?.SENTRY_AUTH_TOKEN}"`,
+      );
+      return undefined;
+    });
+    const { code, stdout, stderr } = await deployStaging(calls, tokens);
+    expect(code).toBe(1);
+    expect(stderr).toContain(
+      "app.js holds the value of the build secret SENTRY_AUTH_TOKEN; nothing was shipped\n",
+    );
+    expect(
+      calls.mock.calls.some(([command]) => command === process.execPath),
+    ).toBe(false);
+    expect(stdout + stderr).not.toMatch(/s3cr3t/);
+  });
+
+  it("names a build secret with no value before building anything", async () => {
+    const calls = runner();
+    const { code, stderr } = await deployStaging(calls, {});
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "the repository has no value for NPM_TOKEN, SENTRY_AUTH_TOKEN, the build secret declared in turbo-vibe.yaml; store it as a repository secret with `setup`\n",
+    );
+    expect(calls).not.toHaveBeenCalled();
+  });
+
+  it("names every missing value at once, of every kind", async () => {
+    const calls = runner();
+    const { code, stderr } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      {
+        "turbo-vibe.yaml": withBuildSecrets.replace(
+          "    target: cloudflare-container\n",
+          "    target: cloudflare-container\n    secrets: [POSTMARK_TOKEN]\n",
+        ),
+      },
+      env,
+      calls,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain("staging has no value for POSTMARK_TOKEN");
+    expect(stderr).toContain(
+      "the repository has no value for NPM_TOKEN, SENTRY_AUTH_TOKEN",
+    );
+    expect(calls).not.toHaveBeenCalled();
+  });
+
+  it("skips a build whose secret is missing in a dry run, and says the service was not checked", async () => {
+    const calls = runner();
+    const { code, stdout } = await deployStaging(
+      calls,
+      { TURBO_VIBE_SECRETS: JSON.stringify({ NPM_TOKEN: "npm_s3cr3t" }) },
+      ["--dry-run"],
+    );
+    expect(code).toBe(0);
+    expect(stdout).toContain(
+      "web: not built, because the build secret SENTRY_AUTH_TOKEN has no value here (a pull request from a fork receives none)\n",
+    );
+    expect(stdout).toContain(
+      "dry run passed: web, api could not be fully built and checked (see above)",
+    );
+    expect(calls.mock.calls.some(([command]) => command === "sh")).toBe(false);
+  });
+
+  it("promotes without any build secret, since nothing is built", async () => {
+    const r2 = fakeR2({
+      ...seeded(record({})),
+      "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+        "archive",
+    });
+    const { code } = await run(
+      ["promote", "--env", "production"],
+      { "turbo-vibe.yaml": withBuildSecrets },
+      production,
+      runner(),
+      r2.fetch(),
+    );
+    expect(code).toBe(0);
   });
 });
 

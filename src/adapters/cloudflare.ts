@@ -38,6 +38,10 @@ function dockerBuild(
       "linux/amd64",
       "--build-arg",
       `${buildIdVariable}=${context.buildId}`,
+      ...Object.keys(context.buildSecrets).flatMap((name) => [
+        "--secret",
+        `id=${name},env=${name}`,
+      ]),
       "--file",
       dockerfile,
       "--tag",
