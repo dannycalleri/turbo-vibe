@@ -1015,14 +1015,12 @@ describe("runtime secrets", () => {
   ) {
     const uploaded: unknown[] = [];
     const modes: number[] = [];
-    const calls = runner((_command, args) => {
+    const calls = runner(async (_command, args) => {
       const index = args.indexOf("--secrets-file");
       if (index >= 0) {
         const file = args[index + 1] as string;
-        void readFile(file, "utf8").then((body) =>
-          uploaded.push(JSON.parse(body)),
-        );
-        void stat(file).then((info) => modes.push(info.mode & 0o777));
+        uploaded.push(JSON.parse(await readFile(file, "utf8")));
+        modes.push((await stat(file)).mode & 0o777);
       }
       return undefined;
     });
@@ -1231,11 +1229,11 @@ describe("runtime secrets", () => {
 
   it("promotes with production's values, and checks them only after choosing", async () => {
     const uploaded: unknown[] = [];
-    const calls = runner((_command, args) => {
+    const calls = runner(async (_command, args) => {
       const index = args.indexOf("--secrets-file");
       if (index >= 0)
-        void readFile(args[index + 1] as string, "utf8").then((body) =>
-          uploaded.push(JSON.parse(body)),
+        uploaded.push(
+          JSON.parse(await readFile(args[index + 1] as string, "utf8")),
         );
       return undefined;
     });
