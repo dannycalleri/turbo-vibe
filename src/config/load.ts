@@ -264,6 +264,33 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
     if (!("secrets" in service)) continue;
     for (const secret of service.secrets ?? []) secretOwners.set(secret, name);
   }
+  const publicOwners = new Map<string, string>();
+  for (const [name, service] of Object.entries(config.services)) {
+    if (service.kind !== "frontend") continue;
+    for (const value of service.public ?? []) publicOwners.set(value, name);
+  }
+  for (const [name, service] of Object.entries(config.services)) {
+    if (service.kind !== "backend" && service.kind !== "frontend") continue;
+    const seen = new Set<string>();
+    for (const secret of service.build.secrets ?? []) {
+      const runtime = secretOwners.get(secret);
+      const shown = publicOwners.get(secret);
+      const problem = seen.has(secret)
+        ? "is listed twice"
+        : runtime
+          ? `\`services.${runtime}.secrets\` already declares; a build secret has one value for every environment, a runtime secret one per environment`
+          : shown
+            ? `\`services.${shown}.public\` already declares; a value is either secret or public`
+            : nameProblem(secret, reserved);
+      seen.add(secret);
+      if (problem) {
+        problems.push({
+          path: ["services", name, "build", "secrets"],
+          message: `\`services.${name}.build.secrets\` names \`${secret}\`, which ${problem}`,
+        });
+      }
+    }
+  }
   for (const [name, service] of Object.entries(config.services)) {
     if (service.kind !== "frontend" || !service.public) continue;
     const seen = new Set<string>();

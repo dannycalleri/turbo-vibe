@@ -25,6 +25,17 @@ export function publicValueProblem(value: string): string | undefined {
     : undefined;
 }
 
+export function buildSecrets(config: Config): Map<string, string[]> {
+  const declared = new Map<string, string[]>();
+  for (const [name, service] of Object.entries(config.services)) {
+    if (service.kind !== "backend" && service.kind !== "frontend") continue;
+    for (const secret of service.build.secrets ?? []) {
+      declared.set(secret, [...(declared.get(secret) ?? []), name]);
+    }
+  }
+  return declared;
+}
+
 export function appSecrets(config: Config): Map<string, string[]> {
   const declared = new Map<string, string[]>();
   for (const [name, service] of Object.entries(config.services)) {

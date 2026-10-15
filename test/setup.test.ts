@@ -47,7 +47,9 @@ function fakeGh({
     if (!installed) throw new Error("spawn gh ENOENT");
     const [first, ...rest] = args;
     if (first === "secret" || first === "variable") {
-      const env = args[args.indexOf("--env") + 1] ?? "";
+      const env = args.includes("--env")
+        ? (args[args.indexOf("--env") + 1] ?? "")
+        : "repository";
       const listed = first === "secret" ? secrets : variables;
       if (rest[0] === "list")
         return {
@@ -649,6 +651,49 @@ describe("setup", () => {
     expect(rerun.code).toBe(0);
     expect(again.stored).toEqual([]);
     expect(rerun.stdout).toContain("staging: kept VITE_POSTHOG_KEY\n");
+  });
+
+  it("stores a build secret once, as a repository secret, and keeps it on a re-run", async () => {
+    const withBuildSecret = project.replace(
+      'build: { dockerfile: Dockerfile, test: "go test ./..." }',
+      'build: { dockerfile: Dockerfile, test: "go test ./...", secrets: [NPM_TOKEN] }',
+    );
+    const kept = {
+      staging: cloudflareKept,
+      production: [...cloudflareKept, "TURBO_VIBE_BUILDS_BUCKET"],
+    };
+    const first = fakeGh({ secrets: kept });
+    const result = await setup(
+      ["--env", "staging", "production"],
+      first,
+      true,
+      fakeCloudflare(),
+      withBuildSecret,
+    );
+    expect(result.code).toBe(0);
+    expect(first.stored).toEqual([
+      {
+        env: "repository",
+        name: "NPM_TOKEN",
+        value:
+          "value of NPM_TOKEN (build secret of api: one value for every environment, which only the build receives)",
+      },
+    ]);
+    expect(first.calls()).toContain("secret set NPM_TOKEN --repo acme/app");
+
+    const again = fakeGh({
+      secrets: { ...kept, repository: ["NPM_TOKEN"] },
+    });
+    const rerun = await setup(
+      ["--env", "staging", "production"],
+      again,
+      true,
+      fakeCloudflare(),
+      withBuildSecret,
+    );
+    expect(rerun.code).toBe(0);
+    expect(again.stored).toEqual([]);
+    expect(rerun.stdout).toContain("repository: kept NPM_TOKEN\n");
   });
 
   it("stores nothing for an empty answer", async () => {
@@ -1536,6 +1581,18 @@ describe("setup --list", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(runner).not.toHaveBeenCalled();
     expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("names the build secrets setup stores once, for the repository", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": project.replace(
+        'build: { dockerfile: Dockerfile, test: "go test ./..." }',
+        "build: { dockerfile: Dockerfile, secrets: [NPM_TOKEN] }",
+      ),
+    });
+    expect(result.stdout).toContain(
+      "Build secrets setup stores once, as repository secrets\n  NPM_TOKEN\n",
+    );
   });
 
   it("names the public values setup stores as variables, per environment", async () => {

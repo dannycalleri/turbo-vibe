@@ -1,5 +1,5 @@
 import { environmentSecrets } from "../deploy.js";
-import { appPublic } from "../secrets.js";
+import { appPublic, buildSecrets } from "../secrets.js";
 import type { Check, CheckContext, Finding } from "./types.js";
 import { fail, missing, ok, warn } from "./types.js";
 
@@ -319,6 +319,36 @@ export const github: Check = async (context) => {
           `add them in Settings → Environments → ${githubName} → Environment secrets`,
         ),
   );
+  const buildNames = [...buildSecrets(config).keys()].sort();
+  if (buildNames.length > 0) {
+    const repositorySecrets = await getJson<{ secrets?: { name: string }[] }>(
+      context,
+      `https://api.github.com/repos/${repository}/actions/secrets?per_page=100`,
+      io.env.GITHUB_TOKEN,
+    );
+    if (!repositorySecrets.body?.secrets) {
+      findings.push(
+        warn(
+          "github",
+          `cannot list the repository's secrets (HTTP ${repositorySecrets.status})`,
+          "use a token with read access to the repository's Actions secrets",
+        ),
+      );
+    } else {
+      const stored = new Set(
+        repositorySecrets.body.secrets.map((secret) => secret.name),
+      );
+      const lacking = buildNames.filter((name) => !stored.has(name));
+      if (lacking.length > 0)
+        findings.push(
+          fail(
+            "github",
+            `the repository is missing the build secrets ${lacking.join(", ")}`,
+            "run setup, or add them in Settings → Secrets and variables → Actions → Repository secrets",
+          ),
+        );
+    }
+  }
   const publicNames = [...appPublic(config).keys()].sort();
   if (publicNames.length === 0) return findings;
   const variables = await getJson<{ variables?: { name: string }[] }>(

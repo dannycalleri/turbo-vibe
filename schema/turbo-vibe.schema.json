@@ -94,6 +94,12 @@
                   "test": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "secrets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 },
                 "required": [
@@ -188,6 +194,12 @@
                   "test": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "secrets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 },
                 "required": [

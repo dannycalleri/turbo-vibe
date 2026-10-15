@@ -494,6 +494,44 @@ describe("secrets", () => {
     ]);
   });
 
+  it("accepts build secrets on a backend and a frontend, checked like the others", () => {
+    const source = valid
+      .replace(
+        'build: { dockerfile: Dockerfile, test: "make check" }',
+        'build: { dockerfile: Dockerfile, test: "make check", secrets: [NPM_TOKEN] }',
+      )
+      .replace(
+        'build: { command: "pnpm build", output: web/dist }',
+        'build: { command: "pnpm build", output: web/dist, secrets: [SENTRY_AUTH_TOKEN] }',
+      );
+    expect(parseConfig(source).ok).toBe(true);
+    expect(
+      problems(
+        source.replace("secrets: [NPM_TOKEN]", "secrets: [GITHUB_TOKEN]"),
+      ),
+    ).toEqual([
+      {
+        line: 8,
+        message:
+          "`services.api.build.secrets` names `GITHUB_TOKEN`, which starts with GITHUB_, which GitHub reserves",
+      },
+    ]);
+  });
+
+  it("refuses a build secret that is also a runtime secret", () => {
+    const source = withSecrets("NPM_TOKEN").replace(
+      'build: { dockerfile: Dockerfile, test: "make check" }',
+      'build: { dockerfile: Dockerfile, test: "make check", secrets: [NPM_TOKEN] }',
+    );
+    expect(problems(source)).toEqual([
+      {
+        line: 9,
+        message:
+          "`services.api.build.secrets` names `NPM_TOKEN`, which `services.api.secrets` already declares; a build secret has one value for every environment, a runtime secret one per environment",
+      },
+    ]);
+  });
+
   it("refuses public values on a backend, whose build inlines nothing", () => {
     expect(
       problems(

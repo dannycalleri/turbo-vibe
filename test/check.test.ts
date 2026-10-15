@@ -919,6 +919,31 @@ describe("against recorded fakes", () => {
       ).toEqual(["ok", "warn"]);
     });
 
+    it("names a build secret the repository lacks", async () => {
+      repo("production", ["required_reviewers"], []);
+      server.use(
+        http.get("https://api.github.com/repos/acme/app/actions/secrets", () =>
+          HttpResponse.json({ secrets: [{ name: "OTHER" }] }),
+        ),
+      );
+      const findings = await github({
+        ...context(
+          container.replace(
+            "build: { dockerfile: Dockerfile }",
+            "build: { dockerfile: Dockerfile, secrets: [NPM_TOKEN] }",
+          ),
+          githubEnv,
+        ),
+        environment: "production" as const,
+      });
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "fail",
+          message: "the repository is missing the build secrets NPM_TOKEN",
+        }),
+      );
+    });
+
     it("names a public value that production lacks among its variables", async () => {
       repo("production", ["required_reviewers"], []);
       server.use(

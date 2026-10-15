@@ -3,7 +3,12 @@ import type { Finding } from "./checks/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import { environmentSecrets } from "./deploy.js";
 import type { Io } from "./io.js";
-import { appPublic, appSecrets, publicValueProblem } from "./secrets.js";
+import {
+  appPublic,
+  appSecrets,
+  buildSecrets,
+  publicValueProblem,
+} from "./secrets.js";
 import {
   cloudflareSecrets,
   type Provided,
@@ -243,6 +248,50 @@ async function presentSecrets(
   return new Set(listed.value.map((secret) => secret.name));
 }
 
+async function storeBuildSecrets(
+  config: Config,
+  repo: string,
+  replace: readonly string[],
+  askSecret: (question: string) => Promise<string>,
+  io: Io,
+): Promise<boolean> {
+  const declared = buildSecrets(config);
+  if (declared.size === 0) return true;
+  const listed = await ghRead<{ name: string }[]>(
+    ["secret", "list", "--repo", repo, "--json", "name"],
+    io,
+  );
+  if (listed.status !== "found") {
+    io.stderr(`cannot list the repository secrets of ${repo}\n`);
+    return false;
+  }
+  const present = new Set(listed.value.map((secret) => secret.name));
+  const kept: string[] = [];
+  for (const [name, services] of [...declared].sort()) {
+    if (present.has(name) && !replace.includes(name)) {
+      kept.push(name);
+      continue;
+    }
+    const value = (
+      await askSecret(
+        `${name} (build secret of ${services.join(", ")}: one value for every environment, which only the build receives)`,
+      )
+    ).trim();
+    if (!value) {
+      io.stdout(`repository: ${name} skipped, nothing entered\n`);
+      continue;
+    }
+    const stored = await gh(["secret", "set", name, "--repo", repo], io, value);
+    if (stored?.code !== 0) {
+      io.stderr(`cannot store ${name} in ${repo}\n`);
+      return false;
+    }
+    io.stdout(`repository: stored ${name}\n`);
+  }
+  if (kept.length > 0) io.stdout(`repository: kept ${kept.join(", ")}\n`);
+  return true;
+}
+
 async function storeVariables(
   config: Config,
   repo: string,
@@ -439,6 +488,7 @@ export async function setup(
         environmentSecrets(config, kindOf(name)),
       ),
       ...appPublic(config).keys(),
+      ...buildSecrets(config).keys(),
     ]),
   ];
   const unknown = (options.replace ?? []).filter(
@@ -526,6 +576,16 @@ export async function setup(
     const own = provided.get(name) ?? { values: {}, replace: [] };
     provided.set(name, { ...own, values: { ...shared, ...own.values } });
   }
+  if (
+    !(await storeBuildSecrets(
+      config,
+      repo,
+      options.replace ?? [],
+      askSecret,
+      io,
+    ))
+  )
+    return 1;
   const stored = new Map<string, Stored>();
   for (const [name, names] of present) {
     const result = await storeSecrets(

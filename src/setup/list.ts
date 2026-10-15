@@ -1,6 +1,6 @@
 import type { Config } from "../config/schema.js";
 import { environmentSecrets } from "../deploy.js";
-import { appPublic } from "../secrets.js";
+import { appPublic, buildSecrets } from "../secrets.js";
 import { kindOf } from "../setup.js";
 import { cliRange } from "../version.js";
 import { stateBucketName } from "./cloudflare.js";
@@ -122,6 +122,13 @@ export function setupSteps(
       (environment) =>
         `  ${environment}: ${environmentSecrets(config, kindOf(environment)).join(", ")}`,
     ),
+    ...(buildSecrets(config).size > 0
+      ? [
+          "",
+          "Build secrets setup stores once, as repository secrets",
+          `  ${[...buildSecrets(config).keys()].sort().join(", ")}`,
+        ]
+      : []),
     ...(appPublic(config).size > 0
       ? [
           "",

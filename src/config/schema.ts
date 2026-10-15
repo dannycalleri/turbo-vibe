@@ -29,6 +29,7 @@ const backend = z.strictObject({
     dockerfile: z.string().min(1),
     context: z.string().min(1).optional(),
     test: z.string().min(1).optional(),
+    secrets: secretNames,
   }),
   container: z
     .strictObject({
@@ -72,6 +73,7 @@ const frontend = z.strictObject({
     output: z.string().min(1).optional(),
     root: z.string().min(1).optional(),
     test: z.string().min(1).optional(),
+    secrets: secretNames,
   }),
 });
 
