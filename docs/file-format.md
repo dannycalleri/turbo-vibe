@@ -29,7 +29,7 @@ The schema checks each field on its own. The rules that relate fields to each ot
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `hostname` | hostname | `staging.<domain>` for staging, `<domain>` for production | Where the environment's frontend and backend are served. Keep it one level below the zone, such as `staging-app.example.com`: Cloudflare's free certificate covers only the apex and first-level names. |
+| `hostname` | hostname | `staging.<domain>` for staging, `<domain>` for production | Where the environment's frontend and backend are served. Keep it one level below the zone, such as `staging-app.example.com`: Cloudflare's free certificate covers only the apex and first-level names, so the staging default suits only a domain at the apex. `init` writes a staging hostname that follows this rule. |
 | `api_hostname` | hostname | `api.<hostname>` | The backend's own hostname, used only when the frontend runs on Vercel. Set it when `api.<hostname>` would be two levels below the zone. It must be under the same parent domain as `hostname`. |
 
 ## Services

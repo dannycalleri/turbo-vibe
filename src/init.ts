@@ -1,4 +1,4 @@
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { adapters } from "./adapters/index.js";
 import {
@@ -97,7 +97,7 @@ export function configFor(answers: Answers): string {
       "  db:",
       "    kind: database",
       "    target: supabase",
-      "    organization: your-supabase-org-slug   # Organization Settings → Organization slug",
+      "    # organization: your-org-slug   # or leave it out: setup finds it and stores it as SUPABASE_ORGANIZATION",
       "    region: us-east-1   # a default: your Supabase region",
       "    plan: free",
     );
@@ -239,7 +239,7 @@ export async function init(
   if (written !== 0) return written;
   if (!onlyAssistant) {
     io.stdout(
-      "next: add .turbo-vibe/ to .gitignore, create the accounts in docs/bootstrap.md, then run `turbo-vibe setup` in a terminal\n",
+      `next: add .turbo-vibe/ to .gitignore; check the file with \`npx @turbo-vibe/cli@${cliRange} plan\`; \`npx @turbo-vibe/cli@${cliRange} setup --list\` names the accounts and the steps only you can do (https://github.com/dannycalleri/turbo-vibe/blob/main/docs/bootstrap.md); then run \`npx @turbo-vibe/cli@${cliRange} setup\` in a terminal\n`,
     );
   }
   return 0;
@@ -301,14 +301,39 @@ export async function adopt(
     io.stderr(`--assistant must be one of ${adoptAssistants.join(", ")}\n`);
     return 1;
   }
-  const written = await writeFiles(
-    adoptionFiles(assistant as Assistant, version),
-    force,
-    io,
-  );
+  const files = adoptionFiles(assistant as Assistant, version);
+  const written = await writeFiles(files, force, io);
   if (written !== 0) return written;
+  if (await excludeFromGit(Object.keys(files), io)) {
+    io.stdout(
+      "listed the guidance in .git/info/exclude, so it is never committed\n",
+    );
+  }
   io.stdout(
     'next: ask your coding assistant to "make this project deployable with turbo-vibe"; it follows the turbo-vibe-adopt guidance\n',
   );
   return 0;
+}
+
+// The adoption guidance is a one-off; keeping it out of git spares the assistant a commit it would have to undo.
+async function excludeFromGit(names: string[], io: Io): Promise<boolean> {
+  const git = join(io.cwd, ".git");
+  const isRepository = await stat(git).then(
+    (entry) => entry.isDirectory(),
+    () => false,
+  );
+  if (!isRepository) return false;
+  const exclude = join(git, "info", "exclude");
+  const existing = await readFile(exclude, "utf8").catch(() => "");
+  const listed = new Set(existing.split("\n").map((line) => line.trim()));
+  const missing = names
+    .map((name) => `/${name}`)
+    .filter((line) => !listed.has(line));
+  if (missing.length === 0) return false;
+  await mkdir(dirname(exclude), { recursive: true });
+  await writeFile(
+    exclude,
+    `${existing}${existing === "" || existing.endsWith("\n") ? "" : "\n"}${missing.join("\n")}\n`,
+  );
+  return true;
 }

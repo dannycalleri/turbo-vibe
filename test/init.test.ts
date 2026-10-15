@@ -63,13 +63,20 @@ describe("configFor", () => {
     });
   });
 
+  it("leaves the Supabase organization out, commented, so its slug stays out of the repository", () => {
+    const rows = configFor(answers({ database: "supabase" })).split("\n");
+    expect(rows).toContain(
+      "    # organization: your-org-slug   # or leave it out: setup finds it and stores it as SUPABASE_ORGANIZATION",
+    );
+    expect(rows.some((row) => /^\s*organization:/.test(row))).toBe(false);
+  });
+
   it("marks every placeholder it fills in", () => {
     const text = configFor(answers({ database: "supabase" }));
     for (const line of [
       "command: npm ci && npm run build",
       "output: dist",
       "region: us-east-1",
-      "organization: your-supabase-org-slug",
     ]) {
       expect(text.split("\n").find((row) => row.includes(line))).toContain("#");
     }

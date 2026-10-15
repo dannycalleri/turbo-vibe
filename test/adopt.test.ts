@@ -33,6 +33,35 @@ describe("turbo-vibe adopt", () => {
     expect(skill).toContain(`deployable with turbo-vibe ${version}.`);
   });
 
+  it("keeps the guidance out of git in a repository, once, and says so", async () => {
+    const first = await run(["adopt", "--assistant", "both"], {
+      ".git/HEAD": "ref: refs/heads/main\n",
+      ".git/info/exclude":
+        "# git ls-files --others --exclude-from=.git/info/exclude\n",
+    });
+    expect(first.stdout).toContain(
+      "listed the guidance in .git/info/exclude, so it is never committed\n",
+    );
+    const again = await run(["adopt", "--assistant", "both", "--force"], {
+      ".git/HEAD": "ref: refs/heads/main\n",
+      ".git/info/exclude": await readFile(
+        join(first.cwd, ".git/info/exclude"),
+        "utf8",
+      ),
+    });
+    expect(again.stdout).not.toContain(".git/info/exclude");
+    expect(await readFile(join(again.cwd, ".git/info/exclude"), "utf8")).toBe(
+      `# git ls-files --others --exclude-from=.git/info/exclude\n/${skillPath}\n/${rulePath}\n`,
+    );
+  });
+
+  it("writes no git exclude outside a repository", async () => {
+    const { cwd } = await run(["adopt", "--assistant", "claude"]);
+    await expect(
+      readFile(join(cwd, ".git/info/exclude"), "utf8"),
+    ).rejects.toThrow();
+  });
+
   it("leaves existing guidance unchanged unless forced", async () => {
     const mine = "my own skill\n";
     const { code, cwd, stderr } = await run(

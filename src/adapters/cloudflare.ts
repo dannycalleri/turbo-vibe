@@ -89,7 +89,7 @@ const healthBuildId = async (response: Response) => {
 async function meetsContract(
   context: DeployContext,
   backend: Backend,
-): Promise<number> {
+): Promise<number | "unchecked"> {
   const { io, configDir } = context;
   const tag = imageTag(context);
   const options = { cwd: configDir, env: io.env };
@@ -126,7 +126,7 @@ async function meetsContract(
       io.stdout(
         `${context.name}: the container exited by itself within 3 seconds, so its health route and whether it stops on SIGTERM are not checked\n`,
       );
-      return 0;
+      return "unchecked";
     }
     const published = await io.capture(
       "docker",
@@ -158,7 +158,7 @@ async function meetsContract(
     io.stdout(
       `${context.name}: the container answers ${healthPath} with build ${context.buildId}\n`,
     );
-    await io.run("docker", ["stop", "--time", "10", id], options);
+    await io.capture("docker", ["stop", "--timeout", "10", id], options);
     const exited = await io.capture(
       "docker",
       ["inspect", "--format", "{{.State.ExitCode}}", id],
@@ -173,7 +173,7 @@ async function meetsContract(
     io.stdout(`${context.name}: the container stops on SIGTERM\n`);
     return 0;
   } finally {
-    await io.run("docker", ["rm", "--force", id], options);
+    await io.capture("docker", ["rm", "--force", id], options);
   }
 }
 
@@ -246,9 +246,11 @@ export const cloudflareContainer: Adapter = {
       );
       return { code: 1 };
     }
+    let unchecked = false;
     if (context.dryRun && !context.recorded) {
-      const stopped = await meetsContract(context, context.service);
-      if (stopped !== 0) return { code: stopped };
+      const checked = await meetsContract(context, context.service);
+      if (checked === "unchecked") unchecked = true;
+      else if (checked !== 0) return { code: checked };
     }
     let image = context.recorded?.image;
     if (!image && !context.dryRun) {
@@ -276,7 +278,11 @@ export const cloudflareContainer: Adapter = {
     let code = await wranglerDeploy(context, file, context.secrets);
     if (code === 0 && !context.dryRun)
       code = await awaitRollout(application, before, context.io);
-    return { code, ...(image ? { outputs: { image } } : {}) };
+    return {
+      code,
+      ...(image ? { outputs: { image } } : {}),
+      ...(unchecked ? { unchecked } : {}),
+    };
   },
   async remove(context) {
     const { io } = context;
