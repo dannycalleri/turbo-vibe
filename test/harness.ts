@@ -158,7 +158,7 @@ export function runner(
 }
 
 // Replies are keyed by the start of a prompt's message. A text reply may be a list, tried in
-// order until one passes validation; undefined cancels; "" accepts a select's default.
+// order until one passes validation; undefined cancels; "" accepts the default.
 export function fakePrompts(replies: Record<string, unknown>) {
   const asked: {
     message: string;
@@ -168,14 +168,15 @@ export function fakePrompts(replies: Record<string, unknown>) {
   const reply = (message: string) =>
     replies[Object.keys(replies).find((key) => message.startsWith(key)) ?? ""];
   const prompts: Prompts = {
-    async text(message, { validate } = {}) {
+    async text(message, { initial, validate } = {}) {
       const record = { message, problems: [] as string[] };
       asked.push(record);
       const given = reply(message);
       for (const value of Array.isArray(given) ? given : [given]) {
         if (typeof value !== "string") return undefined;
-        const problem = validate?.(value);
-        if (!problem) return value;
+        const answer = value === "" ? (initial ?? "") : value;
+        const problem = validate?.(answer);
+        if (!problem) return answer;
         record.problems.push(problem);
       }
       return undefined;

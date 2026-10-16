@@ -187,6 +187,40 @@ describe("turbo-vibe init", () => {
     );
   });
 
+  it("takes every default from the repository with Enter", async () => {
+    const { prompts } = fakePrompts({
+      "Project name": "",
+      "Production domain": "shop.example.com",
+      Backend: "",
+      Frontend: "",
+      Database: "",
+      "Sign-in": "",
+      "Coding assistants": [],
+    });
+    const { code, cwd } = await run(
+      ["init"],
+      {
+        "package.json": JSON.stringify({
+          name: "Shop",
+          dependencies: { next: "15.0.0" },
+        }),
+        Dockerfile: "FROM scratch\n",
+        "supabase/config.toml": "",
+      },
+      {},
+      undefined,
+      undefined,
+      { prompts },
+    );
+    expect(code).toBe(0);
+    const config = await readFile(join(cwd, "turbo-vibe.yaml"), "utf8");
+    expect(config).toContain("project: shop");
+    expect(config).toContain("target: vercel-nextjs");
+    expect(config).toContain("target: cloudflare-container");
+    expect(config).toContain("target: supabase");
+    expect(config).not.toContain("target: workos");
+  });
+
   it("asks again for an invalid name instead of ending the run", async () => {
     const { prompts, asked } = fakePrompts({
       ...replies,

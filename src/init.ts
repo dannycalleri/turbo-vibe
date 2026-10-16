@@ -12,6 +12,7 @@ import {
 import { schemaUrl } from "./config/json-schema.js";
 import { parseConfig } from "./config/load.js";
 import { hostname, name } from "./config/schema.js";
+import { type Defaults, detectProject, readRepository } from "./detect.js";
 import type { Choice, Io } from "./io.js";
 import { cliRange, version, workflowRef } from "./version.js";
 
@@ -272,20 +273,25 @@ const problemWith = (
 async function askFor(
   key: Question,
   answers: Partial<Record<Question, string>>,
+  defaults: Defaults,
   io: Io,
 ): Promise<string | undefined> {
   const prompts = io.prompts as NonNullable<Io["prompts"]>;
   if (key === "name" || key === "domain") {
     const { message, field } = textQuestions[key];
+    const initial = defaults[key];
     const answer = await prompts.text(message, {
+      ...(initial ? { initial } : {}),
       validate: (value) => problemWith(field, value.trim()),
     });
     return answer?.trim();
   }
+  const options = targetChoices(key, answers);
+  const detected = options.find(({ value }) => value === defaults[key]);
   return prompts.select(
     targetQuestions[key],
-    targetChoices(key, answers),
-    choices[key][0],
+    options,
+    (detected ?? options[0])?.value,
   );
 }
 
@@ -311,6 +317,10 @@ export async function init(
       return 1;
     }
   }
+  const defaults =
+    io.prompts && asked.some((key) => !answers[key])
+      ? detectProject(await readRepository(io.cwd))
+      : {};
   for (const key of asked) {
     if (answers[key]) continue;
     if (!io.prompts) {
@@ -319,7 +329,7 @@ export async function init(
       );
       return 1;
     }
-    const answer = await askFor(key, answers, io);
+    const answer = await askFor(key, answers, defaults, io);
     if (answer === undefined) {
       io.stderr(`init ${cancelled}\n`);
       return 130;
