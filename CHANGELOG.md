@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.0.0-rc.4](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.3...v1.0.0-rc.4) (2026-10-16)
+
+
+### Features
+
+* **assistant:** the guidance walks the person through each token's steps ([cd87287](https://github.com/dannycalleri/turbo-vibe/commit/cd8728737f28d52c522e95ff9f48867e36ebe33c))
+* **init:** add .turbo-vibe/ to .gitignore ([43d14f6](https://github.com/dannycalleri/turbo-vibe/commit/43d14f6dea1398975563c020bd37ba5fa7fc68d6))
+* **init:** ask with arrow-key choices and re-ask an invalid answer ([5391a33](https://github.com/dannycalleri/turbo-vibe/commit/5391a335ef31e7572e12151dd2ba0a2490e29d4f))
+* **init:** end with numbered next steps and offer to run setup ([682833f](https://github.com/dannycalleri/turbo-vibe/commit/682833fd8ec679091682df773079f0ff17a12bd2))
+* **init:** offer defaults read from the repository ([b3a3047](https://github.com/dannycalleri/turbo-vibe/commit/b3a3047e2c0b51ea0ca50c5464faa4a0172018df))
+* **setup:** guide the Cloudflare step and read the account from the token ([80ade91](https://github.com/dannycalleri/turbo-vibe/commit/80ade913be04c3f553a04417e39dbf568aadd03e))
+* **setup:** guide the Supabase, Vercel and WorkOS steps and check each value at once ([7bad1e4](https://github.com/dannycalleri/turbo-vibe/commit/7bad1e4c3dd910d0dc2174bf55754b7c37ed8554))
+* **setup:** one table of vendor steps for setup --list, the checklist and the agent guidance ([bfb84e8](https://github.com/dannycalleri/turbo-vibe/commit/bfb84e8d493d120c136d5231cfb57a9d3b8b7b9c))
+* **setup:** open a Cloudflare token page prefilled with the one permission ([ea78853](https://github.com/dannycalleri/turbo-vibe/commit/ea788535ec31f540b8f0c0fa8457731912f80448))
+* **setup:** setup --list prints each token's steps from the same table as setup ([461fce0](https://github.com/dannycalleri/turbo-vibe/commit/461fce0a98bbd2feca4524791f375f699a6ae361))
+
+
+### Bug Fixes
+
+* **cloudflare:** name session-routed instances after the build, so a deploy switches at once ([decc693](https://github.com/dannycalleri/turbo-vibe/commit/decc693148dc986b87c508279591743b9280b1ec))
+* **cloudflare:** name session-routed instances after the build, so a deploy switches at once ([ebb57d6](https://github.com/dannycalleri/turbo-vibe/commit/ebb57d6afb60a890dadff0536725aa7c74f99386))
+
 ## [1.0.0-rc.3](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.2...v1.0.0-rc.3) (2026-10-16)
 
 
