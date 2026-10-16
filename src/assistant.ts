@@ -248,7 +248,7 @@ Run \`init\` with every flag, so it asks nothing, choosing \`none\` where a kind
 ${cli(version)} init --name <project> --domain <production hostname> --backend <target|none> --frontend <target|none> --database <target|none> --identity <target|none> --assistant <claude, cursor or claude,cursor>
 \`\`\`
 
-\`--name\` is lowercase letters, digits and hyphens; it names the Workers, the state and the Supabase projects. \`init\` writes \`turbo-vibe.yaml\`, \`.github/workflows/staging.yml\`, \`.github/workflows/production.yml\`, and the guidance for working on the project afterwards. Commit what it writes, the guidance included. It never overwrites a file: if one of those exists, move it aside with the person's agreement and merge what it did by hand.
+\`--name\` is lowercase letters, digits and hyphens; it names the Workers, the state and the Supabase projects. \`init\` writes \`turbo-vibe.yaml\`, \`.github/workflows/staging.yml\`, \`.github/workflows/production.yml\`, and the guidance for working on the project afterwards, and adds \`.turbo-vibe/\` to \`.gitignore\`. Commit what it writes, the guidance included. It never overwrites a file: if one of those exists, move it aside with the person's agreement and merge what it did by hand.
 
 Then edit \`turbo-vibe.yaml\` (each field is described at https://github.com/dannycalleri/turbo-vibe/blob/main/docs/file-format.md). Paths and commands are relative to the folder that holds it:
 
@@ -256,8 +256,6 @@ Then edit \`turbo-vibe.yaml\` (each field is described at https://github.com/dan
 - the frontend's \`build.command\`, \`build.output\` and \`build.test\`, replacing the defaults \`init\` marks;
 - the \`secrets\`, \`public\` and \`build.secrets\` lists from step 2;
 - with a database, its \`region\`, as the person chose. Leave its \`organization\` line commented out: \`setup\` finds the Supabase organization and stores it as a secret, so its slug stays out of the repository.
-
-Add \`.turbo-vibe/\` to \`.gitignore\`.
 
 ## 6. Check it locally
 

@@ -63,7 +63,7 @@ Cloudflare's free certificate covers the apex and names one level below it. `sta
 
 Check: `npx @turbo-vibe/cli@1 plan` → staging and production, each listing `api` at `/api/` and `web` at `/`.
 
-Add `.turbo-vibe/` to `.gitignore`.
+`init` adds `.turbo-vibe/` to `.gitignore`. If you wrote the files by hand, add it yourself.
 
 ### The application's own values
 

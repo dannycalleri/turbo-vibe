@@ -140,6 +140,32 @@ describe("turbo-vibe init", () => {
     ).toContain("workflow_dispatch");
   });
 
+  it("ignores its working folder in git, creating .gitignore when missing", async () => {
+    const created = await run(["init", ...flags]);
+    expect(await readFile(join(created.cwd, ".gitignore"), "utf8")).toBe(
+      ".turbo-vibe/\n",
+    );
+    expect(created.stdout).toContain(
+      "wrote .gitignore, ignoring .turbo-vibe/\n",
+    );
+    const appended = await run(["init", ...flags], {
+      ".gitignore": "node_modules",
+    });
+    expect(await readFile(join(appended.cwd, ".gitignore"), "utf8")).toBe(
+      "node_modules\n.turbo-vibe/\n",
+    );
+    expect(appended.stdout).toContain("added .turbo-vibe/ to .gitignore\n");
+  });
+
+  it("leaves a .gitignore that already ignores its working folder unchanged", async () => {
+    const mine = "dist\n/.turbo-vibe\n";
+    const { cwd, stdout } = await run(["init", ...flags], {
+      ".gitignore": mine,
+    });
+    expect(await readFile(join(cwd, ".gitignore"), "utf8")).toBe(mine);
+    expect(stdout).not.toContain(".gitignore");
+  });
+
   it("stops and leaves an existing config unchanged", async () => {
     const mine = "version: 1\nproject: mine\n";
     const { code, cwd, stderr } = await run(["init", ...flags], {

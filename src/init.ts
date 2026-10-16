@@ -373,11 +373,28 @@ export async function init(
   const written = await writeFiles(files, force, io);
   if (written !== 0) return written;
   if (!onlyAssistant) {
+    await ignoreWorkingFiles(io);
     io.stdout(
-      `next: add .turbo-vibe/ to .gitignore; check the file with \`npx @turbo-vibe/cli@${cliRange} plan\`; \`npx @turbo-vibe/cli@${cliRange} setup --list\` names the accounts and the steps only you can do (https://github.com/dannycalleri/turbo-vibe/blob/main/docs/bootstrap.md); then run \`npx @turbo-vibe/cli@${cliRange} setup\` in a terminal\n`,
+      `next: check the file with \`npx @turbo-vibe/cli@${cliRange} plan\`; \`npx @turbo-vibe/cli@${cliRange} setup --list\` names the accounts and the steps only you can do (https://github.com/dannycalleri/turbo-vibe/blob/main/docs/bootstrap.md); then run \`npx @turbo-vibe/cli@${cliRange} setup\` in a terminal\n`,
     );
   }
   return 0;
+}
+
+const workingFolder = ".turbo-vibe/";
+
+async function ignoreWorkingFiles(io: Io): Promise<void> {
+  const path = join(io.cwd, ".gitignore");
+  const current = await readFile(path, "utf8").catch(() => undefined);
+  const lines = (current ?? "").split(/\r?\n/).map((line) => line.trim());
+  if (lines.some((line) => /^\/?\.turbo-vibe\/?$/.test(line))) return;
+  const separator = current && !current.endsWith("\n") ? "\n" : "";
+  await writeFile(path, `${current ?? ""}${separator}${workingFolder}\n`);
+  io.stdout(
+    current === undefined
+      ? `wrote .gitignore, ignoring ${workingFolder}\n`
+      : `added ${workingFolder} to .gitignore\n`,
+  );
 }
 
 async function writeFiles(

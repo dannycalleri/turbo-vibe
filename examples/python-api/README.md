@@ -12,7 +12,6 @@ You need the GitHub repository, accounts and tokens from the [bootstrap checklis
    git clone git@github.com:you/my-api.git && cd my-api
    cp -R <turbo-vibe checkout>/examples/python-api/. .
    rm turbo-vibe.yaml
-   echo .turbo-vibe/ >> .gitignore
    ```
 
 2. Write the config and the two workflows:

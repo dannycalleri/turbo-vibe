@@ -209,7 +209,7 @@ Before each deploy, preview and promotion, the kit sets each value on that envir
 | `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` | the WorkOS environment's API key and client ID; set the staging ones on the `staging` and `preview` GitHub environments and the production ones on `production` (`apply` and `deploy`) |
 | `VERCEL_API_TOKEN`, `VERCEL_TEAM_ID` | a Vercel access token and the team (or personal account) ID, for `vercel-static` frontends (`apply` and `deploy`) |
 
-OpenTofu 1.10 or later must be on `PATH` as `tofu`. Docker must be available to `deploy`, which builds container images. Add `.turbo-vibe/` to the project's `.gitignore`; `apply` and `deploy` write their working files there.
+OpenTofu 1.10 or later must be on `PATH` as `tofu`. Docker must be available to `deploy`, which builds container images. `apply` and `deploy` write their working files to `.turbo-vibe/`, which `init` adds to `.gitignore`.
 
 ## Your application's own secrets
 
