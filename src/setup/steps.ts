@@ -4,6 +4,7 @@ import { cloudflareSecrets } from "./cloudflare.js";
 
 export interface VendorStep {
   vendor: string;
+  neededBy: string;
   plan: (config: Config) => string;
   url: string;
   clicks: readonly string[];
@@ -21,6 +22,7 @@ export const bootstrapTokenUrl = `https://dash.cloudflare.com/?to=/:account/api-
 
 export const cloudflareStep: VendorStep = {
   vendor: "Cloudflare",
+  neededBy: "every project",
   plan: (config) =>
     uses(config, "cloudflare-container")
       ? "Workers Paid, which Containers need"
@@ -49,6 +51,7 @@ export function needsPaidSupabase(config: Config): boolean {
 
 export const supabaseStep: VendorStep = {
   vendor: "Supabase",
+  neededBy: "a `supabase` database",
   plan: (config) =>
     needsPaidSupabase(config)
       ? "Pro, because the config asks for plan: paid, staging: branch or previews"
@@ -66,6 +69,7 @@ export const supabaseStep: VendorStep = {
 
 export const vercelStep: VendorStep = {
   vendor: "Vercel",
+  neededBy: "a `vercel-static` or `vercel-nextjs` frontend",
   plan: () => "Hobby, or Pro for a commercial project",
   url: "https://vercel.com/account/settings/tokens",
   clicks: [
@@ -79,6 +83,7 @@ export const vercelStep: VendorStep = {
 
 export const workosStep: VendorStep = {
   vendor: "WorkOS",
+  neededBy: "a `workos` identity service",
   plan: () => "production needs billing, which a team admin adds",
   url: "https://dashboard.workos.com/api-keys",
   clicks: [

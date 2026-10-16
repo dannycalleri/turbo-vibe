@@ -11,6 +11,7 @@ import {
 import { reservedNames } from "../src/config/load.js";
 import { backendPort, buildIdVariable, healthPath } from "../src/contract.js";
 import { choices } from "../src/init.js";
+import { vendorSteps } from "../src/setup/steps.js";
 import { cliRange, version } from "../src/version.js";
 import { fakePrompts, run } from "./harness.js";
 
@@ -209,5 +210,21 @@ describe("the adoption guidance", () => {
     ];
     expect(commands.length).toBeGreaterThan(0);
     for (const [, range] of commands) expect(range).toBe(cliRange);
+  });
+});
+
+describe("the token steps in the guidance", () => {
+  it("gives every vendor step, and keeps values out of the chat, in both guidance texts", () => {
+    for (const text of [
+      ...Object.values(assistantFiles(["claude"], version)),
+      ...Object.values(adoptionFiles(["claude"], version)),
+    ]) {
+      for (const step of vendorSteps)
+        for (const line of [...step.clicks, step.permissions, step.url])
+          expect(text, `${step.vendor}: ${line}`).toContain(line);
+      expect(text).toContain(
+        "They paste the value only into `setup`, in their own terminal, never into the chat.",
+      );
+    }
   });
 });

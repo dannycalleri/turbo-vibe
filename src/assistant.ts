@@ -9,6 +9,7 @@ import {
   buildIdVariable,
   healthPath,
 } from "./contract.js";
+import { vendorSteps } from "./setup/steps.js";
 import { references } from "./version.js";
 
 export const assistantNames = ["claude", "cursor"] as const;
@@ -77,6 +78,25 @@ const cli = (version: string) =>
 
 const contract = `- A backend answers \`GET ${healthPath}\` with JSON containing \`build_id\`, taken from the \`${buildIdVariable}\` build argument baked into its image, and listens on \`PORT\` when it is set, ${backendPort} otherwise.`;
 
+const tokenSteps = () =>
+  vendorSteps
+    .map((step) =>
+      [
+        `### ${step.vendor}, for ${step.neededBy}`,
+        "",
+        ...step.clicks.map((click, index) => `${index + 1}. ${click}`),
+        "",
+        `Permissions: ${step.permissions}. Page: ${step.url}`,
+      ].join("\n"),
+    )
+    .join("\n\n");
+
+const tokenGuide = () => `## Creating each token
+
+\`setup\` shows these same steps, one vendor at a time, and offers to open each page; \`setup --list\` names the plan each one needs for this project. When the person asks how to create a token, give them its steps here, in the chat. They paste the value only into \`setup\`, in their own terminal, never into the chat.
+
+${tokenSteps()}`;
+
 const guidance = (version: string) => `# turbo-vibe
 
 This project is deployed by turbo-vibe ${version}. \`turbo-vibe.yaml\` at the repository root describes its services (backend, frontend, database, sign-in) and where each runs. A merge to \`main\` deploys staging; a person promotes the build that passed staging to production.
@@ -93,7 +113,7 @@ This project is deployed by turbo-vibe ${version}. \`turbo-vibe.yaml\` at the re
 
 When the person asks to set up the project's accounts, or a run fails on a missing account, token or secret:
 
-1. Run \`${cli(version)} setup --list\`. It reads only \`turbo-vibe.yaml\` and prints the accounts, the plans, and the steps only a person can do, each with a link. Walk the person through those steps one at a time.
+1. Run \`${cli(version)} setup --list\`. It reads only \`turbo-vibe.yaml\` and prints the accounts, the plans, and the steps only a person can do, each with a link. Walk the person through those steps one at a time, and through each token with its steps under "Creating each token".
 2. Tell the person to run \`${cli(version)} setup\` in their own terminal. It asks for each token without echoing it, creates the Cloudflare resources, and stores every secret in the GitHub environments. Never run \`setup\` yourself: it needs a person at the terminal.
 3. Never ask for a secret value, and never accept one in the chat. If the person pastes a token, do not use it, store it or repeat it. Tell them to revoke it and create a new one, because the conversation keeps a copy.
 4. Read \`setup\`'s final report with the person, and explain each \`FAIL\` line with its fix. A \`FAIL\` on a value \`setup\` stored is fixed with \`setup --replace <SECRET>\`; a plain second run keeps what exists.
@@ -101,6 +121,8 @@ When the person asks to set up the project's accounts, or a run fails on a missi
 When the application needs a new value of its own, add its name to the field of its kind in \`turbo-vibe.yaml\`: \`secrets\` for a secret its server reads (one value per environment), \`public\` for a value a frontend build inlines (one per environment), \`build.secrets\` for a secret only the build needs (one for the repository). Then tell the person to run \`${cli(version)} setup\`, which asks only for what is missing. A deploy stops, naming the value, until it exists.
 
 Never invent tokens, and never print or commit a secret value. \`setup\` stores every value: runtime secrets and public values in each GitHub environment (\`staging\`, \`production\`, and \`preview\` with previews), build secrets once in the repository. \`check --env staging\` names what is missing without changing anything, but it needs that environment's values, which only GitHub holds once \`setup\` has stored them.
+
+${tokenGuide()}
 
 ## Production is promoted by a person
 
@@ -273,8 +295,10 @@ Report what passed, what you could not run, and why.
 
 1. Delete this guide's own files (\`.claude/skills/turbo-vibe-adopt/\`, \`.cursor/rules/turbo-vibe-adopt.mdc\`) without committing them: the guidance \`init\` wrote replaces them.
 2. Open the pull request. Its description lists the mapping and the person's answers from step 2, every behaviour change from steps 3 and 4 (port, routes, health route, start-up steps, local development), what may stop working in the way the project ships today, and the results of step 6. On this pull request the Staging workflow only runs each service's tests and the dry run, without secrets; nothing deploys until \`main\`.
-3. Run \`${cli(version)} setup --list\` and walk the person through the accounts, plans and steps it prints. Then tell them to run \`${cli(version)} setup\` in their own terminal: it asks for each token without echoing it and stores every secret in GitHub. Never run it yourself.
+3. Run \`${cli(version)} setup --list\` and walk the person through the accounts, plans and steps it prints, and through each token with its steps under "Creating each token" below. Then tell them to run \`${cli(version)} setup\` in their own terminal: it asks for each token without echoing it and stores every secret in GitHub. Never run it yourself.
 4. After the merge, staging deploys. Its run summary names the build ID; the person promotes it with the **Deploy to production** workflow, never you. Once production serves the app, the person can retire the old deploy configuration.
+
+${tokenGuide()}
 `;
 
 export function assistantFiles(
