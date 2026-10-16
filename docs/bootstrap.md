@@ -1,11 +1,11 @@
 # Bootstrap checklist
 
-`turbo-vibe setup` does most of the one-time setup. It creates the GitHub environments, the Cloudflare zone, a state bucket per environment and the Cloudflare tokens, and it stores every secret in its GitHub environment. This page lists what it leaves to you: accounts, plans, and the tokens that no API can create. Do only the sections for the targets your `turbo-vibe.yaml` uses, then [run `setup`](#6-run-setup). `setup --list` prints the list for your file, with a link for each step, and changes nothing. Every paid plan is named at the step that needs it, before anything is created.
+`turbo-vibe setup` does most of the one-time setup. It creates the GitHub environments, the Cloudflare zone, a state bucket per environment and the Cloudflare tokens, and it stores every secret in its GitHub environment. This page lists what it leaves to you: accounts, plans, and the tokens that no API can create. Do only the sections for the targets your `turbo-vibe.yaml` uses, then [run `setup`](#7-run-setup). `setup --list` prints the list for your file, with a link for each step, and changes nothing. Every paid plan is named at the step that needs it, before anything is created.
 
 ## 1. GitHub
 
 1. Put the project in a GitHub repository.
-   - **Actions minutes:** public repositories run Actions at no cost. Private ones spend minutes from the account's allowance; see the README's [Actions minutes per run](../README.md#actions-minutes-per-run).
+   - **Actions minutes:** public repositories run Actions at no cost. Private ones spend minutes from the account's allowance; see the reference's [Actions minutes per run](reference.md#actions-minutes-per-run).
 2. Install the [GitHub CLI](https://cli.github.com) and run `gh auth login`. `setup` uses it to create the environments and store the secrets.
 
 `setup` creates the `staging` and `production` environments, and a `preview` environment when the config enables previews. It limits `staging` and `production` to deployments from `main`, so a pull request branch never receives their secrets; previews run in `preview`, which has its own bucket and tokens. It adds you as a **required reviewer** on `production`, which is the approval that "Deploy to production" waits for. Public repositories get both. A private repository needs GitHub Pro, Team or Enterprise for deployment-branch rules, and GitHub Enterprise for required reviewers. Where GitHub refuses one, `setup` warns and continues. Without a reviewer, every promotion still has to be confirmed by typing the build ID. Without a deployment-branch rule, a workflow on any branch could ask for `staging`'s or `production`'s secrets.
