@@ -1,4 +1,4 @@
-import { isCancel, multiselect, select, text } from "@clack/prompts";
+import { confirm, isCancel, multiselect, select, text } from "@clack/prompts";
 import type { Choice, Prompts } from "./io.js";
 
 const clackOptions = <T extends string>(options: readonly Choice<T>[]) =>
@@ -29,6 +29,10 @@ export const clackPrompts: Prompts = {
       >[0]["options"],
       ...(initial ? { initialValue: initial } : {}),
     });
+    return isCancel(value) ? undefined : value;
+  },
+  async confirm(message) {
+    const value = await confirm({ message });
     return isCancel(value) ? undefined : value;
   },
   async multiselect<T extends string>(

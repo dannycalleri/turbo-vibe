@@ -74,6 +74,9 @@ async function gh(
   }
 }
 
+export const githubSignedIn = async (io: Io) =>
+  (await gh(["auth", "status"], io))?.code === 0;
+
 async function ghRead<T>(args: readonly string[], io: Io): Promise<Read<T>> {
   const result = await gh(args, io);
   if (result?.code === 0) {

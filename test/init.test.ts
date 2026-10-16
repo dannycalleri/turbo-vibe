@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 import { parseConfig } from "../src/config/load.js";
 import { type Answers, choices, configFor } from "../src/init.js";
@@ -164,6 +164,83 @@ describe("turbo-vibe init", () => {
     });
     expect(await readFile(join(cwd, ".gitignore"), "utf8")).toBe(mine);
     expect(stdout).not.toContain(".gitignore");
+  });
+
+  describe("after writing the files", () => {
+    const terminal = (now: boolean | undefined, signedIn = true) => {
+      const { prompts, asked } = fakePrompts({
+        "Set up your accounts now?": now,
+      });
+      return {
+        asked,
+        prompts,
+        ask: async () => "",
+        askSecret: async () => "",
+        capture: vi.fn(async (_command: string, args: readonly string[]) =>
+          args.join(" ") === "auth status"
+            ? { code: signedIn ? 0 : 1, stdout: "" }
+            : { code: 1, stdout: "" },
+        ),
+      };
+    };
+
+    it("lists the next steps in order", async () => {
+      const { stdout } = await run(["init", ...flags]);
+      expect(stdout).toContain(
+        `Next steps:\n  1. Check what each environment runs: npx @turbo-vibe/cli@${cliRange} plan\n  2. Connect your accounts: npx @turbo-vibe/cli@${cliRange} setup`,
+      );
+      expect(stdout).toContain(
+        '  4. To go live, run "Deploy to production" in the Actions tab',
+      );
+    });
+
+    it("runs setup when the person says yes", async () => {
+      const { code, stderr } = await run(
+        ["init", ...flags],
+        {},
+        {},
+        undefined,
+        undefined,
+        terminal(true),
+      );
+      expect(code).toBe(1);
+      expect(stderr).toBe(
+        "cannot tell which GitHub repository to set up; pass --repo owner/name\n",
+      );
+    });
+
+    it("prints the command when the person says no", async () => {
+      const { code, stdout, stderr } = await run(
+        ["init", ...flags],
+        {},
+        {},
+        undefined,
+        undefined,
+        terminal(false),
+      );
+      expect(code).toBe(0);
+      expect(stdout).toContain(
+        `run npx @turbo-vibe/cli@${cliRange} setup when you are ready\n`,
+      );
+      expect(stderr).toBe("");
+    });
+
+    it("does not offer setup without a signed-in GitHub CLI, or without a terminal", async () => {
+      const signedOut = terminal(true, false);
+      for (const io of [signedOut, {}]) {
+        const { code, stderr } = await run(
+          ["init", ...flags],
+          {},
+          {},
+          undefined,
+          undefined,
+          io,
+        );
+        expect(code).toBe(0);
+        expect(stderr).toBe("");
+      }
+      expect(signedOut.asked).toEqual([]);
+    });
   });
 
   it("stops and leaves an existing config unchanged", async () => {

@@ -21,6 +21,7 @@ export interface Prompts {
     options: readonly Choice<T>[],
     initial?: T,
   ) => Promise<T | undefined>;
+  confirm: (message: string) => Promise<boolean | undefined>;
   multiselect: <T extends string>(
     message: string,
     options: readonly Choice<T>[],

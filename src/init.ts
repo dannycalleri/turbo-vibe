@@ -14,6 +14,7 @@ import { parseConfig } from "./config/load.js";
 import { hostname, name } from "./config/schema.js";
 import { type Defaults, detectProject, readRepository } from "./detect.js";
 import type { Choice, Io } from "./io.js";
+import { defaultEnvironments, githubSignedIn, setup } from "./setup.js";
 import { cliRange, version, workflowRef } from "./version.js";
 
 export const choices = {
@@ -372,13 +373,29 @@ export async function init(
   }
   const written = await writeFiles(files, force, io);
   if (written !== 0) return written;
-  if (!onlyAssistant) {
-    await ignoreWorkingFiles(io);
-    io.stdout(
-      `next: check the file with \`npx @turbo-vibe/cli@${cliRange} plan\`; \`npx @turbo-vibe/cli@${cliRange} setup --list\` names the accounts and the steps only you can do (https://github.com/dannycalleri/turbo-vibe/blob/main/docs/bootstrap.md); then run \`npx @turbo-vibe/cli@${cliRange} setup\` in a terminal\n`,
-    );
+  if (onlyAssistant || !parsed?.ok) return 0;
+  await ignoreWorkingFiles(io);
+  const cli = `npx @turbo-vibe/cli@${cliRange}`;
+  io.stdout(
+    [
+      "",
+      "Next steps:",
+      `  1. Check what each environment runs: ${cli} plan`,
+      `  2. Connect your accounts: ${cli} setup (${cli} setup --list names what you need first: https://github.com/dannycalleri/turbo-vibe/blob/main/docs/bootstrap.md)`,
+      "  3. Commit these files and merge to main: every merge deploys to staging",
+      '  4. To go live, run "Deploy to production" in the Actions tab, type the build ID and approve it',
+      "",
+    ].join("\n"),
+  );
+  if (!io.prompts || !io.ask || !io.askSecret || !(await githubSignedIn(io))) {
+    return 0;
   }
-  return 0;
+  const now = await io.prompts.confirm("Set up your accounts now?");
+  if (!now) {
+    io.stdout(`run ${cli} setup when you are ready\n`);
+    return 0;
+  }
+  return setup(parsed.config, { env: defaultEnvironments(parsed.config) }, io);
 }
 
 const workingFolder = ".turbo-vibe/";

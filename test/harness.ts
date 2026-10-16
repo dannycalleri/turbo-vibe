@@ -190,6 +190,10 @@ export function fakePrompts(replies: Record<string, unknown>) {
       const given = reply(message);
       return (given === "" ? initial : given) as T | undefined;
     },
+    async confirm(message) {
+      asked.push({ message, problems: [] });
+      return reply(message) as boolean | undefined;
+    },
     async multiselect<T extends string>(
       message: string,
       options: readonly Choice<T>[],
