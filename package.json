@@ -1,6 +1,6 @@
 {
   "name": "@turbo-vibe/cli",
-  "version": "1.0.0-rc.4",
+  "version": "1.0.0-rc.5",
   "description": "Life after localhost: take your prototype to production. Staging and production from one yaml file, in your own Cloudflare, Vercel, Supabase and WorkOS accounts; a person promotes the build that passed staging.",
   "keywords": [
     "deploy",
