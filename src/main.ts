@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Command, CommanderError, Option } from "commander";
 import { apply, plan } from "./apply.js";
+import { assistantNames } from "./assistant.js";
 import { check } from "./check.js";
 import {
   compatibility,
@@ -14,7 +15,13 @@ import { jsonSchema } from "./config/json-schema.js";
 import { loadConfigFile } from "./config/load.js";
 import { type EnvironmentName, environmentNames } from "./config/schema.js";
 import { deploy, type Project, promote, smoke, test } from "./deploy.js";
-import { adopt, choices, init, labelled } from "./init.js";
+import {
+  type AssistantOption,
+  adopt,
+  choices,
+  init,
+  labelled,
+} from "./init.js";
 import type { Io } from "./io.js";
 import { migrate } from "./migrate.js";
 import { derivePlan, formatPlan } from "./plan.js";
@@ -24,6 +31,15 @@ import { defaultEnvironments, setup } from "./setup.js";
 import { major, version } from "./version.js";
 
 export type { Io } from "./io.js";
+
+const assistantFlag = "--assistant <names>";
+const assistantHelp = `coding assistants to write guidance for: ${assistantNames.join(", ")}, as a comma-separated list or a repeated flag (default: the ones this repository already uses)`;
+const noAssistantFlag = "--no-assistant";
+const noAssistantHelp = "write no coding assistant guidance";
+const collect = (value: string, previous: unknown) => [
+  ...(Array.isArray(previous) ? previous : []),
+  value,
+];
 
 export async function main(argv: readonly string[], io: Io): Promise<number> {
   let exitCode = 0;
@@ -155,38 +171,47 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     .option("--frontend <target>", labelled(choices.frontend))
     .option("--database <target>", labelled(choices.database))
     .option("--identity <target>", labelled(choices.identity))
-    .option(
-      "--assistant <which>",
-      `coding assistant guidance to write: ${choices.assistant.join(", ")}`,
-    )
+    .option(assistantFlag, assistantHelp, collect)
+    .option(noAssistantFlag, noAssistantHelp)
     .option(
       "--only-assistant",
       "write only the coding assistant guidance, for a project that already has turbo-vibe.yaml",
     )
     .option("--force", "replace files that already exist")
-    .action(async (options: Record<string, string | boolean | undefined>) => {
-      const { force, onlyAssistant, ...given } = options;
-      exitCode = await init(
-        given as Record<string, string>,
-        { force: force === true, onlyAssistant: onlyAssistant === true },
-        io,
-      );
-    });
+    .action(
+      async (
+        options: Record<string, string | boolean | string[] | undefined>,
+      ) => {
+        const { force, onlyAssistant, assistant, ...given } = options;
+        exitCode = await init(
+          given as Record<string, string>,
+          {
+            force: force === true,
+            onlyAssistant: onlyAssistant === true,
+            assistant: assistant as AssistantOption,
+          },
+          io,
+        );
+      },
+    );
 
   program
     .command("adopt")
     .description(
       "write the coding assistant guidance that adapts an existing project to turbo-vibe",
     )
-    .option("--assistant <which>", "claude, cursor or both")
+    .option(assistantFlag, assistantHelp, collect)
+    .option(noAssistantFlag, noAssistantHelp)
     .option("--force", "replace files that already exist")
-    .action(async (options: { assistant?: string; force?: boolean }) => {
-      exitCode = await adopt(
-        options.assistant,
-        { force: options.force === true },
-        io,
-      );
-    });
+    .action(
+      async (options: { assistant?: AssistantOption; force?: boolean }) => {
+        exitCode = await adopt(
+          options.assistant,
+          { force: options.force === true },
+          io,
+        );
+      },
+    );
 
   program
     .command("check")

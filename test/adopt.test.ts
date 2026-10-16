@@ -3,7 +3,11 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 import { adapters } from "../src/adapters/index.js";
-import { adoptionFiles, assistantFiles } from "../src/assistant.js";
+import {
+  adoptionFiles,
+  assistantFiles,
+  parseAssistants,
+} from "../src/assistant.js";
 import { reservedNames } from "../src/config/load.js";
 import { backendPort, buildIdVariable, healthPath } from "../src/contract.js";
 import { choices } from "../src/init.js";
@@ -81,28 +85,84 @@ describe("turbo-vibe adopt", () => {
     expect(await readFile(join(forced.cwd, skillPath), "utf8")).not.toBe(mine);
   });
 
-  it("asks which assistant in a terminal, and refuses without one or with an unknown one", async () => {
-    const ask = vi.fn(async () => "cursor");
-    const asked = await run(["adopt"], {}, {}, undefined, undefined, { ask });
-    expect(asked.code).toBe(0);
-    expect(asked.stdout).toContain(`wrote ${rulePath}\n`);
-
-    const missing = await run(["adopt"]);
-    expect(missing.code).toBe(1);
-    expect(missing.stderr).toBe(
-      "missing --assistant; pass claude, cursor, both, or run adopt in a terminal to be asked\n",
+  it("writes for the assistants the repository already uses, without being told", async () => {
+    const { code, stdout } = await run(["adopt"], {
+      ".cursor/rules/mine.mdc": "x",
+    });
+    expect(code).toBe(0);
+    expect(stdout).toContain(
+      "writing guidance for cursor, found in this repository\n",
     );
+    expect(stdout).toContain(`wrote ${rulePath}\n`);
+    expect(stdout).not.toContain(skillPath);
+  });
 
-    const unknown = await run(["adopt", "--assistant", "none"]);
+  it("asks in a terminal when nothing is found, and takes a list as the answer", async () => {
+    const ask = vi.fn(async () => "claude, cursor");
+    const { code, stdout } = await run(
+      ["adopt"],
+      {},
+      {},
+      undefined,
+      undefined,
+      {
+        ask,
+      },
+    );
+    expect(code).toBe(0);
+    expect(stdout).toContain(`wrote ${skillPath}\n`);
+    expect(stdout).toContain(`wrote ${rulePath}\n`);
+  });
+
+  it("refuses to run with no assistant, and names an unknown one", async () => {
+    const message =
+      "adopt writes guidance for a coding assistant: pass --assistant claude, cursor, or a list such as claude,cursor\n";
+    expect((await run(["adopt"])).stderr).toBe(message);
+    expect((await run(["adopt", "--no-assistant"])).stderr).toBe(message);
+    const later = await run([
+      "adopt",
+      "--no-assistant",
+      "--assistant",
+      "cursor",
+    ]);
+    expect(later.code).toBe(0);
+    expect(later.stdout).toContain(`wrote ${rulePath}\n`);
+    const answered = await run(["adopt"], {}, {}, undefined, undefined, {
+      ask: async () => "foo",
+    });
+    expect(answered.stderr).toBe(
+      "unknown assistant foo; choose from claude, cursor, as a comma-separated list\n",
+    );
+    const unknown = await run(["adopt", "--assistant", "claude,codex"]);
     expect(unknown.code).toBe(1);
     expect(unknown.stderr).toBe(
-      "--assistant must be one of claude, cursor, both\n",
+      "--assistant: unknown assistant codex; choose from claude, cursor, as a comma-separated list\n",
     );
   });
 });
 
+describe("parseAssistants", () => {
+  it("reads comma-separated lists and repeated flags, without duplicates", () => {
+    expect(parseAssistants(["cursor, claude", "claude"])).toEqual([
+      "cursor",
+      "claude",
+    ]);
+  });
+
+  it("refuses a value that names no assistant, so an empty variable never means none", () => {
+    expect(parseAssistants([","])).toBe(
+      "no assistant named; choose from claude, cursor, as a comma-separated list",
+    );
+  });
+
+  it("keeps both and none from before the list", () => {
+    expect(parseAssistants(["both"])).toEqual(["claude", "cursor"]);
+    expect(parseAssistants(["none"])).toEqual([]);
+  });
+});
+
 describe("the adoption guidance", () => {
-  const guidance = Object.values(adoptionFiles("claude", version))[0] ?? "";
+  const guidance = Object.values(adoptionFiles(["claude"], version))[0] ?? "";
 
   it("lists every target turbo-vibe runs, with an init flag that accepts it", () => {
     const rows = [
@@ -131,7 +191,7 @@ describe("the adoption guidance", () => {
   });
 
   it("tells an assistant working on the project afterwards where a new value of the application goes", () => {
-    const ongoing = Object.values(assistantFiles("claude", version))[0] ?? "";
+    const ongoing = Object.values(assistantFiles(["claude"], version))[0] ?? "";
     for (const field of ["`secrets`", "`public`", "`build.secrets`"])
       expect(ongoing).toContain(field);
   });
@@ -144,7 +204,7 @@ describe("the adoption guidance", () => {
   });
 
   it("runs the CLI at a version npm resolves for this release, as the ongoing guidance does", () => {
-    const ongoing = Object.values(assistantFiles("claude", version))[0] ?? "";
+    const ongoing = Object.values(assistantFiles(["claude"], version))[0] ?? "";
     const commands = [
       ...`${guidance}${ongoing}`.matchAll(/npx @turbo-vibe\/cli@(\S+)/g),
     ];

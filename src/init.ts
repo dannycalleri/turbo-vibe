@@ -2,10 +2,12 @@ import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { adapters } from "./adapters/index.js";
 import {
-  type Assistant,
+  type AssistantName,
   adoptionFiles,
   assistantFiles,
-  assistants,
+  assistantNames,
+  detectAssistants,
+  parseAssistants,
 } from "./assistant.js";
 import { schemaUrl } from "./config/json-schema.js";
 import { parseConfig } from "./config/load.js";
@@ -17,7 +19,6 @@ export const choices = {
   frontend: ["cloudflare-static", "vercel-static", "vercel-nextjs", "none"],
   database: ["supabase", "none"],
   identity: ["workos", "none"],
-  assistant: assistants,
 } as const;
 
 export interface Answers {
@@ -27,7 +28,7 @@ export interface Answers {
   frontend: (typeof choices.frontend)[number];
   database: (typeof choices.database)[number];
   identity: (typeof choices.identity)[number];
-  assistant: (typeof choices.assistant)[number];
+  assistant: readonly AssistantName[];
 }
 
 function sibling(prefix: string, hostname: string, apex: boolean): string {
@@ -174,25 +175,58 @@ export const labelled = (targets: readonly string[]) =>
     )
     .join(", ");
 
-const questions: Record<keyof Answers, string> = {
+// `false` is --no-assistant; undefined means the flag was not given.
+export type AssistantOption = readonly string[] | false | undefined;
+
+const assistantQuestion = (required: boolean) =>
+  `Coding assistants to write guidance for (${assistantNames.join(", ")}; a comma-separated list${required ? "" : ", or none"})`;
+
+async function resolveAssistants(
+  option: AssistantOption,
+  io: Io,
+  required = false,
+): Promise<AssistantName[] | string> {
+  if (option === false) return [];
+  if (option) {
+    const parsed = parseAssistants(option);
+    return typeof parsed === "string" ? `--assistant: ${parsed}` : parsed;
+  }
+  const detected = await detectAssistants(io.cwd);
+  if (detected.length > 0) {
+    io.stdout(
+      `writing guidance for ${detected.join(", ")}, found in this repository\n`,
+    );
+    return detected;
+  }
+  if (!io.ask) return [];
+  const answer = (await io.ask(assistantQuestion(required))).trim();
+  if (!answer && !required) return [];
+  return parseAssistants([answer]);
+}
+
+const questions: Record<Exclude<keyof Answers, "assistant">, string> = {
   name: "Project name (lowercase letters, digits, hyphens)",
   domain: "Production domain, e.g. app.example.com",
   backend: `Backend target (${labelled(choices.backend)})`,
   frontend: `Frontend target (${labelled(choices.frontend)})`,
   database: `Database target (${labelled(choices.database)})`,
   identity: `Identity target (${labelled(choices.identity)})`,
-  assistant: `Coding assistant guidance to write (${choices.assistant.join(", ")})`,
 };
 
 export async function init(
-  given: Partial<Record<keyof Answers, string>>,
-  { force, onlyAssistant = false }: { force: boolean; onlyAssistant?: boolean },
+  given: Partial<Record<Exclude<keyof Answers, "assistant">, string>>,
+  {
+    force,
+    onlyAssistant = false,
+    assistant: option,
+  }: { force: boolean; onlyAssistant?: boolean; assistant?: AssistantOption },
   io: Io,
 ): Promise<number> {
-  const answers: Partial<Record<keyof Answers, string>> = { ...given };
-  const asked: (keyof Answers)[] = onlyAssistant
-    ? ["assistant"]
-    : (Object.keys(questions) as (keyof Answers)[]);
+  const answers: Partial<Record<Exclude<keyof Answers, "assistant">, string>> =
+    { ...given };
+  const asked = onlyAssistant
+    ? []
+    : (Object.keys(questions) as Exclude<keyof Answers, "assistant">[]);
   for (const key of asked) {
     if (answers[key]) continue;
     if (!io.ask) {
@@ -204,7 +238,7 @@ export async function init(
     answers[key] = (await io.ask(questions[key])).trim();
   }
   for (const key of (
-    ["backend", "frontend", "database", "identity", "assistant"] as const
+    ["backend", "frontend", "database", "identity"] as const
   ).filter((key) => asked.includes(key))) {
     const allowed: readonly string[] = choices[key];
     if (!allowed.includes(answers[key] ?? "")) {
@@ -212,8 +246,15 @@ export async function init(
       return 1;
     }
   }
-  if (onlyAssistant && answers.assistant === "none") {
-    io.stderr("--only-assistant needs --assistant claude, cursor or both\n");
+  const assistant = await resolveAssistants(option, io, onlyAssistant);
+  if (typeof assistant === "string") {
+    io.stderr(`${assistant}\n`);
+    return 1;
+  }
+  if (onlyAssistant && assistant.length === 0) {
+    io.stderr(
+      `--only-assistant needs an assistant: --assistant ${assistantNames.join(", ")}, or a list such as ${assistantNames.join(",")}\n`,
+    );
     return 1;
   }
   if (
@@ -227,8 +268,8 @@ export async function init(
     return 1;
   }
   const files = onlyAssistant
-    ? assistantFiles(answers.assistant as Assistant, version)
-    : filesFor(answers as Answers);
+    ? assistantFiles(assistant, version)
+    : filesFor({ ...(answers as Omit<Answers, "assistant">), assistant });
   const config = files["turbo-vibe.yaml"];
   const parsed = config === undefined ? undefined : parseConfig(config);
   if (parsed && !parsed.ok) {
@@ -276,32 +317,23 @@ async function writeFiles(
   return 0;
 }
 
-const adoptAssistants = ["claude", "cursor", "both"] as const;
-
 export async function adopt(
-  given: string | undefined,
+  option: AssistantOption,
   { force }: { force: boolean },
   io: Io,
 ): Promise<number> {
-  let assistant = given;
-  if (!assistant) {
-    if (!io.ask) {
-      io.stderr(
-        `missing --assistant; pass ${adoptAssistants.join(", ")}, or run adopt in a terminal to be asked\n`,
-      );
-      return 1;
-    }
-    assistant = (
-      await io.ask(
-        `Coding assistant that will adapt the project (${adoptAssistants.join(", ")})`,
-      )
-    ).trim();
-  }
-  if (!(adoptAssistants as readonly string[]).includes(assistant)) {
-    io.stderr(`--assistant must be one of ${adoptAssistants.join(", ")}\n`);
+  const assistant = await resolveAssistants(option, io, true);
+  if (typeof assistant === "string") {
+    io.stderr(`${assistant}\n`);
     return 1;
   }
-  const files = adoptionFiles(assistant as Assistant, version);
+  if (assistant.length === 0) {
+    io.stderr(
+      `adopt writes guidance for a coding assistant: pass --assistant ${assistantNames.join(", ")}, or a list such as ${assistantNames.join(",")}\n`,
+    );
+    return 1;
+  }
+  const files = adoptionFiles(assistant, version);
   const written = await writeFiles(files, force, io);
   if (written !== 0) return written;
   if (await excludeFromGit(Object.keys(files), io)) {
