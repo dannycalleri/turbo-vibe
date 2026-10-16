@@ -13,7 +13,7 @@ import {
   isPreview,
 } from "./config/schema.js";
 import { stateSecrets, supabaseOrganization } from "./contract.js";
-import { accessFor, hostOf, layout } from "./origins.js";
+import { accessFor, analyticsFor, hostOf, layout } from "./origins.js";
 
 const cloudflareModule = fileURLToPath(
   new URL("../infra/cloudflare", import.meta.url),
@@ -190,6 +190,19 @@ export function rootModule(
         ? { always_use_https: true }
         : {}),
     };
+    if (
+      analyticsFor(config, environment) &&
+      infrastructure.cloudflare.hostnames.length > 0
+    ) {
+      root.module.cloudflare.analytics_host = layout(
+        config,
+        environment,
+      ).hostname;
+      root.output = {
+        ...root.output,
+        analytics_token: { value: `\${module.cloudflare.analytics_token}` },
+      };
+    }
     const access = accessFor(config, environment);
     if (access && infrastructure.cloudflare.hostnames.length > 0) {
       root.module.cloudflare.access = {

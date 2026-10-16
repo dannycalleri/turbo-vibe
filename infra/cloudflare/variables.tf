@@ -34,3 +34,8 @@ variable "access" {
   })
   default = null
 }
+
+variable "analytics_host" {
+  type    = string
+  default = null
+}

@@ -19,6 +19,7 @@ import { requiredSecrets } from "./infrastructure.js";
 import type { Io } from "./io.js";
 import {
   accessFor,
+  analyticsFor,
   callbackUrl,
   hostOf,
   layout,
@@ -81,7 +82,8 @@ export function runtimeSecretNames(config: Config): string[] {
 const declaredSecrets = (service: Config["services"][string]) =>
   "secrets" in service ? (service.secrets ?? []) : [];
 
-function needsOutputs(config: Config): boolean {
+function needsOutputs(config: Config, environment: EnvironmentName): boolean {
+  if (analyticsFor(config, environment)) return true;
   return Object.values(config.services).some(
     (service) =>
       service.kind === "database" ||
@@ -94,7 +96,7 @@ async function environmentOutputs(
   environment: EnvironmentName,
   io: Io,
 ): Promise<Record<string, unknown> | undefined> {
-  if (!needsOutputs(config)) return {};
+  if (!needsOutputs(config, environment)) return {};
   const outputs = await readOutputs(config, environment, io);
   if (!outputs)
     io.stderr(
@@ -341,6 +343,8 @@ export async function deploy(
   if (!appSecrets || !publicValues || buildMissing) return 1;
   const infra = dryRun ? {} : await environmentOutputs(config, environment, io);
   if (!infra) return 1;
+  if (!dryRun && analyticsTokenMissing(config, environment, infra, io))
+    return 1;
   const secrets = dryRun ? {} : runtimeSecrets(config, environment, infra, io);
   if (!secrets) return 1;
   const store =
@@ -450,6 +454,7 @@ export async function promote(
   io.stdout(`promote build ${chosen.buildId} to production\n`);
   const infra = await environmentOutputs(config, environment, io);
   if (!infra) return 1;
+  if (analyticsTokenMissing(config, environment, infra, io)) return 1;
   const secrets = runtimeSecrets(config, environment, infra, io);
   if (!secrets) return 1;
   const outputs = await deployServices(
@@ -468,6 +473,21 @@ export async function promote(
     io,
   );
   return typeof outputs === "number" ? outputs : 0;
+}
+
+function analyticsTokenMissing(
+  config: Config,
+  environment: EnvironmentName,
+  infra: Readonly<Record<string, unknown>>,
+  io: Io,
+): boolean {
+  if (!analyticsFor(config, environment)) return false;
+  const token = infra.analytics_token;
+  if (typeof token === "string" && token !== "") return false;
+  io.stderr(
+    `${environment} counts visits, but its Web Analytics token is not in the infrastructure outputs; run apply first\n`,
+  );
+  return true;
 }
 
 async function accessHeaders(

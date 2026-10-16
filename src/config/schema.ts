@@ -29,6 +29,7 @@ const environment = z.strictObject({
   hostname: hostname.optional(),
   api_hostname: hostname.optional(),
   access: access.optional(),
+  analytics: z.boolean().optional(),
 });
 
 const secretNames = z.array(z.string()).optional();

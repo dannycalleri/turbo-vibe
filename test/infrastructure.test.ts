@@ -370,6 +370,38 @@ describe("access", () => {
   });
 });
 
+describe("analytics", () => {
+  const counted = (() => {
+    const result = parseConfig(
+      `version: 1\nproject: acme\ndomain: acme.example.com\nenvironments:\n  production:\n    analytics: true\n  staging:\n    analytics: true\nservices:\n${web()}`,
+    );
+    if (!result.ok) throw new Error(JSON.stringify(result.problems));
+    return result.config;
+  })();
+
+  it("creates a Web Analytics site for the environment's hostname and outputs its token", () => {
+    const root = rootModule(counted, "production", {});
+    expect(root.module.cloudflare).toMatchObject({
+      analytics_host: "acme.example.com",
+    });
+    expect(root.output?.analytics_token).toEqual({
+      value: `\${module.cloudflare.analytics_token}`,
+    });
+  });
+
+  it("never counts a preview", () => {
+    expect(
+      rootModule(counted, "preview-feature-x", {}).module.cloudflare,
+    ).not.toHaveProperty("analytics_host");
+  });
+
+  it("counts nothing unless the environment asks", () => {
+    expect(
+      rootModule(config(web()), "production", {}).module.cloudflare,
+    ).not.toHaveProperty("analytics_host");
+  });
+});
+
 describe("state", () => {
   it("keeps one state per project and environment", () => {
     expect(stateKey("acme", "staging")).toBe("acme/staging/terraform.tfstate");

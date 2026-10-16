@@ -119,3 +119,12 @@ resource "cloudflare_zero_trust_access_application" "this" {
     { id = cloudflare_zero_trust_access_policy.people[0].id, precedence = 2 },
   ]
 }
+
+# Not auto_install: Cloudflare does not document it for Workers static assets, and it would count every hostname in the zone.
+resource "cloudflare_web_analytics_site" "this" {
+  count = var.analytics_host == null ? 0 : 1
+
+  account_id   = var.account_id
+  host         = var.analytics_host
+  auto_install = false
+}

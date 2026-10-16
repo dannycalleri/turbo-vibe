@@ -5,7 +5,7 @@ import {
   environmentNames,
   isPreview,
 } from "../config/schema.js";
-import { accessFor } from "../origins.js";
+import { accessFor, analyticsFor } from "../origins.js";
 import type { Check, CheckContext, Finding } from "./types.js";
 import { fail, missing, ok, warn } from "./types.js";
 
@@ -106,7 +106,7 @@ export function onWorkersPaid(subscriptions: readonly Subscription[]): boolean {
 }
 
 // Pull-request code runs with the preview token, so it must not change zone-wide settings.
-function managesZoneSettings(environment: string): boolean {
+function isStable(environment: string): boolean {
   return (
     environment !== "preview" && !isPreview(environment as EnvironmentName)
   );
@@ -120,6 +120,7 @@ export function requiredPermissions(context: {
   const targets = new Set(
     Object.values(context.config.services).map((service) => service.target),
   );
+  const name = context.githubEnvironment ?? context.environment;
   const needed = new Set<string>();
   if (
     [...targets].some((target) =>
@@ -131,17 +132,20 @@ export function requiredPermissions(context: {
   if (targets.has("cloudflare-container") || targets.has("cloudflare-static")) {
     needed.add("Workers Scripts Write");
     needed.add("Workers Routes Write");
-    if (managesZoneSettings(context.githubEnvironment ?? context.environment))
-      needed.add("Zone Settings Write");
+    if (isStable(name)) needed.add("Zone Settings Write");
   }
   if (targets.has("cloudflare-container"))
     needed.add("Workers Containers Write");
   // Every environment but production deploys like staging: `preview`, `live` and each preview inherit its access.
-  const name = context.githubEnvironment ?? context.environment;
-  if (
-    accessFor(context.config, name === "production" ? "production" : "staging")
-  )
+  const like = name === "production" ? "production" : "staging";
+  if (accessFor(context.config, like))
     for (const permission of accessPermissions) needed.add(permission);
+  // Cloudflare guards Web Analytics sites with this permission.
+  if (
+    (name === "staging" || name === "production") &&
+    analyticsFor(context.config, name)
+  )
+    needed.add("Account Settings Write");
   return [...needed];
 }
 
