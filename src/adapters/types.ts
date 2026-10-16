@@ -48,6 +48,7 @@ export interface DeployResult {
 
 export interface SmokeContext extends ServiceContext {
   buildId: string;
+  headers?: Readonly<Record<string, string>>;
   io: Io;
 }
 

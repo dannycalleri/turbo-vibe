@@ -1,5 +1,11 @@
 import { adapterFor } from "../adapters/index.js";
-import { type EnvironmentName, isPreview } from "../config/schema.js";
+import {
+  type Config,
+  type EnvironmentName,
+  environmentNames,
+  isPreview,
+} from "../config/schema.js";
+import { accessFor } from "../origins.js";
 import type { Check, CheckContext, Finding } from "./types.js";
 import { fail, missing, ok, warn } from "./types.js";
 
@@ -27,6 +33,17 @@ interface Policy {
   effect?: string;
   resources?: Record<string, unknown>;
   permission_groups?: { name: string }[];
+}
+
+export const zeroTrustPage = "https://one.dash.cloudflare.com/";
+
+const accessPermissions = [
+  "Access: Apps and Policies Write",
+  "Access: Service Tokens Write",
+];
+
+export function hasPrivateEnvironment(config: Config): boolean {
+  return environmentNames.some((environment) => accessFor(config, environment));
 }
 
 export const zoneScoped: ReadonlySet<string> = new Set([
@@ -119,6 +136,12 @@ export function requiredPermissions(context: {
   }
   if (targets.has("cloudflare-container"))
     needed.add("Workers Containers Write");
+  // Every environment but production deploys like staging: `preview`, `live` and each preview inherit its access.
+  const name = context.githubEnvironment ?? context.environment;
+  if (
+    accessFor(context.config, name === "production" ? "production" : "staging")
+  )
+    for (const permission of accessPermissions) needed.add(permission);
   return [...needed];
 }
 
@@ -203,6 +226,7 @@ export const cloudflare: Check = async (context) => {
     );
   }
 
+  let accessGranted = true;
   const token = await get<{ policies?: Policy[] }>(
     context,
     `${tokens}/${verified.body.result.id}`,
@@ -226,6 +250,9 @@ export const cloudflare: Check = async (context) => {
     const checkable = requiredPermissions(context).filter(
       (permission) => ids.account || zoneScoped.has(permission),
     );
+    accessGranted = accessPermissions.every((permission) =>
+      granted(policies, permission, ids),
+    );
     for (const permission of checkable) {
       findings.push(
         granted(policies, permission, ids)
@@ -237,6 +264,30 @@ export const cloudflare: Check = async (context) => {
             ),
       );
     }
+  }
+
+  // Without these permissions the probe fails anyway, and blaming Zero Trust would mislead.
+  if (
+    io.env.CLOUDFLARE_ACCOUNT_ID &&
+    accessFor(config, context.environment) &&
+    accessGranted
+  ) {
+    const apps = await get<unknown[]>(
+      context,
+      `/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}/access/apps`,
+    );
+    findings.push(
+      apps.body?.success
+        ? ok(
+            "cloudflare",
+            `Zero Trust is enabled, so Access can keep ${context.environment} private`,
+          )
+        : fail(
+            "cloudflare",
+            `${context.environment} is private, but Cloudflare Access is not available on the account (HTTP ${apps.status})`,
+            `open ${zeroTrustPage}, choose a team name and the Free plan (it asks for payment details but does not charge), then run check again`,
+          ),
+    );
   }
 
   if (

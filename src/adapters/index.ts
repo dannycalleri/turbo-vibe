@@ -8,7 +8,7 @@ export type TargetCatalog = Readonly<
   Record<
     string,
     Pick<Adapter, "kind" | "hostsStaticAssets" | "buildsOwnOutput"> &
-      Partial<Pick<Adapter, "secrets" | "runsServerCode">>
+      Partial<Pick<Adapter, "secrets" | "runsServerCode" | "crossOrigin">>
   >
 >;
 

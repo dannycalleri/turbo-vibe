@@ -640,6 +640,7 @@ export async function setupCloudflare(
     [
       ...setupPermissions(config),
       ...ciPermissions(config, "staging"),
+      ...ciPermissions(config, "production"),
       r2Permission,
       r2ReadPermission,
     ],

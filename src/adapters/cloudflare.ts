@@ -324,6 +324,7 @@ export const cloudflareContainer: Adapter = {
       {
         url: `https://${context.hostname}${healthPath}`,
         read: healthBuildId,
+        ...(context.headers ? { headers: context.headers } : {}),
       },
       context.buildId,
       context.io,
@@ -376,6 +377,7 @@ export const cloudflareStatic: Adapter = {
       {
         url: `https://${context.hostname}${buildIdPath}`,
         read: async (response) => (await response.text()).trim(),
+        ...(context.headers ? { headers: context.headers } : {}),
       },
       context.buildId,
       context.io,

@@ -119,11 +119,14 @@ export function fakeR2(seed: Record<string, string> = {}) {
     unsigned,
     record: (key: string) =>
       JSON.parse(new TextDecoder().decode(objects.get(key))),
-    fetch(otherwise: (url: string) => Response = () => new Response("unused")) {
+    fetch(
+      otherwise: (url: string, request: Request) => Response = () =>
+        new Response("unused"),
+    ) {
       return vi.fn<typeof globalThis.fetch>(async (input, init) => {
         const request =
           input instanceof Request ? input : new Request(input, init);
-        return (await handle(request)) ?? otherwise(request.url);
+        return (await handle(request)) ?? otherwise(request.url, request);
       });
     },
   };

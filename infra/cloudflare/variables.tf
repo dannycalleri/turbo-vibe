@@ -25,3 +25,12 @@ variable "always_use_https" {
   type    = bool
   default = false
 }
+
+variable "access" {
+  type = object({
+    name    = string
+    domains = list(string)
+    emails  = list(string)
+  })
+  default = null
+}

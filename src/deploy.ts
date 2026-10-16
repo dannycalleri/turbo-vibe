@@ -17,7 +17,13 @@ import {
 } from "./database.js";
 import { requiredSecrets } from "./infrastructure.js";
 import type { Io } from "./io.js";
-import { callbackUrl, hostOf, layout, originSettings } from "./origins.js";
+import {
+  accessFor,
+  callbackUrl,
+  hostOf,
+  layout,
+  originSettings,
+} from "./origins.js";
 import {
   appPublicValues,
   appSecrets,
@@ -464,6 +470,24 @@ export async function promote(
   return typeof outputs === "number" ? outputs : 0;
 }
 
+async function accessHeaders(
+  config: Config,
+  environment: EnvironmentName,
+  io: Io,
+): Promise<Record<string, string> | undefined | null> {
+  if (!accessFor(config, environment)) return undefined;
+  const outputs = await readOutputs(config, environment, io);
+  const id = outputs?.access_client_id;
+  const secret = outputs?.access_client_secret;
+  if (typeof id !== "string" || typeof secret !== "string") {
+    io.stderr(
+      `${environment} is private, but its Access service token is not in the infrastructure outputs; run apply first\n`,
+    );
+    return null;
+  }
+  return { "cf-access-client-id": id, "cf-access-client-secret": secret };
+}
+
 export async function smoke(
   config: Config,
   environment: EnvironmentName,
@@ -472,11 +496,18 @@ export async function smoke(
 ): Promise<number> {
   const records = environment === "staging";
   if (records && missingVariables(stateSecrets, io)) return 1;
+  const headers = await accessHeaders(config, environment, io);
+  if (headers === null) return 1;
   let failed = false;
   for (const context of contexts(config, environment)) {
     const adapter = adapterFor(context.service.target);
     if (!adapter.smoke) continue;
-    const result = await adapter.smoke({ ...context, buildId, io });
+    const result = await adapter.smoke({
+      ...context,
+      buildId,
+      io,
+      ...(headers ? { headers } : {}),
+    });
     (result.ok ? io.stdout : io.stderr)(
       `${result.ok ? "ok" : "FAIL"} ${context.name}: ${result.message}\n`,
     );

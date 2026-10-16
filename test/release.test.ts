@@ -564,6 +564,82 @@ describe("smoke", () => {
     ).toBe("passed");
   });
 
+  const privateProject = project.replace(
+    "services:",
+    "environments:\n  staging:\n    access: { emails: [ada@example.com] }\nservices:",
+  );
+  const tofuOutputs = (outputs: Record<string, unknown>) =>
+    vi.fn(async (command: string) => ({
+      code: 0,
+      stdout:
+        command === "tofu"
+          ? JSON.stringify(
+              Object.fromEntries(
+                Object.entries(outputs).map(([name, value]) => [
+                  name,
+                  { value },
+                ]),
+              ),
+            )
+          : "{}",
+    }));
+
+  it("passes Cloudflare Access with the environment's service token when staging is private", async () => {
+    const r2 = fakeR2(seeded(record({ smoke: "pending" })));
+    const seen: (string | null)[] = [];
+    const { code } = await run(
+      [
+        "smoke",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      { "turbo-vibe.yaml": privateProject },
+      stateEnv,
+      undefined,
+      r2.fetch((url, { headers }) => {
+        seen.push(
+          `${headers.get("cf-access-client-id")}/${headers.get("cf-access-client-secret")}`,
+        );
+        return serving("abc1230000000000000000000000000000000000")(url);
+      }),
+      {
+        capture: tofuOutputs({
+          access_client_id: "client.access",
+          access_client_secret: "client-secret",
+        }),
+      },
+    );
+    expect(code).toBe(0);
+    expect(seen).toEqual([
+      "client.access/client-secret",
+      "client.access/client-secret",
+    ]);
+  });
+
+  it("fails a private environment's smoke test before any request when its service token is missing", async () => {
+    const r2 = fakeR2(seeded(record({ smoke: "pending" })));
+    const { code, stderr } = await run(
+      [
+        "smoke",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      { "turbo-vibe.yaml": privateProject },
+      stateEnv,
+      undefined,
+      r2.fetch(serving("abc1230000000000000000000000000000000000")),
+      { capture: tofuOutputs({}) },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "staging is private, but its Access service token is not in the infrastructure outputs; run apply first\n",
+    );
+  });
+
   it("records a failing staging build and names both build IDs", async () => {
     const r2 = fakeR2(seeded(record({ smoke: "pending" })));
     const { code, stderr } = await run(

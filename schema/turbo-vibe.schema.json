@@ -32,6 +32,23 @@
             "api_hostname": {
               "type": "string",
               "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+            },
+            "access": {
+              "type": "object",
+              "properties": {
+                "emails": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[^@\\s]+@([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$"
+                  }
+                }
+              },
+              "required": [
+                "emails"
+              ],
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
@@ -46,6 +63,23 @@
             "api_hostname": {
               "type": "string",
               "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+            },
+            "access": {
+              "type": "object",
+              "properties": {
+                "emails": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[^@\\s]+@([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$"
+                  }
+                }
+              },
+              "required": [
+                "emails"
+              ],
+              "additionalProperties": false
             }
           },
           "additionalProperties": false

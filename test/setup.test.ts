@@ -1845,6 +1845,19 @@ describe("setup on re-runs and other environments", () => {
 });
 
 describe("setup --list", () => {
+  it("asks the person to enable Zero Trust once when an environment is private", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": project.replace(
+        "services:",
+        "environments:\n  staging:\n    access: { emails: [ada@example.com] }\nservices:",
+      ),
+    });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "Enable Zero Trust once, for the private environments: open https://one.dash.cloudflare.com/, choose a team name and the Free plan",
+    );
+  });
+
   it("names the accounts, plans and person steps for the project's targets, and changes nothing", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     const runner = vi.fn(async () => 0);
@@ -1862,6 +1875,7 @@ describe("setup --list", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("Subscribe to Workers Paid");
     expect(result.stdout).toContain("Create the Supabase organization");
+    expect(result.stdout).not.toContain("Zero Trust");
     expect(result.stdout).toContain("production needs billing");
     expect(result.stdout).not.toContain("Vercel");
     expect(result.stdout).toContain(

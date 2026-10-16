@@ -34,6 +34,78 @@ describe("parseConfig", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("accepts a private environment with the emails Access lets in", () => {
+    const result = parseConfig(
+      valid.replace(
+        "services:",
+        "environments:\n  staging:\n    access: { emails: [ada@example.com, grace@example.org] }\nservices:",
+      ),
+    );
+    expect(result.ok && result.config.environments?.staging?.access).toEqual({
+      emails: ["ada@example.com", "grace@example.org"],
+    });
+  });
+
+  it("rejects an access list without valid emails", () => {
+    const source = (emails: string) =>
+      valid.replace(
+        "services:",
+        `environments:\n  staging:\n    access: { emails: ${emails} }\nservices:`,
+      );
+    expect(problems(source("[]"))).toContainEqual({
+      line: 6,
+      message:
+        "`environments.staging.access.emails` must list at least one email address",
+    });
+    expect(problems(source("[ada]"))).toContainEqual({
+      line: 6,
+      message:
+        "`environments.staging.access.emails.0` must be an email address such as ada@example.com",
+    });
+  });
+
+  it("refuses a private environment when Cloudflare serves no hostname", () => {
+    const source = `version: 1
+project: acme
+domain: acme.example.com
+environments:
+  staging:
+    access: { emails: [ada@example.com] }
+services:
+  db:
+    kind: database
+    target: supabase
+    region: eu-central-1
+`;
+    expect(problems(source)).toContainEqual({
+      line: 6,
+      message:
+        "staging cannot be private: no service runs on a Cloudflare target, so Cloudflare serves no hostname for Access to guard",
+    });
+  });
+
+  it("refuses a private environment when a service runs outside Cloudflare", () => {
+    const source = `version: 1
+project: acme
+domain: acme.example.com
+environments:
+  staging:
+    access: { emails: [ada@example.com] }
+services:
+  web:
+    kind: frontend
+    target: vercel-static
+    build: { command: x, output: dist }
+`;
+    expect(problems(source)).toEqual([
+      {
+        line: 6,
+        message:
+          "staging cannot be private while service `web` runs on vercel-static: Cloudflare Access guards only hostnames Cloudflare serves",
+      },
+    ]);
+  });
+
   it("reports an unknown top-level key with its line", () => {
     expect(problems(valid.replace("domain:", "domian:"))).toContainEqual({
       line: 3,
@@ -371,6 +443,23 @@ describe("published JSON Schema", () => {
       committed,
       "schema/turbo-vibe.schema.json is stale: run `make schema`",
     ).toBe(stdout);
+  });
+
+  it("accepts the same email addresses as the CLI, since editors drop regular-expression flags", async () => {
+    const { stdout } = await run(["schema"]);
+    const pattern = new RegExp(
+      JSON.parse(stdout).properties.environments.properties.staging.properties
+        .access.properties.emails.items.pattern,
+    );
+    for (const address of ["Ada@Example.com", "ada@example.com", "ada"]) {
+      const accepted = parseConfig(
+        valid.replace(
+          "services:",
+          `environments:\n  staging:\n    access: { emails: [${address}] }\nservices:`,
+        ),
+      ).ok;
+      expect(pattern.test(address), address).toBe(accepted);
+    }
   });
 });
 

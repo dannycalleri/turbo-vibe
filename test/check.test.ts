@@ -361,6 +361,96 @@ describe("against recorded fakes", () => {
     expect(findings.every((finding) => finding.severity === "ok")).toBe(true);
   });
 
+  describe("a private environment", () => {
+    const site =
+      "  web:\n    kind: frontend\n    target: cloudflare-static\n    build: { command: x, output: dist }\n";
+    const privateContext = () => {
+      const base = context(site, cloudflareEnv);
+      const parsed = parseConfig(
+        `version: 1\nproject: acme\ndomain: app.turbovibe.ai\nenvironments:\n  staging:\n    access: { emails: [ada@example.com] }\nservices:\n${site}`,
+      );
+      if (!parsed.ok) throw new Error(JSON.stringify(parsed.problems));
+      return { ...base, config: parsed.config };
+    };
+    const granted = [
+      "DNS Write",
+      "Workers Scripts Write",
+      "Workers Routes Write",
+      "Zone Settings Write",
+      "Access: Apps and Policies Write",
+      "Access: Service Tokens Write",
+    ];
+    const zeroTrust = (enabled: boolean) =>
+      server.use(
+        http.get(
+          "https://api.cloudflare.com/client/v4/accounts/acc123/access/apps",
+          () =>
+            enabled
+              ? envelope([])
+              : HttpResponse.json(
+                  { success: false, errors: [{ code: 9999 }], result: null },
+                  { status: 403 },
+                ),
+        ),
+      );
+
+    it("asks for the Access permissions", () => {
+      expect(requiredPermissions(privateContext())).toEqual(granted);
+    });
+
+    it("asks a public production token for no Access permission while staging is private", () => {
+      expect(
+        requiredPermissions({ ...privateContext(), environment: "production" }),
+      ).not.toContain("Access: Apps and Policies Write");
+      expect(
+        requiredPermissions({
+          ...privateContext(),
+          githubEnvironment: "preview",
+        }),
+      ).toContain("Access: Apps and Policies Write");
+    });
+
+    it("confirms Zero Trust is enabled", async () => {
+      cloudflareApi({ permissions: granted });
+      zeroTrust(true);
+      const findings = await cloudflare(privateContext());
+      expect(findings.every((finding) => finding.severity === "ok")).toBe(true);
+      expect(findings.map((finding) => finding.message)).toContain(
+        "Zero Trust is enabled, so Access can keep staging private",
+      );
+    });
+
+    it("names the missing Access permissions without blaming Zero Trust", async () => {
+      cloudflareApi({ permissions: granted.slice(0, 4) });
+      zeroTrust(false);
+      const messages = (await cloudflare(privateContext()))
+        .filter((finding) => finding.severity === "fail")
+        .map((finding) => finding.message);
+      expect(messages).toEqual([
+        "CLOUDFLARE_API_TOKEN lacks Access: Apps and Policies Write",
+        "CLOUDFLARE_API_TOKEN lacks Access: Service Tokens Write",
+      ]);
+    });
+
+    it("sends the person to enable Zero Trust when Access is unavailable", async () => {
+      cloudflareApi({ permissions: granted });
+      zeroTrust(false);
+      expect(
+        (await cloudflare(privateContext())).filter(
+          (finding) => finding.severity === "fail",
+        ),
+      ).toEqual([
+        {
+          check: "cloudflare",
+          severity: "fail",
+          message:
+            "staging is private, but Cloudflare Access is not available on the account (HTTP 403)",
+          fix: "open https://one.dash.cloudflare.com/, choose a team name and the Free plan (it asks for payment details but does not charge), then run check again",
+        },
+      ]);
+    });
+  });
+
   it("names the token, the missing DNS permission, and the domain", async () => {
     cloudflareApi({
       permissions: [

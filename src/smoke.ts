@@ -29,6 +29,7 @@ export function judge(
 
 export interface Probe {
   url: string;
+  headers?: Readonly<Record<string, string>>;
   read: (response: Response) => Promise<string | undefined>;
 }
 
@@ -46,7 +47,7 @@ export async function checkBuildId(
     let observed: Observation;
     try {
       const response = await fetch(probe.url, {
-        headers: { "cache-control": "no-cache" },
+        headers: { "cache-control": "no-cache", ...probe.headers },
         signal: AbortSignal.timeout(10_000),
       });
       observed = {

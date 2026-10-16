@@ -14,9 +14,21 @@ export const hostname = z
     "must be a lowercase hostname such as example.com",
   );
 
+export const email = z
+  .string()
+  .regex(
+    /^[^@\s]+@([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/,
+    "must be an email address such as ada@example.com",
+  );
+
+const access = z.strictObject({
+  emails: z.array(email).min(1, "must list at least one email address"),
+});
+
 const environment = z.strictObject({
   hostname: hostname.optional(),
   api_hostname: hostname.optional(),
+  access: access.optional(),
 });
 
 const secretNames = z.array(z.string()).optional();
@@ -140,4 +152,5 @@ export const configSchema = z.strictObject({
 });
 
 export type Config = z.infer<typeof configSchema>;
+export type Access = z.infer<typeof access>;
 export type Service = Config["services"][string];
