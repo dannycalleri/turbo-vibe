@@ -1,7 +1,26 @@
 {
   "name": "@turbo-vibe/cli",
   "version": "1.0.0-rc.3",
-  "description": "The production step after the prototype: staging and production from one file, the tested build promoted unchanged after approval.",
+  "description": "Life after localhost: take your prototype to production. Staging and production from one yaml file, in your own Cloudflare, Vercel, Supabase and WorkOS accounts; a person promotes the build that passed staging.",
+  "keywords": [
+    "deploy",
+    "deployment",
+    "cli",
+    "staging",
+    "production",
+    "preview-environments",
+    "github-actions",
+    "cloudflare",
+    "cloudflare-workers",
+    "vercel",
+    "nextjs",
+    "supabase",
+    "workos",
+    "opentofu",
+    "infrastructure-as-code",
+    "vibe-coding",
+    "claude-code"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
