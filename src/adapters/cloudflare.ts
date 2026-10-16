@@ -355,7 +355,9 @@ export const cloudflareStatic: Adapter = {
     const { service } = context;
     if (service.kind !== "frontend")
       throw new Error(`${context.name} is not a frontend`);
-    const assets = await recordedOrBuilt(context, () => staticBuild(context));
+    const assets = await recordedOrBuilt(context, () => staticBuild(context), {
+      noindex: context.environment !== "production",
+    });
     if (typeof assets === "number") return { code: assets };
     const result = {
       assetsDir: assets.dir,

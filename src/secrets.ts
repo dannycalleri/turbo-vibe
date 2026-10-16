@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type Config,
@@ -148,15 +148,11 @@ function text(bytes: Buffer): string | undefined {
   }
 }
 
-export async function withPublicValues(
-  dir: string,
+export async function fillPublicValues(
   copy: string,
   values: Readonly<Record<string, string>>,
   io: Io,
 ): Promise<string | number> {
-  await rm(copy, { recursive: true, force: true });
-  await mkdir(copy, { recursive: true });
-  await cp(dir, copy, { recursive: true, verbatimSymlinks: true });
   for (const path of await files(copy)) {
     const bytes = await readFile(path);
     if (!bytes.includes(placeholderPrefix)) continue;

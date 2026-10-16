@@ -1,17 +1,31 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  cp,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { Outputs } from "../builds.js";
-import { leakedBuildSecret, withPublicValues } from "../secrets.js";
+import { fillPublicValues, leakedBuildSecret } from "../secrets.js";
 import type { DeployContext } from "./types.js";
 import { buildIdPath } from "./wrangler.js";
+
+export interface SiteEdits {
+  noindex?: boolean;
+}
 
 export async function recordedOrBuilt(
   context: DeployContext,
   build: () => Promise<string | number>,
+  edits: SiteEdits = {},
 ): Promise<{ dir: string; outputs?: Outputs } | number> {
+  const forEnvironment = (built: { dir: string; outputs?: Outputs }) =>
+    forThisEnvironment(context, built, edits);
   if (context.recorded) {
     const dir = await restoreAssets(context, context.recorded);
-    return typeof dir === "number" ? dir : withPublic(context, { dir });
+    return typeof dir === "number" ? dir : forEnvironment({ dir });
   }
   const dir = await build();
   if (typeof dir !== "number") {
@@ -24,33 +38,56 @@ export async function recordedOrBuilt(
     }
   }
   if (typeof dir === "number" || !context.store)
-    return typeof dir === "number" ? dir : withPublic(context, { dir });
+    return typeof dir === "number" ? dir : forEnvironment({ dir });
   const archived = await archiveAssets(context, dir, context.store);
   return typeof archived === "number"
     ? archived
-    : withPublic(context, { dir, outputs: { assets: archived } });
+    : forEnvironment({ dir, outputs: { assets: archived } });
 }
 
-async function withPublic(
+// The build tool may keep its output folder between builds, so changing it there could reach a later archive.
+async function forThisEnvironment(
   context: DeployContext,
   built: { dir: string; outputs?: Outputs },
+  edits: SiteEdits,
 ): Promise<{ dir: string; outputs?: Outputs } | number> {
   const { service } = context;
   const names = service.kind === "frontend" ? (service.public ?? []) : [];
-  if (names.length === 0 || context.dryRun) return built;
-  const dir = await withPublicValues(
+  const fillPublic = names.length > 0 && !context.dryRun;
+  if (!fillPublic && !edits.noindex) return built;
+  const copy = await copySite(
     built.dir,
-    join(context.workDir, `${context.name}-public`),
-    context.publicValues,
-    context.io,
+    join(context.workDir, `${context.name}-site`),
   );
+  const dir = fillPublic
+    ? await fillPublicValues(copy, context.publicValues, context.io)
+    : copy;
   if (typeof dir === "number") return dir;
+  if (edits.noindex) await keepFromSearchEngines(dir);
   return {
     dir,
     ...(built.outputs
-      ? { outputs: { ...built.outputs, public: names.join(",") } }
+      ? {
+          outputs: fillPublic
+            ? { ...built.outputs, public: names.join(",") }
+            : built.outputs,
+        }
       : {}),
   };
+}
+
+export async function copySite(dir: string, copy: string): Promise<string> {
+  await rm(copy, { recursive: true, force: true });
+  await mkdir(copy, { recursive: true });
+  await cp(dir, copy, { recursive: true, verbatimSymlinks: true });
+  return copy;
+}
+
+export async function keepFromSearchEngines(dir: string): Promise<void> {
+  const file = join(dir, "_headers");
+  const existing = await readFile(file, "utf8").catch(() => "");
+  const separator = existing === "" || existing.endsWith("\n") ? "" : "\n";
+  await appendFile(file, `${separator}/*\n  X-Robots-Tag: noindex\n`);
 }
 
 export function runBuildCommand(

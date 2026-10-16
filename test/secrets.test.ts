@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { Io } from "../src/io.js";
-import { placeholder, withPublicValues } from "../src/secrets.js";
+import { fillPublicValues, placeholder } from "../src/secrets.js";
 
 const fakeIo = () =>
   ({ stderr: vi.fn() }) as unknown as Io & {
@@ -20,10 +20,20 @@ async function built(files: Record<string, string | Uint8Array>) {
   return { root, dir, copy: join(root, "copy") };
 }
 
-describe("withPublicValues", () => {
+async function withPublicValues(
+  dir: string,
+  copy: string,
+  values: Record<string, string>,
+  io: Io,
+) {
+  await cp(dir, copy, { recursive: true });
+  return fillPublicValues(copy, values, io);
+}
+
+describe("fillPublicValues", () => {
   const key = placeholder("NEXT_PUBLIC_KEY");
 
-  it("puts each value into every text file of a copy, and leaves the built files with their placeholders", async () => {
+  it("puts each value into every text file of the copy", async () => {
     const { dir, copy } = await built({
       "static/chunks/app.js": `const key="${key}";`,
       "index.html": `<meta content="${key}">`,
@@ -42,7 +52,6 @@ describe("withPublicValues", () => {
     expect(await readFile(join(copy, "page.rsc"), "utf8")).toBe(
       '0:{"key":"pk_live"}',
     );
-    expect(await readFile(join(dir, "index.html"), "utf8")).toContain(key);
   });
 
   it("inserts a value literally, even one that looks like a replacement pattern", async () => {

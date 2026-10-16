@@ -121,7 +121,9 @@ describe("deploy to staging", () => {
       instance_type: "lite",
       max_instances: 1,
     });
-    expect(config.assets.directory).toBe(join(cwd, "dist"));
+    expect(config.assets.directory).toBe(
+      join(cwd, ".turbo-vibe", "wrangler", "staging", "web-site"),
+    );
     expect(
       await readFile(join(cwd, "dist", "_turbo-vibe", "build-id"), "utf8"),
     ).toBe("abc1230000000000000000000000000000000000");
@@ -175,7 +177,7 @@ services:
     expect(code).toBe(0);
     const config = await workerConfig(cwd, "staging", "acme-web-staging");
     expect(config.assets).toEqual({
-      directory: join(cwd, "dist"),
+      directory: join(cwd, ".turbo-vibe", "wrangler", "staging", "web-site"),
       not_found_handling: "single-page-application",
     });
     expect(config).not.toHaveProperty("containers");
@@ -187,6 +189,108 @@ services:
         assets:
           "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz",
       },
+    });
+  });
+
+  describe("keeps every environment but production out of search engines", () => {
+    const rule = "/*\n  X-Robots-Tag: noindex\n";
+    const own = "/assets/*\n  Cache-Control: immutable\n";
+    const deployTo = (
+      environment: string,
+      config = project,
+      extra: string[] = [],
+      calls = runner(),
+    ) =>
+      run(
+        [
+          "deploy",
+          "--env",
+          environment,
+          "--build-id",
+          "abc1230000000000000000000000000000000000",
+          ...extra,
+        ],
+        { "turbo-vibe.yaml": config, "dist/_headers": own },
+        env,
+        calls,
+        fakeR2().fetch(),
+        { capture: capturing() },
+      );
+    const shipped = async (cwd: string, environment: string) =>
+      readFile(
+        join(
+          (await workerConfig(cwd, environment, `acme-api-${environment}`))
+            .assets.directory,
+          "_headers",
+        ),
+        "utf8",
+      );
+
+    it("adds the rule to staging's copy of a serve_with frontend, twice in a row, and never to the build output or its archive", async () => {
+      const archived: string[] = [];
+      const calls = runner(async (command, args) => {
+        if (command === "tar" && args[0] === "-czf")
+          archived.push(
+            await readFile(join(args[3] as string, "_headers"), "utf8"),
+          );
+        return undefined;
+      });
+      const first = await deployTo("staging", project, [], calls);
+      expect(first.code).toBe(0);
+      expect(await shipped(first.cwd, "staging")).toBe(own + rule);
+      const second = await run(
+        [
+          "deploy",
+          "--env",
+          "staging",
+          "--build-id",
+          "abc1230000000000000000000000000000000000",
+        ],
+        {},
+        env,
+        calls,
+        fakeR2().fetch(),
+        { capture: capturing(), cwd: first.cwd },
+      );
+      expect(second.code).toBe(0);
+      expect(archived).toEqual([own, own]);
+      expect(await readFile(join(first.cwd, "dist", "_headers"), "utf8")).toBe(
+        own,
+      );
+      expect(await shipped(first.cwd, "staging")).toBe(own + rule);
+    });
+
+    it("adds the rule in a dry run without touching the build output", async () => {
+      const { code, cwd } = await deployTo("staging", project, ["--dry-run"]);
+      expect(code).toBe(0);
+      expect(await shipped(cwd, "staging")).toBe(own + rule);
+      expect(await readFile(join(cwd, "dist", "_headers"), "utf8")).toBe(own);
+    });
+
+    it("adds the rule to a frontend whose public values fill the same copy", async () => {
+      const withPublic = project.replace(
+        "    serve_with: api\n",
+        "    serve_with: api\n    public: [PUBLIC_NAME]\n",
+      );
+      const { code, cwd } = await run(
+        [
+          "deploy",
+          "--env",
+          "staging",
+          "--build-id",
+          "abc1230000000000000000000000000000000000",
+        ],
+        { "turbo-vibe.yaml": withPublic, "dist/_headers": own },
+        {
+          ...env,
+          TURBO_VIBE_VARS: JSON.stringify({ PUBLIC_NAME: "Acme" }),
+        },
+        runner(),
+        fakeR2().fetch(),
+        { capture: capturing() },
+      );
+      expect(code).toBe(0);
+      expect(await shipped(cwd, "staging")).toBe(own + rule);
     });
   });
 
@@ -799,6 +903,7 @@ describe("promote", () => {
     expect(config.containers[0]).toMatchObject({ image: digest });
     expect(config.containers[0]).not.toHaveProperty("image_vars");
     expect(config.assets.directory).toBe(assets);
+    await expect(stat(join(assets, "_headers"))).rejects.toThrow();
     expect((await stat(`${assets}.tar.gz`)).isFile()).toBe(true);
   });
 
@@ -1435,7 +1540,7 @@ describe("public values", () => {
     const shipped = (await workerConfig(cwd, "staging", "acme-api-staging"))
       .assets.directory as string;
     expect(shipped).toBe(
-      join(cwd, ".turbo-vibe", "wrangler", "staging", "web-public"),
+      join(cwd, ".turbo-vibe", "wrangler", "staging", "web-site"),
     );
     expect(await readFile(join(shipped, "app.js"), "utf8")).toBe(
       'posthog.init("phc_staging")',

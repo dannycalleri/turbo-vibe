@@ -2,11 +2,12 @@ import { access, mkdtemp, readdir, readFile, readlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { copySite } from "../../src/adapters/assets.js";
 import { vercelNextjs } from "../../src/adapters/vercel.js";
 import { loadConfigFile } from "../../src/config/load.js";
 import type { Io } from "../../src/io.js";
 import { spawnCapturer, spawnRunner } from "../../src/run.js";
-import { placeholder, withPublicValues } from "../../src/secrets.js";
+import { fillPublicValues, placeholder } from "../../src/secrets.js";
 import { postgresSession } from "../../src/sql.js";
 
 const example = new URL(
@@ -87,9 +88,8 @@ describe("the Next.js example", () => {
 
     const copy = join(workDir, "public");
     expect(
-      await withPublicValues(
-        output,
-        copy,
+      await fillPublicValues(
+        await copySite(output, copy),
         { NEXT_PUBLIC_EXAMPLE_NAME: "staging-name" },
         io,
       ),
