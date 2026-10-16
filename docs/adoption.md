@@ -57,7 +57,7 @@ services:
       test: npm --prefix web ci && npm --prefix web test   # runs first on a fresh CI runner, so it installs; for pnpm, start with `corepack enable &&`
 ```
 
-Leave out `web` if there is no frontend. If the frontend runs on Vercel (`target: vercel-static`), the backend moves to its own API hostname. In that case, follow the README's [Static frontends on Vercel](../README.md#static-frontends-on-vercel-beta): set `api_hostname` per environment, make the backend refuse origins other than `ALLOWED_ORIGINS`, and have the page read its API URL from `/_turbo-vibe/config.json`. Add `db` (`target: supabase`) and `auth` (`target: workos`) as described in the [README](../README.md#databases) when you need them.
+Leave out `web` if there is no frontend. If the frontend runs on Vercel (`target: vercel-static`), the backend moves to its own API hostname. In that case, follow the reference's [Static frontends on Vercel](reference.md#static-frontends-on-vercel-beta): set `api_hostname` per environment, make the backend refuse origins other than `ALLOWED_ORIGINS`, and have the page read its API URL from `/_turbo-vibe/config.json`. Add `db` (`target: supabase`) and `auth` (`target: workos`) as described in the [reference](reference.md#databases) when you need them.
 
 Cloudflare's free certificate covers the apex and names one level below it. `staging.myapp.example.com` is two levels below `example.com` and would fail TLS. That is why the example sets `staging-myapp.example.com` instead.
 
@@ -83,7 +83,7 @@ List the values the application reads, by kind, so that `setup` asks for them an
 
 - A `public` value must be an identifier, a key or a DSN, never a switch the build compares: during the build the code sees a placeholder, which each deploy replaces.
 - A Next.js page that reads a runtime secret must render per request: it calls `cookies()`, `headers()` or `connection()`, or exports `dynamic = "force-dynamic"`. A page rendered during the build sees no secret.
-- The kit sets some names itself, so validation refuses them and suggests a prefixed one, such as `APP_AWS_ACCESS_KEY_ID`. The README's [Your application's own secrets](../README.md#your-applications-own-secrets), [Public values in a frontend build](../README.md#public-values-in-a-frontend-build) and [Secrets only the build needs](../README.md#secrets-only-the-build-needs) say how each kind travels.
+- The kit sets some names itself, so validation refuses them and suggests a prefixed one, such as `APP_AWS_ACCESS_KEY_ID`. The reference's [Your application's own secrets](reference.md#your-applications-own-secrets), [Public values in a frontend build](reference.md#public-values-in-a-frontend-build) and [Secrets only the build needs](reference.md#secrets-only-the-build-needs) say how each kind travels.
 
 ## 3. Add the two workflows
 
@@ -163,7 +163,7 @@ Previews run in the `preview` GitHub environment, with its own state bucket and 
 
 ## 4. Create the accounts, tokens, and GitHub environments
 
-Do this once per project. The [bootstrap checklist](bootstrap.md) walks through every step and the plan it needs; this is the short version. The README's [Credentials](../README.md#credentials) table says which command reads each one.
+Do this once per project. The [bootstrap checklist](bootstrap.md) walks through every step and the plan it needs; this is the short version. The reference's [Credentials](reference.md#credentials) table says which command reads each one.
 
 1. **Accounts and plans:** the domain registered, and a Cloudflare account, with Workers Paid for Containers and R2 enabled. Add the Supabase organization, WorkOS workspace and Vercel team that your targets need.
 2. **Tokens that only you can create:** a Cloudflare bootstrap token with *Account API Tokens: Edit*, a Supabase access token, each WorkOS environment's API key and client ID, and a Vercel access token, as your targets need them.
@@ -186,4 +186,4 @@ If staging's smoke test fails, the run fails and names both build IDs. That buil
 
 ## Cost
 
-Public repositories run the workflows at no cost. For private repositories, the README's [Actions minutes per run](../README.md#actions-minutes-per-run) table lists the expected minutes for a pull request, a merge, and a promotion.
+Public repositories run the workflows at no cost. For private repositories, the reference's [Actions minutes per run](reference.md#actions-minutes-per-run) table lists the expected minutes for a pull request, a merge, and a promotion.

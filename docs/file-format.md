@@ -49,11 +49,11 @@ A backend is served under `/api/` and a frontend under `/`.
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `secrets` | list of names | none | The application's own secrets, such as `[STRIPE_SECRET_KEY]`. Names only: each value lives in the GitHub environment it belongs to, and reaches the running container as an environment variable of that name. See the README's [Your application's own secrets](../README.md#your-applications-own-secrets). |
+| `secrets` | list of names | none | The application's own secrets, such as `[STRIPE_SECRET_KEY]`. Names only: each value lives in the GitHub environment it belongs to, and reaches the running container as an environment variable of that name. See the reference's [Your application's own secrets](reference.md#your-applications-own-secrets). |
 | `build.dockerfile` | path | required | The Dockerfile, relative to the config file. |
 | `build.context` | path | the Dockerfile's directory | The Docker build context. |
 | `build.test` | command | none | Run by `turbo-vibe test` before anything is built. |
-| `build.secrets` | list of names | none | Secrets only the build needs, such as `[NPM_TOKEN]`, passed to `docker build` as BuildKit secrets. One value for every environment, stored as a repository secret. See the README's [Secrets only the build needs](../README.md#secrets-only-the-build-needs). |
+| `build.secrets` | list of names | none | Secrets only the build needs, such as `[NPM_TOKEN]`, passed to `docker build` as BuildKit secrets. One value for every environment, stored as a repository secret. See the reference's [Secrets only the build needs](reference.md#secrets-only-the-build-needs). |
 | `container.instance_type` | `lite`, `basic`, `standard-1` … `standard-4` | `lite` | The Cloudflare container size. |
 | `container.sleep_after` | duration such as `30s`, `5m`, `1h` | `5m` | Idle time before the container sleeps. |
 | `container.max_instances` | integer ≥ 1 | `1` | How many container instances may run. |
@@ -64,7 +64,7 @@ A backend is served under `/api/` and a frontend under `/`.
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `serve_with` | service name | none | `cloudflare-static` only: serve the files from that backend's Worker, on the same hostname. |
-| `public` | list of names | none | Public values the build inlines, such as `[NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY]`. The build sees a placeholder; each deploy puts that environment's value into a copy of the built files. See the README's [Public values in a frontend build](../README.md#public-values-in-a-frontend-build). |
+| `public` | list of names | none | Public values the build inlines, such as `[NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY]`. The build sees a placeholder; each deploy puts that environment's value into a copy of the built files. See the reference's [Public values in a frontend build](reference.md#public-values-in-a-frontend-build). |
 | `secrets` | list of names | none | `vercel-nextjs` only: the app's own secrets, which its server code reads; each environment's value is set on that environment's Vercel project. |
 | `build.command` | command | required | Builds the frontend. For `vercel-nextjs` it runs in `build.root`. |
 | `build.output` | path | required for `cloudflare-static` and `vercel-static` | The directory the build writes. |
