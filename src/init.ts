@@ -11,7 +11,8 @@ import {
 } from "./assistant.js";
 import { schemaUrl } from "./config/json-schema.js";
 import { parseConfig } from "./config/load.js";
-import type { Io } from "./io.js";
+import { hostname, name } from "./config/schema.js";
+import type { Choice, Io } from "./io.js";
 import { cliRange, version, workflowRef } from "./version.js";
 
 export const choices = {
@@ -178,8 +179,10 @@ export const labelled = (targets: readonly string[]) =>
 // `false` is --no-assistant; undefined means the flag was not given.
 export type AssistantOption = readonly string[] | false | undefined;
 
-const assistantQuestion = (required: boolean) =>
-  `Coding assistants to write guidance for (${assistantNames.join(", ")}; a comma-separated list${required ? "" : ", or none"})`;
+const assistantLabels: Record<AssistantName, string> = {
+  claude: "Claude Code",
+  cursor: "Cursor",
+};
 
 async function resolveAssistants(
   option: AssistantOption,
@@ -198,20 +201,93 @@ async function resolveAssistants(
     );
     return detected;
   }
-  if (!io.ask) return [];
-  const answer = (await io.ask(assistantQuestion(required))).trim();
-  if (!answer && !required) return [];
-  return parseAssistants([answer]);
+  if (!io.prompts) return [];
+  const chosen = await io.prompts.multiselect(
+    "Coding assistants to write guidance for",
+    assistantNames.map((value) => ({ value, label: assistantLabels[value] })),
+    { required },
+  );
+  return chosen ?? cancelled;
 }
 
-const questions: Record<Exclude<keyof Answers, "assistant">, string> = {
-  name: "Project name (lowercase letters, digits, hyphens)",
-  domain: "Production domain, e.g. app.example.com",
-  backend: `Backend target (${labelled(choices.backend)})`,
-  frontend: `Frontend target (${labelled(choices.frontend)})`,
-  database: `Database target (${labelled(choices.database)})`,
-  identity: `Identity target (${labelled(choices.identity)})`,
+const cancelled = "cancelled; nothing was written";
+
+type Question = Exclude<keyof Answers, "assistant">;
+type Target = Exclude<Question, "name" | "domain">;
+
+const textQuestions = {
+  name: { message: "Project name", field: name },
+  domain: {
+    message: "Production domain, such as app.example.com",
+    field: hostname,
+  },
+} as const;
+
+const targetQuestions: Record<Target, string> = {
+  backend: "Backend",
+  frontend: "Frontend",
+  database: "Database",
+  identity: "Sign-in",
 };
+
+const targetHints: Record<string, string> = {
+  "cloudflare-container": "your Dockerfile on Cloudflare Containers",
+  "cloudflare-static":
+    "static site on Cloudflare Workers, the successor to Pages",
+  "vercel-static": "static site on Vercel",
+  "vercel-nextjs": "Next.js on Vercel",
+  supabase: "Postgres on Supabase, a project per environment",
+  workos: "WorkOS AuthKit, sign-in per environment",
+};
+
+const targetChoices = (
+  key: Target,
+  answers: Partial<Record<Question, string>>,
+) =>
+  choices[key]
+    .filter(
+      (target) =>
+        !(
+          target === "none" &&
+          ((key === "frontend" && answers.backend === "none") ||
+            (key === "backend" && answers.frontend === "none"))
+        ),
+    )
+    .map(
+      (target): Choice => ({
+        value: target,
+        label: labelled([target]),
+        hint: targetHints[target] ?? `no ${targetQuestions[key].toLowerCase()}`,
+      }),
+    );
+
+const problemWith = (
+  field: typeof name | typeof hostname,
+  value: string,
+): string | undefined => {
+  const parsed = field.safeParse(value);
+  return parsed.success ? undefined : parsed.error.issues[0]?.message;
+};
+
+async function askFor(
+  key: Question,
+  answers: Partial<Record<Question, string>>,
+  io: Io,
+): Promise<string | undefined> {
+  const prompts = io.prompts as NonNullable<Io["prompts"]>;
+  if (key === "name" || key === "domain") {
+    const { message, field } = textQuestions[key];
+    const answer = await prompts.text(message, {
+      validate: (value) => problemWith(field, value.trim()),
+    });
+    return answer?.trim();
+  }
+  return prompts.select(
+    targetQuestions[key],
+    targetChoices(key, answers),
+    choices[key][0],
+  );
+}
 
 export async function init(
   given: Partial<Record<Exclude<keyof Answers, "assistant">, string>>,
@@ -222,31 +298,39 @@ export async function init(
   }: { force: boolean; onlyAssistant?: boolean; assistant?: AssistantOption },
   io: Io,
 ): Promise<number> {
-  const answers: Partial<Record<Exclude<keyof Answers, "assistant">, string>> =
-    { ...given };
-  const asked = onlyAssistant
+  const answers: Partial<Record<Question, string>> = { ...given };
+  const asked: Question[] = onlyAssistant
     ? []
-    : (Object.keys(questions) as Exclude<keyof Answers, "assistant">[]);
+    : ["name", "domain", "backend", "frontend", "database", "identity"];
+  for (const key of (
+    ["backend", "frontend", "database", "identity"] as const
+  ).filter((key) => asked.includes(key) && given[key] !== undefined)) {
+    const allowed: readonly string[] = choices[key];
+    if (!allowed.includes(given[key] ?? "")) {
+      io.stderr(`--${key} must be one of ${allowed.join(", ")}\n`);
+      return 1;
+    }
+  }
   for (const key of asked) {
     if (answers[key]) continue;
-    if (!io.ask) {
+    if (!io.prompts) {
       io.stderr(
         `missing --${key}; run init in a terminal to be asked, or pass every option\n`,
       );
       return 1;
     }
-    answers[key] = (await io.ask(questions[key])).trim();
-  }
-  for (const key of (
-    ["backend", "frontend", "database", "identity"] as const
-  ).filter((key) => asked.includes(key))) {
-    const allowed: readonly string[] = choices[key];
-    if (!allowed.includes(answers[key] ?? "")) {
-      io.stderr(`--${key} must be one of ${allowed.join(", ")}\n`);
-      return 1;
+    const answer = await askFor(key, answers, io);
+    if (answer === undefined) {
+      io.stderr(`init ${cancelled}\n`);
+      return 130;
     }
+    answers[key] = answer;
   }
   const assistant = await resolveAssistants(option, io, onlyAssistant);
+  if (assistant === cancelled) {
+    io.stderr(`init ${cancelled}\n`);
+    return 130;
+  }
   if (typeof assistant === "string") {
     io.stderr(`${assistant}\n`);
     return 1;
@@ -323,6 +407,10 @@ export async function adopt(
   io: Io,
 ): Promise<number> {
   const assistant = await resolveAssistants(option, io, true);
+  if (assistant === cancelled) {
+    io.stderr(`adopt ${cancelled}\n`);
+    return 130;
+  }
   if (typeof assistant === "string") {
     io.stderr(`${assistant}\n`);
     return 1;

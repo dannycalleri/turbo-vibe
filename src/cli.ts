@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import { main } from "./main.js";
+import { clackPrompts } from "./prompts.js";
 import { spawnCapturer, spawnRunner } from "./run.js";
 import { postgresSession } from "./sql.js";
 
@@ -58,6 +59,7 @@ process.exitCode = await main(process.argv.slice(2), {
           }
         },
         askSecret: (question: string) => readHidden(`${question}: `),
+        prompts: clackPrompts,
       }
     : {}),
   fetch: globalThis.fetch,

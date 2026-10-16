@@ -1,13 +1,13 @@
 import { z } from "zod";
 
-const name = z
+export const name = z
   .string()
   .regex(
     /^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$/,
     "must be lowercase letters, digits, and hyphens, start with a letter, and be at most 63 characters",
   );
 
-const hostname = z
+export const hostname = z
   .string()
   .regex(
     /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/,

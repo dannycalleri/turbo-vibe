@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { adapters } from "../src/adapters/index.js";
 import {
@@ -12,7 +12,7 @@ import { reservedNames } from "../src/config/load.js";
 import { backendPort, buildIdVariable, healthPath } from "../src/contract.js";
 import { choices } from "../src/init.js";
 import { cliRange, version } from "../src/version.js";
-import { run } from "./harness.js";
+import { fakePrompts, run } from "./harness.js";
 
 const skillPath = ".claude/skills/turbo-vibe-adopt/SKILL.md";
 const rulePath = ".cursor/rules/turbo-vibe-adopt.mdc";
@@ -97,17 +97,17 @@ describe("turbo-vibe adopt", () => {
     expect(stdout).not.toContain(skillPath);
   });
 
-  it("asks in a terminal when nothing is found, and takes a list as the answer", async () => {
-    const ask = vi.fn(async () => "claude, cursor");
+  it("asks in a terminal when nothing is found", async () => {
+    const { prompts } = fakePrompts({
+      "Coding assistants": ["claude", "cursor"],
+    });
     const { code, stdout } = await run(
       ["adopt"],
       {},
       {},
       undefined,
       undefined,
-      {
-        ask,
-      },
+      { prompts },
     );
     expect(code).toBe(0);
     expect(stdout).toContain(`wrote ${skillPath}\n`);
@@ -127,12 +127,11 @@ describe("turbo-vibe adopt", () => {
     ]);
     expect(later.code).toBe(0);
     expect(later.stdout).toContain(`wrote ${rulePath}\n`);
-    const answered = await run(["adopt"], {}, {}, undefined, undefined, {
-      ask: async () => "foo",
+    const cancelled = await run(["adopt"], {}, {}, undefined, undefined, {
+      prompts: fakePrompts({ "Coding assistants": undefined }).prompts,
     });
-    expect(answered.stderr).toBe(
-      "unknown assistant foo; choose from claude, cursor, as a comma-separated list\n",
-    );
+    expect(cancelled.code).toBe(130);
+    expect(cancelled.stderr).toBe("adopt cancelled; nothing was written\n");
     const unknown = await run(["adopt", "--assistant", "claude,codex"]);
     expect(unknown.code).toBe(1);
     expect(unknown.stderr).toBe(
