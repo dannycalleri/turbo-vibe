@@ -78,3 +78,44 @@ resource "cloudflare_zone_setting" "always_use_https" {
   setting_id = "always_use_https"
   value      = "on"
 }
+
+resource "cloudflare_zero_trust_access_service_token" "smoke" {
+  count = var.access == null ? 0 : 1
+
+  account_id = var.account_id
+  name       = "${var.access.name}-smoke"
+  duration   = "forever"
+}
+
+resource "cloudflare_zero_trust_access_policy" "people" {
+  count = var.access == null ? 0 : 1
+
+  account_id = var.account_id
+  name       = "${var.access.name} people"
+  decision   = "allow"
+  include    = [for email in var.access.emails : { email = { email = email } }]
+}
+
+resource "cloudflare_zero_trust_access_policy" "smoke" {
+  count = var.access == null ? 0 : 1
+
+  account_id = var.account_id
+  name       = "${var.access.name} smoke test"
+  decision   = "non_identity"
+  include    = [{ service_token = { token_id = cloudflare_zero_trust_access_service_token.smoke[0].id } }]
+}
+
+resource "cloudflare_zero_trust_access_application" "this" {
+  count = var.access == null ? 0 : 1
+
+  account_id       = var.account_id
+  name             = var.access.name
+  type             = "self_hosted"
+  domain           = var.access.domains[0]
+  destinations     = [for domain in var.access.domains : { type = "public", uri = domain }]
+  session_duration = "24h"
+  policies = [
+    { id = cloudflare_zero_trust_access_policy.smoke[0].id, precedence = 1 },
+    { id = cloudflare_zero_trust_access_policy.people[0].id, precedence = 2 },
+  ]
+}

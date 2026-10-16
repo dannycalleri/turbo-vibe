@@ -331,6 +331,45 @@ describe("always_use_https", () => {
   });
 });
 
+describe("access", () => {
+  const privateStaging = (() => {
+    const result = parseConfig(
+      `version: 1\nproject: acme\ndomain: acme.example.com\nenvironments:\n  staging:\n    access: { emails: [ada@example.com] }\nservices:\n${web()}`,
+    );
+    if (!result.ok) throw new Error(JSON.stringify(result.problems));
+    return result.config;
+  })();
+
+  it("puts a private environment's hostnames behind Access and outputs the smoke test's service token", () => {
+    const root = rootModule(privateStaging, "staging", {});
+    expect(root.module.cloudflare?.access).toEqual({
+      name: "acme-staging",
+      domains: ["staging.acme.example.com"],
+      emails: ["ada@example.com"],
+    });
+    expect(root.output?.access_client_secret).toEqual({
+      value: `\${module.cloudflare.access_client_secret}`,
+      sensitive: true,
+    });
+  });
+
+  it("guards a preview like staging, under its own name", () => {
+    expect(
+      rootModule(privateStaging, "preview-feature-x", {}).module.cloudflare
+        ?.access,
+    ).toMatchObject({
+      name: "acme-preview-feature-x",
+      domains: ["feature-x-staging.acme.example.com"],
+    });
+  });
+
+  it("leaves an environment without access public", () => {
+    const root = rootModule(privateStaging, "production", {});
+    expect(root.module.cloudflare).not.toHaveProperty("access");
+    expect(root.output).toBeUndefined();
+  });
+});
+
 describe("state", () => {
   it("keeps one state per project and environment", () => {
     expect(stateKey("acme", "staging")).toBe("acme/staging/terraform.tfstate");

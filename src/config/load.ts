@@ -415,6 +415,27 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
       });
     }
   }
+  for (const environment of environmentNames) {
+    if (!config.environments?.[environment]?.access) continue;
+    const elsewhere = Object.entries(config.services).find(
+      ([, service]) => catalog[service.target]?.crossOrigin,
+    );
+    if (elsewhere) {
+      problems.push({
+        path: ["environments", environment, "access"],
+        message: `${environment} cannot be private while service \`${elsewhere[0]}\` runs on ${elsewhere[1].target}: Cloudflare Access guards only hostnames Cloudflare serves`,
+      });
+    } else if (
+      !Object.values(config.services).some((service) =>
+        service.target.startsWith("cloudflare-"),
+      )
+    ) {
+      problems.push({
+        path: ["environments", environment, "access"],
+        message: `${environment} cannot be private: no service runs on a Cloudflare target, so Cloudflare serves no hostname for Access to guard`,
+      });
+    }
+  }
   return problems;
 }
 

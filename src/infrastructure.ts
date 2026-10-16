@@ -13,7 +13,7 @@ import {
   isPreview,
 } from "./config/schema.js";
 import { stateSecrets, supabaseOrganization } from "./contract.js";
-import { hostOf, layout } from "./origins.js";
+import { accessFor, hostOf, layout } from "./origins.js";
 
 const cloudflareModule = fileURLToPath(
   new URL("../infra/cloudflare", import.meta.url),
@@ -190,6 +190,22 @@ export function rootModule(
         ? { always_use_https: true }
         : {}),
     };
+    const access = accessFor(config, environment);
+    if (access && infrastructure.cloudflare.hostnames.length > 0) {
+      root.module.cloudflare.access = {
+        name: `${config.project}-${environment}`,
+        domains: infrastructure.cloudflare.hostnames,
+        emails: access.emails,
+      };
+      root.output = {
+        ...root.output,
+        access_client_id: { value: `\${module.cloudflare.access_client_id}` },
+        access_client_secret: {
+          value: `\${module.cloudflare.access_client_secret}`,
+          sensitive: true,
+        },
+      };
+    }
   }
   for (const [name, inputs] of Object.entries(infrastructure.supabase ?? {})) {
     const { branch_of, ...variables } = inputs;

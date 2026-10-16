@@ -239,6 +239,44 @@ describe("turbo-vibe preview deploy", () => {
     expect(worker.containers[0]).toMatchObject({ image: digest });
   });
 
+  it("keeps a preview's pages out of search engines", async () => {
+    const withPage = `${shop}  web:
+    kind: frontend
+    target: cloudflare-static
+    serve_with: api
+    build: { command: x, output: dist }
+`;
+    const { code, cwd } = await run(
+      ["preview", "deploy", "--branch", "feature-x", "--build-id", "abc123"],
+      { "turbo-vibe.yaml": withPage, "dist/index.html": "<p>hi" },
+      env,
+      runner(),
+      fakeR2().fetch((url) =>
+        url.endsWith("/api/health")
+          ? Response.json({ build_id: "abc123" })
+          : new Response("abc123"),
+      ),
+      { capture: capturing({}, [digest]) },
+    );
+    expect(code).toBe(0);
+    const worker = JSON.parse(
+      await readFile(
+        join(
+          cwd,
+          ".turbo-vibe",
+          "wrangler",
+          "preview-feature-x",
+          "shop-api-preview-feature-x",
+          "wrangler.json",
+        ),
+        "utf8",
+      ),
+    );
+    expect(
+      await readFile(join(worker.assets.directory, "_headers"), "utf8"),
+    ).toBe("/*\n  X-Robots-Tag: noindex\n");
+  });
+
   it("names a declared secret the preview environment lacks before applying anything", async () => {
     const calls = runner();
     const { code, stderr } = await run(

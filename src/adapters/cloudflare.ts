@@ -324,6 +324,7 @@ export const cloudflareContainer: Adapter = {
       {
         url: `https://${context.hostname}${healthPath}`,
         read: healthBuildId,
+        ...(context.headers ? { headers: context.headers } : {}),
       },
       context.buildId,
       context.io,
@@ -354,7 +355,9 @@ export const cloudflareStatic: Adapter = {
     const { service } = context;
     if (service.kind !== "frontend")
       throw new Error(`${context.name} is not a frontend`);
-    const assets = await recordedOrBuilt(context, () => staticBuild(context));
+    const assets = await recordedOrBuilt(context, () => staticBuild(context), {
+      noindex: context.environment !== "production",
+    });
     if (typeof assets === "number") return { code: assets };
     const result = {
       assetsDir: assets.dir,
@@ -376,6 +379,7 @@ export const cloudflareStatic: Adapter = {
       {
         url: `https://${context.hostname}${buildIdPath}`,
         read: async (response) => (await response.text()).trim(),
+        ...(context.headers ? { headers: context.headers } : {}),
       },
       context.buildId,
       context.io,

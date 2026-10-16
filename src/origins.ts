@@ -1,5 +1,6 @@
 import { adapters } from "./adapters/index.js";
 import {
+  type Access,
   type Config,
   type EnvironmentName,
   isPreview,
@@ -26,6 +27,15 @@ export function hostnameFor(
   return environment === "production"
     ? config.domain
     : `${environment}.${config.domain}`;
+}
+
+// A preview is guarded like staging, whose code it runs before merge.
+export function accessFor(
+  config: Config,
+  environment: EnvironmentName,
+): Access | undefined {
+  return config.environments?.[isPreview(environment) ? "staging" : environment]
+    ?.access;
 }
 
 export interface Layout {

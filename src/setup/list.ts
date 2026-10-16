@@ -1,3 +1,4 @@
+import { hasPrivateEnvironment, zeroTrustPage } from "../checks/cloudflare.js";
 import type { Config } from "../config/schema.js";
 import { environmentSecrets } from "../deploy.js";
 import { appPublic, appSecrets, buildSecrets } from "../secrets.js";
@@ -57,6 +58,11 @@ export function setupSteps(
       ? [`Subscribe to Workers Paid: ${cloudflareDashboard}/workers/plans`]
       : []),
     `Enable R2 once on the account: ${cloudflareDashboard}/r2/overview`,
+    ...(hasPrivateEnvironment(config)
+      ? [
+          `Enable Zero Trust once, for the private environments: open ${zeroTrustPage}, choose a team name and the Free plan (it asks for payment details but does not charge)`,
+        ]
+      : []),
     "If setup adds the zone to Cloudflare, set the zone's nameservers at your registrar when it prints them; that moves DNS for the whole zone",
     ...(database
       ? ["Create the Supabase organization: https://supabase.com/dashboard/new"]
