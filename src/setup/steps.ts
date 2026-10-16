@@ -14,18 +14,21 @@ export interface VendorStep {
 const uses = (config: Config, target: string) =>
   Object.values(config.services).some((service) => service.target === target);
 
+// Cloudflare's account-owned token templates prefill the name and permissions, not the expiry or resources.
+export const bootstrapTokenUrl = `https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=${encodeURIComponent(
+  JSON.stringify([{ key: "account_api_tokens", type: "edit" }]),
+)}&name=${encodeURIComponent("turbo-vibe bootstrap")}`;
+
 export const cloudflareStep: VendorStep = {
   vendor: "Cloudflare",
   plan: (config) =>
     uses(config, "cloudflare-container")
       ? "Workers Paid, which Containers need"
       : "the Free plan or higher",
-  url: "https://dash.cloudflare.com/?to=/:account/api-tokens",
+  url: bootstrapTokenUrl,
   clicks: [
-    'Open Manage Account → Account API Tokens, and click "Create Token"',
-    'Next to "Create Custom Token", click "Get started"',
-    'Name it "turbo-vibe bootstrap"',
-    "Under Permissions, choose Account, Account API Tokens, Edit",
+    'Open the page below: it fills in the name "turbo-vibe bootstrap" and the permission Account API Tokens: Edit',
+    "If the permission is missing, choose Account, Account API Tokens, Edit under Permissions",
     "Under TTL, set the end date to tomorrow",
     'Click "Continue to summary", then "Create Token", and copy the token',
   ],

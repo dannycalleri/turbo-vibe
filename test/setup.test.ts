@@ -6,6 +6,7 @@ import { fail, missing, ok } from "../src/checks/types.js";
 import { parseConfig } from "../src/config/load.js";
 import type { Io } from "../src/io.js";
 import type { Capturer, Runner } from "../src/run.js";
+import { bootstrapTokenUrl } from "../src/setup/steps.js";
 import { fakePrompts, project, run } from "./harness.js";
 
 const checks = vi.hoisted(() => ({ list: [] as Check[] }));
@@ -1135,7 +1136,7 @@ services:
       const { code, stdout } = await result;
       expect(code).toBe(0);
       expect(stdout).toContain(
-        "Step 1 of 1 · Cloudflare\n  Plan: Workers Paid, which Containers need\n  1. Open Manage Account → Account API Tokens",
+        "Step 1 of 1 · Cloudflare\n  Plan: Workers Paid, which Containers need\n  1. Open the page below: it fills in the name",
       );
       expect(stdout).toContain(
         "  Permissions: Account API Tokens: Edit, and nothing else",
@@ -1200,6 +1201,16 @@ services:
       );
     });
 
+    it("links to a token page prefilled with the name and the one permission", () => {
+      const url = new URL(bootstrapTokenUrl);
+      expect(url.origin).toBe("https://dash.cloudflare.com");
+      expect(url.searchParams.get("to")).toBe("/:account/api-tokens");
+      expect(
+        JSON.parse(url.searchParams.get("permissionGroupKeys") ?? ""),
+      ).toEqual([{ key: "account_api_tokens", type: "edit" }]);
+      expect(url.searchParams.get("name")).toBe("turbo-vibe bootstrap");
+    });
+
     it("opens the page on request, and goes on with the printed address when no browser opens", async () => {
       const { result, runner } = guided(
         fakeCloudflare(),
@@ -1208,9 +1219,7 @@ services:
       );
       const { code, stdout } = await result;
       expect(code).toBe(0);
-      expect(runner.mock.calls[0]?.[1]).toContain(
-        "https://dash.cloudflare.com/?to=/:account/api-tokens",
-      );
+      expect(runner.mock.calls[0]?.[1]).toContain(bootstrapTokenUrl);
       expect(stdout).toContain(
         "could not open a browser; open the address above\n",
       );
