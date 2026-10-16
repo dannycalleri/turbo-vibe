@@ -21,7 +21,8 @@ export const compatibilityDate = "2026-10-01";
 export const buildIdPath = "/_turbo-vibe/build-id";
 export const runtimeConfigPath = "/_turbo-vibe/config.json";
 
-export function routingModule(backend: Backend): string {
+// With several instances, Cloudflare's rollout can leave a long-lived instance on the old image for minutes after it reports completion; an instance named after the build starts on the new image, so the switch is immediate.
+export function routingModule(backend: Backend, buildId: string): string {
   const rule = backend.container?.instance_from;
   const [source, name] = rule ? rule.split(":") : [];
   const read =
@@ -30,8 +31,9 @@ export function routingModule(backend: Backend): string {
       : source === "header"
         ? `request.headers.get(${JSON.stringify(name)})`
         : "undefined";
+  const suffix = rule ? ` + ${JSON.stringify(`@${buildId.slice(0, 12)}`)}` : "";
   return `export function instanceName(request) {
-  return ${read} || "default";
+  return (${read} || "default")${suffix};
 }
 `;
 }
@@ -130,7 +132,10 @@ export async function writeWorker(
       join(dir, "worker.js"),
       workerEntry(spec.backend, spec.secretNames),
     );
-    await writeFile(join(dir, "routing.js"), routingModule(spec.backend));
+    await writeFile(
+      join(dir, "routing.js"),
+      routingModule(spec.backend, spec.buildId),
+    );
   }
   const file = join(dir, "wrangler.json");
   await writeFile(file, `${JSON.stringify(wranglerConfig(spec), null, 2)}\n`);

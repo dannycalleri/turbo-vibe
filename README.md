@@ -239,10 +239,14 @@ By default every request reaches one container instance, named `default`. A back
 ```yaml
     container:
       instance_from: query:session   # or header:x-session
-      max_instances: 3               # required with instance_from, at least 2
+      max_instances: 3               # required with instance_from, at least 3
 ```
 
-WebSocket upgrades are forwarded with `fetch`, so a connection stays on the instance it reached. Sessions and `default` share `max_instances`: once that many are running, a request for any other name fails, the smoke test's `/api/health` included. Size it for the sessions you expect at once, plus one. `examples/python-api` routes by `?session=`.
+WebSocket upgrades are forwarded with `fetch`, so a connection stays on the instance it reached.
+
+Each build gets its own instances: the Worker names them after the session and the build, such as `room-7@4f2c9e1a0b3d`. A deploy therefore switches every new request to the new build at once, and an open connection finishes on the instance it reached. The old build's instances stop after `sleep_after` without requests. A session moves to a new instance on each deploy, so keep state that must outlive a deploy in the database.
+
+Sessions and `default` share `max_instances`, and so do the old build's instances until they stop: once that many are running, a request for any other name fails, the smoke test's `/api/health` included. Size it for the sessions you expect at once, plus one for `default`, plus room for the previous build's instances during a deploy. `examples/python-api` routes by `?session=`.
 
 ### Databases
 

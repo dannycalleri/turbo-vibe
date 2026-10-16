@@ -264,7 +264,7 @@ describe("parseConfig", () => {
     expect(
       problems(withContainer("{ instance_from: query:session }"))[0]?.message,
     ).toBe(
-      "service `api` routes requests by query:session, so it needs max_instances of 2 or more: sessions and the default instance share them",
+      "service `api` routes requests by query:session, so it needs max_instances of 3 or more: sessions, the default instance and, during a deploy, the previous build's instances share them",
     );
     expect(problems(withContainer("{ max_instances: 5 }"))[0]?.message).toBe(
       "service `api` allows 5 instances but sets no instance_from, so every request still goes to one instance",
