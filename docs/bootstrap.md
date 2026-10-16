@@ -18,7 +18,15 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
 2. Choose hostnames **one level below the zone**: `staging-app.example.com`, not `staging.app.example.com`. Cloudflare's free Universal SSL certificate covers only the apex and first-level names. A deeper hostname needs Advanced Certificate Manager, a paid add-on.
 3. If the project has a `cloudflare-container` backend, it needs **Workers Paid**. Containers are not available without it. The plan includes an amount of container memory, CPU and disk each month, and bills usage beyond it; see Cloudflare's Containers pricing page. Small instances that sleep when idle keep a staging API within the included amounts. `setup` checks the plan first and waits while you subscribe.
 4. R2 must be enabled once on the account (R2 Object Storage in the dashboard). R2's free tier covers the kit's state files and archives for most projects. If it is not enabled, `setup` gives you the link and waits.
-5. Create a **bootstrap token**, owned by the account: Manage Account → Account API Tokens → Create Token → Custom token, with the single permission **Account → Account API Tokens: Edit**. Give it a short expiry, such as one day. `setup` asks for it, uses it, and offers to delete it at the end. A later run that has to create a Cloudflare token asks for a bootstrap token again: a new environment, `--replace` of a Cloudflare secret, or a Cloudflare secret deleted from GitHub. Create a new one the same way.
+5. Create a **bootstrap token**, owned by the account. `setup` shows these steps and offers to open the page:
+   1. Open the page below: it fills in the name "turbo-vibe bootstrap" and the permission Account API Tokens: Edit
+   2. If the permission is missing, choose Account, Account API Tokens, Edit under Permissions
+   3. Under TTL, set the end date to tomorrow
+   4. Click "Continue to summary", then "Create Token", and copy the token
+
+   Page: [create the bootstrap token](https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B%22key%22%3A%22account_api_tokens%22%2C%22type%22%3A%22edit%22%7D%5D&name=turbo-vibe%20bootstrap). Permissions: Account API Tokens: Edit, and nothing else; setup creates every other token from it.
+
+   `setup` asks for the token, uses it, and offers to delete it at the end. A later run that has to create a Cloudflare token asks for a bootstrap token again: a new environment, `--replace` of a Cloudflare secret, or a Cloudflare secret deleted from GitHub. Create a new one the same way.
 6. `setup` reads the account from the bootstrap token. It asks which one only when the token sees more than one account.
 
 From the bootstrap token, `setup`:
@@ -35,19 +43,40 @@ It does the zone and bucket work through a token named `turbo-vibe-<project>-set
 2. Choose the plan.
    - **Free:** two active projects per organization, which is exactly staging and production for one app. A free project **pauses after a week without activity**, and `check` and `migrate` report it. Restore it from the dashboard.
    - **Pro** (or higher): needed for `staging: branch`, a persistent staging branch of the production project, and for preview environments; branch compute is billed per hour.
-3. Create a personal access token (Account → Access Tokens). `setup` asks for it once, for every environment. When `turbo-vibe.yaml` leaves `organization` out, which keeps the slug out of a public repository, `setup` finds the organizations the token sees, asks you to choose when there is more than one, and stores the organization's slug as `SUPABASE_ORGANIZATION`.
+3. Create a personal access token on [the access tokens page](https://supabase.com/dashboard/account/tokens):
+   1. Click "Generate new token"
+   2. Name it "turbo-vibe" and choose an expiry
+   3. Click "Generate token", and copy the token
+
+   Permissions: a personal access token reaches every organization you belong to; setup lists them and you choose one.
+
+   `setup` asks for it once, for every environment, and checks it at once. When `turbo-vibe.yaml` leaves `organization` out, which keeps the slug out of a public repository, `setup` finds the organizations the token sees, asks you to choose when there is more than one, and stores the organization's slug as `SUPABASE_ORGANIZATION`.
 
 ## 4. WorkOS (projects with a `workos` identity service)
 
 1. Create a WorkOS workspace. It has a staging and a production environment.
 2. To use the production environment, a team admin adds **billing** in the WorkOS dashboard. Production unlocks after that.
-3. Keep each environment's API Keys page open. `setup` asks for the API key and the client ID of each GitHub environment. The production key is shown **only once**. For the client ID, click the application named in the key's row; the application's page shows it. `setup` refuses a production key (`sk_live_`) for `staging` and a staging key (`sk_test_`) for `production`.
+3. Keep [the API Keys page](https://dashboard.workos.com/api-keys) open. `setup` asks for the API key and the client ID of each GitHub environment:
+   1. Choose the environment at the top left: Staging for staging and previews, Production for production
+   2. On API Keys, copy the secret key; a production key is shown only when it is created
+   3. Open the application linked from the key's row, and copy its Client ID
+
+   Permissions: the environment's own secret key: staging's starts with sk_test_, production's with sk_live_.
+
+   `setup` refuses a production key (`sk_live_`) for `staging` and a staging key (`sk_test_`) for `production`, and checks each key with WorkOS when you enter it.
 
 ## 5. Vercel (projects with a `vercel-static` or `vercel-nextjs` frontend)
 
 1. Create a Vercel account or team.
    - **Hobby** forbids commercial use, and `check` warns about it. A commercial project needs **Pro**.
-2. Create an access token (Account Settings → Tokens), scoped to the team. `setup` asks for it once, finds the team from it, and asks you to choose only when the token sees more than one.
+2. Create an access token on [the tokens page](https://vercel.com/account/settings/tokens):
+   1. Under "Create Token", name it "turbo-vibe"
+   2. Under Scope, choose the team that will own the projects
+   3. Choose an expiration, click "Create", and copy the token
+
+   Permissions: scoped to the one team that owns the projects.
+
+   `setup` asks for it once, finds the team from it, and asks you to choose only when the token sees more than one.
 
 ## 6. The application's own values (projects that declare `secrets`, `public` or `build.secrets`)
 
