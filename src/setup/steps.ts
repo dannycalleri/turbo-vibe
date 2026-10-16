@@ -37,7 +37,7 @@ export const cloudflareStep: VendorStep = {
   produces: cloudflareSecrets,
 };
 
-function needsPaidSupabase(config: Config): boolean {
+export function needsPaidSupabase(config: Config): boolean {
   return Object.values(config.services).some(
     (service) =>
       service.kind === "database" &&
@@ -98,15 +98,26 @@ export const vendorSteps: readonly VendorStep[] = [
   workosStep,
 ];
 
+export function stepsFor(needed: readonly string[]): VendorStep[] {
+  return vendorSteps.filter((step) =>
+    step.produces.some((name) => needed.includes(name)),
+  );
+}
+
 export function stepsToAsk(
   needed: readonly string[],
   lacking: (names: readonly string[]) => boolean,
 ): VendorStep[] {
-  return vendorSteps.filter(
-    (step) =>
-      step.produces.some((name) => needed.includes(name)) &&
-      lacking(step.produces),
-  );
+  return stepsFor(needed).filter((step) => lacking(step.produces));
+}
+
+export function stepLines(step: VendorStep, config: Config): string[] {
+  return [
+    `  Plan: ${step.plan(config)}`,
+    ...step.clicks.map((click, index) => `  ${index + 1}. ${click}`),
+    `  Permissions: ${step.permissions}`,
+    `  ${step.url}`,
+  ];
 }
 
 export async function openInBrowser(url: string, io: Io): Promise<boolean> {
@@ -137,10 +148,7 @@ export async function showStep(
     [
       "",
       `Step ${position} of ${total} · ${step.vendor}`,
-      `  Plan: ${step.plan(config)}`,
-      ...step.clicks.map((click, index) => `  ${index + 1}. ${click}`),
-      `  Permissions: ${step.permissions}`,
-      `  ${step.url}`,
+      ...stepLines(step, config),
       "",
     ].join("\n"),
   );

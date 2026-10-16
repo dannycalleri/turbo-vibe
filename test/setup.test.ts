@@ -6,7 +6,12 @@ import { fail, missing, ok } from "../src/checks/types.js";
 import { parseConfig } from "../src/config/load.js";
 import type { Io } from "../src/io.js";
 import type { Capturer, Runner } from "../src/run.js";
-import { bootstrapTokenUrl } from "../src/setup/steps.js";
+import {
+  bootstrapTokenUrl,
+  cloudflareStep,
+  stepLines,
+  supabaseStep,
+} from "../src/setup/steps.js";
 import { fakePrompts, project, run } from "./harness.js";
 
 const checks = vi.hoisted(() => ({ list: [] as Check[] }));
@@ -1867,6 +1872,28 @@ describe("setup --list", () => {
     expect(capture).not.toHaveBeenCalled();
   });
 
+  it("prints each token's steps exactly as setup shows them", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": withDatabase,
+    });
+    const config = parseConfig(withDatabase);
+    if (!config.ok) throw new Error("invalid fixture");
+    for (const step of [cloudflareStep, supabaseStep])
+      expect(result.stdout).toContain(
+        [
+          `  ${step.vendor}`,
+          ...stepLines(step, config.config).map((line) => `  ${line}`),
+        ].join("\n"),
+      );
+    for (const line of [
+      ...supabaseStep.clicks,
+      supabaseStep.permissions,
+      supabaseStep.url,
+    ])
+      expect(result.stdout).toContain(line);
+    expect(result.stdout).not.toContain("  WorkOS\n");
+  });
+
   it("tells the person to have the application's own values ready, by kind", async () => {
     const result = await run(["setup", "--list"], {
       "turbo-vibe.yaml": project
@@ -1930,7 +1957,9 @@ services:
     build: { command: "pnpm build", output: dist }
 `;
     const result = await run(["setup", "--list"], { "turbo-vibe.yaml": site });
-    expect(result.stdout).toContain("Create a Vercel access token");
+    expect(result.stdout).toContain(
+      "  Vercel\n    Plan: Hobby, or Pro for a commercial project\n",
+    );
     expect(result.stdout).toContain("a commercial project needs the Pro plan");
     expect(result.stdout).not.toContain("Workers Paid");
   });
