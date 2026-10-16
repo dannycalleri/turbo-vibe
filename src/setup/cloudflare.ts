@@ -8,6 +8,7 @@ import {
 } from "../checks/cloudflare.js";
 import type { Config } from "../config/schema.js";
 import type { Io } from "../io.js";
+import { choose } from "./vendors.js";
 
 const api = "https://api.cloudflare.com/client/v4";
 
@@ -102,7 +103,7 @@ async function canCreateTokens(
   );
   if (verified.body?.result?.status !== "active") {
     io.stderr(
-      "the bootstrap token is not an active token of this account; create it in Cloudflare → Manage Account → Account API Tokens\n",
+      "the bootstrap token is not an active token of this account; create one with the steps above and paste it\n",
     );
     return undefined;
   }
@@ -116,7 +117,7 @@ async function canCreateTokens(
     !granted(policies, "Account API Tokens Write", { account, zone: "" })
   ) {
     io.stderr(
-      "the bootstrap token lacks Account API Tokens Write, so it cannot create the CI tokens; add that permission and run setup again\n",
+      "the bootstrap token lacks Account API Tokens Write, so it cannot create the CI tokens; create one with the steps above and paste it\n",
     );
     return undefined;
   }
@@ -563,6 +564,60 @@ async function offerToDelete(
   );
 }
 
+async function askBootstrapToken(
+  askSecret: (question: string) => Promise<string>,
+  io: Io,
+): Promise<
+  | {
+      bootstrap: CloudflareApi;
+      account: string;
+      token: { id: string; name: string };
+    }
+  | undefined
+> {
+  for (;;) {
+    const token = (await askSecret("Cloudflare bootstrap token")).trim();
+    if (!token) {
+      io.stderr(
+        "setup needs a Cloudflare bootstrap token; create one with the steps above\n",
+      );
+      return undefined;
+    }
+    const bootstrap = cloudflareApi(token, io);
+    const listed = await bootstrap.call<{ id: string; name: string }[]>(
+      "GET",
+      "/accounts",
+    );
+    const accounts = listed.body?.result ?? [];
+    if (listed.status !== 200) {
+      io.stderr(
+        `Cloudflare refuses the bootstrap token (HTTP ${listed.status}); create one with the steps above and paste it\n`,
+      );
+      continue;
+    }
+    if (accounts.length === 0) {
+      io.stderr(
+        "the bootstrap token sees no Cloudflare account; create it under Manage Account → Account API Tokens, so the account owns it, and paste it\n",
+      );
+      continue;
+    }
+    const account = await choose(
+      accounts,
+      (item) => `${item.name} (${item.id})`,
+      "Cloudflare account",
+      io,
+    );
+    if (!account) return undefined;
+    const accepted = await canCreateTokens(bootstrap, account.id, io);
+    if (accepted) {
+      io.stdout(
+        `cloudflare: the bootstrap token works on the account ${account.name}\n`,
+      );
+      return { bootstrap, account: account.id, token: accepted };
+    }
+  }
+}
+
 export async function setupCloudflare(
   config: Config,
   present: ReadonlyMap<string, ReadonlySet<string>>,
@@ -575,19 +630,9 @@ export async function setupCloudflare(
     }
   | undefined
 > {
-  const account = ((await io.ask?.("Cloudflare account ID")) ?? "").trim();
-  const token = (
-    await askSecret(
-      "Cloudflare bootstrap token (Manage Account → Account API Tokens, with Account API Tokens Write)",
-    )
-  ).trim();
-  if (!account || !token) {
-    io.stderr("setup needs the Cloudflare account ID and a bootstrap token\n");
-    return undefined;
-  }
-  const bootstrap = cloudflareApi(token, io);
-  const bootstrapToken = await canCreateTokens(bootstrap, account, io);
-  if (!bootstrapToken) return undefined;
+  const accepted = await askBootstrapToken(askSecret, io);
+  if (!accepted) return undefined;
+  const { bootstrap, account, token: bootstrapToken } = accepted;
   const groups = await permissionGroups(
     bootstrap,
     account,

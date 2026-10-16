@@ -19,7 +19,7 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
 3. If the project has a `cloudflare-container` backend, it needs **Workers Paid**. Containers are not available without it. The plan includes an amount of container memory, CPU and disk each month, and bills usage beyond it; see Cloudflare's Containers pricing page. Small instances that sleep when idle keep a staging API within the included amounts. `setup` checks the plan first and waits while you subscribe.
 4. R2 must be enabled once on the account (R2 Object Storage in the dashboard). R2's free tier covers the kit's state files and archives for most projects. If it is not enabled, `setup` gives you the link and waits.
 5. Create a **bootstrap token**, owned by the account: Manage Account → Account API Tokens → Create Token → Custom token, with the single permission **Account → Account API Tokens: Edit**. Give it a short expiry, such as one day. `setup` asks for it, uses it, and offers to delete it at the end. A later run that has to create a Cloudflare token asks for a bootstrap token again: a new environment, `--replace` of a Cloudflare secret, or a Cloudflare secret deleted from GitHub. Create a new one the same way.
-6. Keep the **account ID** at hand: `setup` asks for it first. It is the part after `dash.cloudflare.com/` in the dashboard's address, and the account's overview page shows it too.
+6. `setup` reads the account from the bootstrap token. It asks which one only when the token sees more than one account.
 
 From the bootstrap token, `setup`:
 

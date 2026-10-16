@@ -1,6 +1,8 @@
 import type { Capturer, Runner } from "./run.js";
 import type { SqlSession } from "./sql.js";
 
+export class Cancelled extends Error {}
+
 export interface Choice<T extends string = string> {
   value: T;
   label?: string;

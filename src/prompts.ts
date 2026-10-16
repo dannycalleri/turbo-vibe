@@ -1,4 +1,11 @@
-import { confirm, isCancel, multiselect, select, text } from "@clack/prompts";
+import {
+  confirm,
+  isCancel,
+  multiselect,
+  password,
+  select,
+  text,
+} from "@clack/prompts";
 import type { Choice, Prompts } from "./io.js";
 
 const clackOptions = <T extends string>(options: readonly Choice<T>[]) =>
@@ -51,3 +58,13 @@ export const clackPrompts: Prompts = {
     return isCancel(value) ? undefined : value;
   },
 };
+
+export async function askLine(question: string): Promise<string | undefined> {
+  const value = await text({ message: question });
+  return isCancel(value) ? undefined : (value ?? "");
+}
+
+export async function askHidden(question: string): Promise<string | undefined> {
+  const value = await password({ message: question, mask: "•" });
+  return isCancel(value) ? undefined : (value ?? "");
+}

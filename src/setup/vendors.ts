@@ -1,5 +1,5 @@
 import type { Config } from "../config/schema.js";
-import type { Io } from "../io.js";
+import { Cancelled, type Io } from "../io.js";
 
 async function getJson<T>(
   url: string,
@@ -13,13 +13,24 @@ async function getJson<T>(
   return { status: response.status, ...(body === undefined ? {} : { body }) };
 }
 
-async function choose<T>(
+export async function choose<T>(
   items: readonly T[],
   label: (item: T) => string,
   what: string,
   io: Io,
 ): Promise<T | undefined> {
   if (items.length <= 1) return items[0];
+  if (io.prompts) {
+    const index = await io.prompts.select(
+      what,
+      items.map((item, index) => ({
+        value: String(index),
+        label: label(item),
+      })),
+    );
+    if (index === undefined) throw new Cancelled();
+    return items[Number(index)];
+  }
   io.stdout(
     `${items.map((item, index) => `  ${index + 1}. ${label(item)}`).join("\n")}\n`,
   );

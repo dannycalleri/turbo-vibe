@@ -2,7 +2,7 @@ import { checksFor, formatFindings, runChecks } from "./check.js";
 import type { Finding } from "./checks/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import { environmentSecrets } from "./deploy.js";
-import type { Io } from "./io.js";
+import { Cancelled, type Io } from "./io.js";
 import {
   appPublic,
   appSecrets,
@@ -14,6 +14,12 @@ import {
   type Provided,
   setupCloudflare,
 } from "./setup/cloudflare.js";
+import {
+  cloudflareStep,
+  showStep,
+  stepsToAsk,
+  type VendorStep,
+} from "./setup/steps.js";
 import {
   supabaseSecrets,
   vercelSecrets,
@@ -471,6 +477,20 @@ export async function setup(
   options: SetupOptions,
   io: Io,
 ): Promise<number> {
+  try {
+    return await runSetup(config, options, io);
+  } catch (error) {
+    if (!(error instanceof Cancelled)) throw error;
+    io.stderr("setup cancelled\n");
+    return 130;
+  }
+}
+
+async function runSetup(
+  config: Config,
+  options: SetupOptions,
+  io: Io,
+): Promise<number> {
   const { askSecret } = io;
   if (!io.ask || !askSecret) {
     io.stderr(
@@ -558,7 +578,11 @@ export async function setup(
     });
   let provided = new Map<string, Provided>();
   let afterStoring = async () => {};
+  const guided = stepsToAsk(needed, lacking);
+  const show = (step: VendorStep) =>
+    showStep(step, guided.indexOf(step) + 1, guided.length, config, io);
   if (needed.includes("CLOUDFLARE_ZONE_ID") && lacking(cloudflareSecrets)) {
+    await show(cloudflareStep);
     const created = await setupCloudflare(config, present, askSecret, io);
     if (!created) return 1;
     provided = created.provided;

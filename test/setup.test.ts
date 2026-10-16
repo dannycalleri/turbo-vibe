@@ -5,8 +5,8 @@ import type { Check } from "../src/checks/types.js";
 import { fail, missing, ok } from "../src/checks/types.js";
 import { parseConfig } from "../src/config/load.js";
 import type { Io } from "../src/io.js";
-import type { Capturer } from "../src/run.js";
-import { project, run } from "./harness.js";
+import type { Capturer, Runner } from "../src/run.js";
+import { fakePrompts, project, run } from "./harness.js";
 
 const checks = vi.hoisted(() => ({ list: [] as Check[] }));
 vi.mock("../src/check.js", async (original) => ({
@@ -119,6 +119,7 @@ interface FakeCloudflare {
   }[];
   buckets?: string[];
   bootstrapPermissions?: string[];
+  accounts?: { id: string; name: string }[];
   refusedBuckets?: number;
   unpaidReads?: number;
   billingReadable?: boolean;
@@ -144,6 +145,7 @@ function fakeCloudflare({
   zones = [],
   buckets = [],
   bootstrapPermissions = ["Account API Tokens Write"],
+  accounts: visible = [{ id: "acc123", name: "Acme" }],
   refusedBuckets = 0,
   unpaidReads = 0,
   billingReadable = true,
@@ -180,6 +182,7 @@ function fakeCloudflare({
     requests.push({ method, path, token, ...(body ? { body } : {}) });
     const caller = [...tokens.values()].find((t) => t.value === token);
     if (!caller) return json(null, false, 401);
+    if (path === "/accounts") return json(visible);
     const accounts = "/accounts/acc123";
     if (path === `${accounts}/tokens/verify`)
       return json({ id: caller.id, status: "active" });
@@ -270,8 +273,7 @@ function fakeCloudflare({
   return { fetch, requests, live, created };
 }
 
-const ask = async (question: string) =>
-  question.startsWith("Cloudflare account ID") ? "acc123" : "";
+const ask = async (_question: string) => "";
 const askSecret = async (question: string) =>
   question.startsWith("Cloudflare bootstrap token")
     ? "BOOTSTRAP"
@@ -935,12 +937,33 @@ describe("setup on Cloudflare", () => {
     });
   });
 
-  it("stops before creating anything when the bootstrap token cannot create tokens", async () => {
+  it("asks again for a bootstrap token that cannot create tokens, and creates nothing", async () => {
     const cloudflare = fakeCloudflare({ bootstrapPermissions: ["Zone Read"] });
     const gh = fakeGh();
-    const result = await setup([], gh, true, cloudflare);
+    const tokens = ["BOOTSTRAP", ""];
+    const result = await run(
+      ["setup"],
+      { "turbo-vibe.yaml": project },
+      {},
+      undefined,
+      cloudflare.fetch,
+      {
+        capture: gh.capture,
+        ask,
+        askSecret: async (question) =>
+          question.startsWith("Cloudflare bootstrap token")
+            ? (tokens.shift() ?? "")
+            : askSecret(question),
+      },
+    );
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("lacks Account API Tokens Write");
+    expect(tokens).toEqual([]);
+    expect(result.stderr).toContain(
+      "lacks Account API Tokens Write, so it cannot create the CI tokens; create one with the steps above and paste it\n",
+    );
+    expect(result.stderr).toContain(
+      "setup needs a Cloudflare bootstrap token; create one with the steps above\n",
+    );
     expect(cloudflare.requests.some((r) => r.method === "POST")).toBe(false);
     expect(gh.stored).toEqual([]);
   });
@@ -1063,6 +1086,132 @@ services:
     expect(result.stdout).not.toContain("Workers Paid");
     const setupToken = cloudflare.created("turbo-vibe-acme-setup");
     expect(JSON.stringify(setupToken?.body)).not.toContain("Billing Read");
+  });
+
+  describe("the Cloudflare step", () => {
+    const guided = (
+      cloudflare: ReturnType<typeof fakeCloudflare>,
+      replies: Record<string, unknown>,
+      runner = vi.fn<Runner>(async () => 0),
+      tokens = ["BOOTSTRAP"],
+    ) => {
+      const { prompts, asked } = fakePrompts(replies);
+      const questions: string[] = [];
+      const gh = fakeGh();
+      return {
+        asked,
+        questions,
+        runner,
+        gh,
+        result: run(
+          ["setup", "--env", "staging"],
+          { "turbo-vibe.yaml": project },
+          {},
+          runner,
+          cloudflare.fetch,
+          {
+            capture: gh.capture,
+            ask: async (question) => {
+              questions.push(question);
+              return ask(question);
+            },
+            askSecret: async (question) =>
+              question.startsWith("Cloudflare bootstrap token")
+                ? (tokens.shift() ?? "")
+                : askSecret(question),
+            prompts,
+          },
+        ),
+      };
+    };
+
+    it("shows the clicks and permissions, and uses the token's only account without a question", async () => {
+      const { result, questions } = guided(fakeCloudflare(), {
+        "Open this page": false,
+      });
+      const { code, stdout } = await result;
+      expect(code).toBe(0);
+      expect(stdout).toContain(
+        "Step 1 of 1 · Cloudflare\n  Plan: Workers Paid, which Containers need\n  1. Open Manage Account → Account API Tokens",
+      );
+      expect(stdout).toContain(
+        "  Permissions: Account API Tokens: Edit, and nothing else",
+      );
+      expect(stdout).toContain(
+        "cloudflare: the bootstrap token works on the account Acme\n",
+      );
+      expect(questions.some((q) => q.includes("account"))).toBe(false);
+    });
+
+    it("asks which account by name when the token sees several", async () => {
+      const cloudflare = fakeCloudflare({
+        accounts: [
+          { id: "other9", name: "Other" },
+          { id: "acc123", name: "Acme" },
+        ],
+      });
+      const { result, asked } = guided(cloudflare, {
+        "Open this page": false,
+        "Cloudflare account": "1",
+      });
+      expect((await result).code).toBe(0);
+      expect(
+        asked
+          .find(({ message }) => message === "Cloudflare account")
+          ?.options?.map(({ label }) => label),
+      ).toEqual(["Other (other9)", "Acme (acc123)"]);
+    });
+
+    it("ends the run when the person cancels the account choice, storing nothing", async () => {
+      const cloudflare = fakeCloudflare({
+        accounts: [
+          { id: "other9", name: "Other" },
+          { id: "acc123", name: "Acme" },
+        ],
+      });
+      const { result, gh } = guided(cloudflare, {
+        "Open this page": false,
+        "Cloudflare account": undefined,
+      });
+      const { code, stderr } = await result;
+      expect(code).toBe(130);
+      expect(stderr).toBe("setup cancelled\n");
+      expect(gh.stored).toEqual([]);
+      expect(cloudflare.requests.some((r) => r.method === "POST")).toBe(false);
+    });
+
+    it("tells a token that sees no account from one Cloudflare refuses", async () => {
+      const { result } = guided(
+        fakeCloudflare({ accounts: [] }),
+        { "Open this page": false },
+        undefined,
+        ["BOOTSTRAP", "WRONG", ""],
+      );
+      const { code, stderr } = await result;
+      expect(code).toBe(1);
+      expect(stderr).toContain(
+        "the bootstrap token sees no Cloudflare account; create it under Manage Account → Account API Tokens, so the account owns it, and paste it\n",
+      );
+      expect(stderr).toContain(
+        "Cloudflare refuses the bootstrap token (HTTP 401); create one with the steps above and paste it\n",
+      );
+    });
+
+    it("opens the page on request, and goes on with the printed address when no browser opens", async () => {
+      const { result, runner } = guided(
+        fakeCloudflare(),
+        { "Open this page": true },
+        vi.fn<Runner>(async () => 1),
+      );
+      const { code, stdout } = await result;
+      expect(code).toBe(0);
+      expect(runner.mock.calls[0]?.[1]).toContain(
+        "https://dash.cloudflare.com/?to=/:account/api-tokens",
+      );
+      expect(stdout).toContain(
+        "could not open a browser; open the address above\n",
+      );
+    });
   });
 
   it("asks for no bootstrap token when every environment has the Cloudflare secrets", async () => {
@@ -1266,9 +1415,7 @@ services:
         : gh.capture(command, args, options),
     );
     const cloudflare = fakeCloudflare();
-    const ask = vi.fn(async (question: string) =>
-      question.startsWith("Cloudflare account ID") ? "acc123" : "y",
-    );
+    const ask = vi.fn(async (_question: string) => "y");
     const result = await run(
       ["setup", "--env", "staging"],
       { "turbo-vibe.yaml": project },

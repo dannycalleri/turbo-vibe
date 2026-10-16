@@ -61,7 +61,6 @@ export function setupSteps(
       : []),
     `Enable R2 once on the account: ${cloudflareDashboard}/r2/overview`,
     `Create the Cloudflare bootstrap token, owned by the account, with only Account API Tokens: Edit and a one-day expiry: ${cloudflareDashboard}/api-tokens`,
-    "Copy the Cloudflare account ID: the part after dash.cloudflare.com/ in the dashboard's address",
     "If setup adds the zone to Cloudflare, set the zone's nameservers at your registrar when it prints them; that moves DNS for the whole zone",
     ...(database
       ? [
