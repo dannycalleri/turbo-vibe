@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.0-rc.3](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.2...v1.0.0-rc.3) (2026-10-16)
+
+
+### Features
+
+* **init:** --assistant takes a list, and defaults to the assistants the repository uses ([6dd7dff](https://github.com/dannycalleri/turbo-vibe/commit/6dd7dffb17746856b3856ef53e1a1ae5da9466e6))
+* **init:** --assistant takes a list, and defaults to the assistants the repository uses ([1a85905](https://github.com/dannycalleri/turbo-vibe/commit/1a859058a07ec69ffef03dee3349e3794f726e73))
+
 ## [1.0.0-rc.2](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.1...v1.0.0-rc.2) (2026-10-15)
 
 
