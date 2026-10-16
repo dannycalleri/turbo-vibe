@@ -1,4 +1,5 @@
 import { adapterFor } from "../adapters/index.js";
+import { type EnvironmentName, isPreview } from "../config/schema.js";
 import type { Check, CheckContext, Finding } from "./types.js";
 import { fail, missing, ok, warn } from "./types.js";
 
@@ -31,6 +32,7 @@ interface Policy {
 export const zoneScoped: ReadonlySet<string> = new Set([
   "DNS Write",
   "Workers Routes Write",
+  "Zone Settings Write",
 ]);
 
 export function covers(
@@ -86,9 +88,18 @@ export function onWorkersPaid(subscriptions: readonly Subscription[]): boolean {
   });
 }
 
-export function requiredPermissions(
-  context: Pick<CheckContext, "config">,
-): string[] {
+// Pull-request code runs with the preview token, so it must not change zone-wide settings.
+function managesZoneSettings(environment: string): boolean {
+  return (
+    environment !== "preview" && !isPreview(environment as EnvironmentName)
+  );
+}
+
+export function requiredPermissions(context: {
+  config: CheckContext["config"];
+  environment: string;
+  githubEnvironment?: string;
+}): string[] {
   const targets = new Set(
     Object.values(context.config.services).map((service) => service.target),
   );
@@ -103,6 +114,8 @@ export function requiredPermissions(
   if (targets.has("cloudflare-container") || targets.has("cloudflare-static")) {
     needed.add("Workers Scripts Write");
     needed.add("Workers Routes Write");
+    if (managesZoneSettings(context.githubEnvironment ?? context.environment))
+      needed.add("Zone Settings Write");
   }
   if (targets.has("cloudflare-container"))
     needed.add("Workers Containers Write");

@@ -309,6 +309,28 @@ describe("production", () => {
   });
 });
 
+describe("always_use_https", () => {
+  it("redirects HTTP to HTTPS on the zone from staging and production, never from a preview", () => {
+    for (const environment of ["staging", "production"] as const) {
+      expect(
+        rootModule(config(web()), environment, {}).module.cloudflare,
+      ).toMatchObject({ always_use_https: true });
+    }
+    expect(
+      rootModule(config(web()), "preview-feature-x", {}).module.cloudflare,
+    ).not.toHaveProperty("always_use_https");
+  });
+
+  it("leaves the zone alone when Cloudflare serves no hostname", () => {
+    const site = config(
+      "  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n",
+    );
+    expect(
+      rootModule(site, "production", {}).module.cloudflare,
+    ).not.toHaveProperty("always_use_https");
+  });
+});
+
 describe("state", () => {
   it("keeps one state per project and environment", () => {
     expect(stateKey("acme", "staging")).toBe("acme/staging/terraform.tfstate");

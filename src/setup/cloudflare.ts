@@ -64,9 +64,9 @@ const r2Permission = "Workers R2 Storage Bucket Item Write";
 const r2ReadPermission = "Workers R2 Storage Bucket Item Read";
 
 // check reads the token's own policies and the account's plan, so the CI token can read both.
-function ciPermissions(config: Config): string[] {
+function ciPermissions(config: Config, environment: string): string[] {
   return [
-    ...requiredPermissions({ config }),
+    ...requiredPermissions({ config, environment }),
     "Account API Tokens Read",
     ...(hasContainer(config) ? ["Billing Read"] : []),
   ];
@@ -429,11 +429,12 @@ async function createToken(
 
 function ciPolicies(
   config: Config,
+  environment: string,
   account: string,
   zoneId: string,
   groups: ReadonlyMap<string, string>,
 ): unknown[] {
-  const names = ciPermissions(config);
+  const names = ciPermissions(config, environment);
   const ids = (scoped: boolean) =>
     names
       .filter((name) => zoneScoped.has(name) === scoped)
@@ -486,7 +487,7 @@ async function environmentTokens(
       bootstrap,
       account,
       name,
-      ciPolicies(config, account, zoneId, groups),
+      ciPolicies(config, environment, account, zoneId, groups),
       io,
     );
     if (!ci) return undefined;
@@ -638,7 +639,7 @@ export async function setupCloudflare(
     account,
     [
       ...setupPermissions(config),
-      ...ciPermissions(config),
+      ...ciPermissions(config, "staging"),
       r2Permission,
       r2ReadPermission,
     ],

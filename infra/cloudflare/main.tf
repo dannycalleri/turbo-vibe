@@ -69,3 +69,12 @@ resource "cloudflare_dns_record" "cname" {
   proxied = false
   ttl     = 1
 }
+
+# Staging and production only: the preview CI token has no Zone Settings Write.
+resource "cloudflare_zone_setting" "always_use_https" {
+  count = var.always_use_https ? 1 : 0
+
+  zone_id    = var.zone_id
+  setting_id = "always_use_https"
+  value      = "on"
+}

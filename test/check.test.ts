@@ -10,7 +10,11 @@ import {
   vi,
 } from "vitest";
 import { checksFor, formatFindings, runChecks } from "../src/check.js";
-import { cloudflare, requiredPermissions } from "../src/checks/cloudflare.js";
+import {
+  cloudflare,
+  requiredPermissions,
+  zoneScoped,
+} from "../src/checks/cloudflare.js";
 import { localTools } from "../src/checks/local.js";
 import { stateBucket } from "../src/checks/state.js";
 import type { CheckContext, Finding } from "../src/checks/types.js";
@@ -132,12 +136,13 @@ describe("checks are limited to what the project uses", () => {
     );
   });
 
-  it("asks a Vercel-only project's token for DNS alone, and a container project's for Workers and Containers too", () => {
+  it("asks a Vercel-only project's token for DNS alone, and a container project's for Workers, zone settings and Containers too", () => {
     expect(requiredPermissions(context(vercelSite))).toEqual(["DNS Write"]);
     expect(requiredPermissions(context(container))).toEqual([
       "DNS Write",
       "Workers Scripts Write",
       "Workers Routes Write",
+      "Zone Settings Write",
       "Workers Containers Write",
     ]);
   });
@@ -232,7 +237,6 @@ describe("against recorded fakes", () => {
   const envelope = (result: unknown) =>
     HttpResponse.json({ success: true, errors: [], result });
   type Grant = { name: string; zone?: string; effect?: "allow" | "deny" };
-  const zoneScoped = new Set(["DNS Write", "Workers Routes Write"]);
   function policy({ name, zone = "zone456", effect = "allow" }: Grant) {
     return {
       effect,
@@ -308,6 +312,7 @@ describe("against recorded fakes", () => {
           ...[dns].flat(),
           "Workers Scripts Write",
           "Workers Routes Write",
+          "Zone Settings Write",
           "Workers Containers Write",
         ],
       });
@@ -320,11 +325,48 @@ describe("against recorded fakes", () => {
     }
   });
 
+  it("fails a staging token without Zone Settings Write and names the zone, but asks a preview token for none", async () => {
+    cloudflareApi({
+      permissions: [
+        "DNS Write",
+        "Workers Scripts Write",
+        "Workers Routes Write",
+        "Workers Containers Write",
+      ],
+    });
+    const failures = (
+      await cloudflare(context(container, cloudflareEnv))
+    ).filter((finding) => finding.severity === "fail");
+    expect(failures.map((finding) => finding.message)).toEqual([
+      "CLOUDFLARE_API_TOKEN lacks Zone Settings Write on turbovibe.ai",
+    ]);
+    expect(
+      requiredPermissions({ ...context(container), environment: "preview" }),
+    ).not.toContain("Zone Settings Write");
+  });
+
+  it("accepts a preview token without Zone Settings Write when setup checks it as staging-kind", async () => {
+    cloudflareApi({
+      permissions: [
+        "DNS Write",
+        "Workers Scripts Write",
+        "Workers Routes Write",
+        "Workers Containers Write",
+      ],
+    });
+    const findings = await cloudflare({
+      ...context(container, cloudflareEnv),
+      githubEnvironment: "preview",
+    });
+    expect(findings.every((finding) => finding.severity === "ok")).toBe(true);
+  });
+
   it("names the token, the missing DNS permission, and the domain", async () => {
     cloudflareApi({
       permissions: [
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Zone Settings Write",
         "Workers Containers Write",
       ],
     });
@@ -345,6 +387,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Zone Settings Write",
         "Workers Containers Write",
       ],
     });
@@ -362,6 +405,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Zone Settings Write",
         "Workers Containers Write",
       ],
     });
@@ -379,6 +423,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Zone Settings Write",
         "Cloudchamber Write",
       ],
     });
@@ -421,6 +466,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Zone Settings Write",
         "Workers Containers Write",
       ],
       plan: "free",
@@ -439,6 +485,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Zone Settings Write",
         "Workers Containers Write",
       ],
     });

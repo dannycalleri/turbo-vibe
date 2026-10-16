@@ -20,3 +20,8 @@ variable "cnames" {
   type    = map(string)
   default = {}
 }
+
+variable "always_use_https" {
+  type    = bool
+  default = false
+}

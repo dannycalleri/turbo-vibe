@@ -7,7 +7,11 @@ import type {
   VercelInputs,
   WorkosInputs,
 } from "./adapters/types.js";
-import type { Config, EnvironmentName } from "./config/schema.js";
+import {
+  type Config,
+  type EnvironmentName,
+  isPreview,
+} from "./config/schema.js";
 import { stateSecrets, supabaseOrganization } from "./contract.js";
 import { hostOf, layout } from "./origins.js";
 
@@ -181,6 +185,10 @@ export function rootModule(
       account_id: env.CLOUDFLARE_ACCOUNT_ID,
       zone_id: env.CLOUDFLARE_ZONE_ID,
       ...infrastructure.cloudflare,
+      ...(infrastructure.cloudflare.hostnames.length > 0 &&
+      !isPreview(environment)
+        ? { always_use_https: true }
+        : {}),
     };
   }
   for (const [name, inputs] of Object.entries(infrastructure.supabase ?? {})) {

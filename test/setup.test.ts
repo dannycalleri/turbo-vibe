@@ -144,6 +144,7 @@ const groupNames = [
   "Workers R2 Storage Write",
   "Workers Routes Write",
   "Workers Scripts Write",
+  "Zone Settings Write",
   "Zone Write",
 ];
 
@@ -1262,7 +1263,10 @@ services:
     const parsed = parseConfig(project);
     if (!parsed.ok) throw new Error("fixture does not parse");
     const needed = [
-      ...requiredPermissions({ config: parsed.config }),
+      ...requiredPermissions({
+        config: parsed.config,
+        environment: "staging",
+      }),
       "Account API Tokens Read",
       "Billing Read",
     ];
@@ -2112,6 +2116,30 @@ describe("setup with previews", () => {
     ).match(/acme-turbo-vibe-[a-z-]+/g);
     expect(buckets).toEqual(["acme-turbo-vibe-preview"]);
     expect(cloudflare.created("turbo-vibe-acme-preview")).toBeDefined();
+  });
+
+  it("gives staging's CI token Zone Settings Write on the zone, and the preview's none", async () => {
+    const cloudflare = fakeCloudflare();
+    await setupWith(withPreviews, cloudflare.fetch, fakeGh());
+    const policies = (name: string) =>
+      (
+        cloudflare.created(name)!.body as {
+          policies: {
+            resources: Record<string, unknown>;
+            permission_groups: { id: string }[];
+          }[];
+        }
+      ).policies;
+    const onZone = policies("turbo-vibe-acme-staging").find(
+      (policy) =>
+        "com.cloudflare.api.account.zone.zone-new" in policy.resources,
+    );
+    expect(onZone?.permission_groups).toContainEqual({
+      id: "id-Zone Settings Write",
+    });
+    expect(JSON.stringify(policies("turbo-vibe-acme-preview"))).not.toContain(
+      "Zone Settings Write",
+    );
   });
 
   it("creates no preview environment when the config has no previews", async () => {
