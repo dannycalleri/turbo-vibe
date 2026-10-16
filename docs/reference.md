@@ -113,6 +113,20 @@ Access needs Zero Trust on the account. Enable it once:
 
 Every deploy of a `cloudflare-static` frontend outside production adds `X-Robots-Tag: noindex` to every page, whether the environment is private or not. The deploy copies the built site to `.turbo-vibe/wrangler/<environment>/<service>-site` and appends the rule to the copy's `_headers` file, after any rules the build has. It never changes the build output folder, and it makes the copy after the build is archived. Thus `promote` ships production the build without the rule. Vercel frontends do not get the rule, because Vercel serves `_headers` as a public file.
 
+## Analytics
+
+An environment with `analytics: true` counts visits with [Cloudflare Web Analytics](https://developers.cloudflare.com/web-analytics/). It is free, and it sets no cookies.
+
+- `apply` creates a Web Analytics site for the environment's hostname, and outputs the site token.
+- Each deploy and each `promote` adds Cloudflare's beacon script before the last `</body>` of each page of a `cloudflare-static` frontend. A page is a file whose name ends in `.html` or `.htm`, in any letter case. The deploy changes only this environment's copy of the site (`.turbo-vibe/wrangler/<environment>/<service>-site`), after the build is archived. Thus the recorded build has no beacon, and an environment without `analytics` counts nothing.
+- The deploy does not change a file without `</body>`, a file that is not UTF-8, or a page that already loads the beacon.
+- Previews never count visits.
+- When the environment counts visits and its outputs have no site token, `deploy` and `promote` stop and tell you to run `apply`.
+
+The numbers are in the Cloudflare dashboard, under Analytics & Logs → Web Analytics. A Content Security Policy must allow `https://static.cloudflareinsights.com` in `script-src` and `https://cloudflareinsights.com` in `connect-src`.
+
+Cloudflare guards Web Analytics sites with Account Settings: Edit, so the CI token of an environment that counts visits gets it. That permission also reaches the account's other settings. A project that adds `analytics` after `setup` needs new CI tokens: run `setup --replace CLOUDFLARE_API_TOKEN` once. Until then, `apply` fails on the Web Analytics site, and `check` names the missing permission.
+
 ## What a backend must do
 
 A `cloudflare-container` backend listens on port 8080 (also given as `PORT`), reads its database, if the project has one, from `DATABASE_URL`, and answers `GET /api/health` with JSON containing `build_id`. The kit passes the build ID to `docker build` as the build argument `BUILD_ID`; the Dockerfile's final stage turns it into the environment variable the app reports:
@@ -230,7 +244,7 @@ Before each deploy, preview and promotion, the kit sets each value on that envir
 
 | Variable | What it is |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | API token, which `setup` creates per environment, with Workers Scripts: Edit and Workers Containers: Edit (account), Workers Routes: Edit, DNS: Edit and, for staging and production with a Worker, Zone Settings: Edit (zone), Access: Apps and Policies: Edit and Access: Service Tokens: Edit (account) for a private environment, Account API Tokens: Read (User API Tokens: Read on a user token) so `check` can confirm the token's own permissions, and, with a container backend, Account → Billing: Read so `check` can confirm the Workers Paid plan |
+| `CLOUDFLARE_API_TOKEN` | API token, which `setup` creates per environment, with Workers Scripts: Edit and Workers Containers: Edit (account), Workers Routes: Edit, DNS: Edit and, for staging and production with a Worker, Zone Settings: Edit (zone), Access: Apps and Policies: Edit and Access: Service Tokens: Edit (account) for a private environment, Account Settings: Edit (account) for staging or production when it counts visits, Account API Tokens: Read (User API Tokens: Read on a user token) so `check` can confirm the token's own permissions, and, with a container backend, Account → Billing: Read so `check` can confirm the Workers Paid plan |
 | `CLOUDFLARE_ACCOUNT_ID` | the Cloudflare account that runs the Workers and holds the state buckets |
 | `CLOUDFLARE_ZONE_ID` | the zone of the project's `domain` |
 | `TURBO_VIBE_STATE_BUCKET` | an R2 bucket for OpenTofu state, which `setup` creates; staging also keeps its build records and asset archives there |
