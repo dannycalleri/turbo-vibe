@@ -29,7 +29,7 @@ Check: once `turbo-vibe.yaml` exists (step 2), `npx @turbo-vibe/cli@1 deploy --e
 
 ## 2. Add `turbo-vibe.yaml`
 
-`npx @turbo-vibe/cli@1 init` writes this file and the two workflows in step 3 from a few answers, and never overwrites existing files. Adjust the build commands it leaves as defaults. To write the files by hand instead:
+`npx @turbo-vibe/cli@1 init` writes this file and the two workflows in step 3, and never overwrites existing files. It asks with arrow-key choices and offers defaults it reads from the repository: the name from `package.json`, a backend for a `Dockerfile`, a frontend for a `next` dependency or a `build` script, a database for a `supabase/` folder. Adjust the build commands it leaves as defaults. To write the files by hand instead:
 
 At the repository root:
 
