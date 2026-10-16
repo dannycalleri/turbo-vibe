@@ -1,39 +1,12 @@
 #!/usr/bin/env node
-import { createInterface } from "node:readline/promises";
 import { main } from "./main.js";
+import { askHidden, askLine, clackPrompts } from "./prompts.js";
 import { spawnCapturer, spawnRunner } from "./run.js";
 import { postgresSession } from "./sql.js";
 
-function readHidden(prompt: string): Promise<string> {
-  const stdin = process.stdin;
-  process.stdout.write(prompt);
-  stdin.setRawMode(true);
-  stdin.setEncoding("utf8");
-  stdin.resume();
-  return new Promise((resolve) => {
-    let value = "";
-    const finish = () => {
-      stdin.off("data", onData);
-      stdin.setRawMode(false);
-      stdin.pause();
-      process.stdout.write("\n");
-    };
-    const onData = (chunk: string) => {
-      for (const char of chunk) {
-        if (char === "\r" || char === "\n" || char === "\u0004") {
-          finish();
-          resolve(value);
-          return;
-        }
-        if (char === "\u0003") {
-          finish();
-          process.exit(130);
-        }
-        value = char === "\u007f" ? value.slice(0, -1) : value + char;
-      }
-    };
-    stdin.on("data", onData);
-  });
+function cancelled(): never {
+  process.stderr.write("cancelled\n");
+  process.exit(130);
 }
 
 process.exitCode = await main(process.argv.slice(2), {
@@ -46,18 +19,11 @@ process.exitCode = await main(process.argv.slice(2), {
   sql: postgresSession,
   ...(process.stdin.isTTY
     ? {
-        ask: async (question: string) => {
-          const prompt = createInterface({
-            input: process.stdin,
-            output: process.stdout,
-          });
-          try {
-            return await prompt.question(`${question}: `);
-          } finally {
-            prompt.close();
-          }
-        },
-        askSecret: (question: string) => readHidden(`${question}: `),
+        ask: async (question: string) =>
+          (await askLine(question)) ?? cancelled(),
+        askSecret: async (question: string) =>
+          (await askHidden(question)) ?? cancelled(),
+        prompts: clackPrompts,
       }
     : {}),
   fetch: globalThis.fetch,

@@ -6,7 +6,7 @@ import { parseConfig } from "../src/config/load.js";
 import { type Answers, choices, configFor } from "../src/init.js";
 import { derivePlan } from "../src/plan.js";
 import { cliRange, version, workflowRef } from "../src/version.js";
-import { run } from "./harness.js";
+import { fakePrompts, run } from "./harness.js";
 
 const answers = (overrides: Partial<Answers> = {}): Answers => ({
   name: "shop",
@@ -140,6 +140,109 @@ describe("turbo-vibe init", () => {
     ).toContain("workflow_dispatch");
   });
 
+  it("ignores its working folder in git, creating .gitignore when missing", async () => {
+    const created = await run(["init", ...flags]);
+    expect(await readFile(join(created.cwd, ".gitignore"), "utf8")).toBe(
+      ".turbo-vibe/\n",
+    );
+    expect(created.stdout).toContain(
+      "wrote .gitignore, ignoring .turbo-vibe/\n",
+    );
+    const appended = await run(["init", ...flags], {
+      ".gitignore": "node_modules",
+    });
+    expect(await readFile(join(appended.cwd, ".gitignore"), "utf8")).toBe(
+      "node_modules\n.turbo-vibe/\n",
+    );
+    expect(appended.stdout).toContain("added .turbo-vibe/ to .gitignore\n");
+  });
+
+  it("leaves a .gitignore that already ignores its working folder unchanged", async () => {
+    const mine = "dist\n/.turbo-vibe\n";
+    const { cwd, stdout } = await run(["init", ...flags], {
+      ".gitignore": mine,
+    });
+    expect(await readFile(join(cwd, ".gitignore"), "utf8")).toBe(mine);
+    expect(stdout).not.toContain(".gitignore");
+  });
+
+  describe("after writing the files", () => {
+    const terminal = (now: boolean | undefined, signedIn = true) => {
+      const { prompts, asked } = fakePrompts({
+        "Set up your accounts now?": now,
+      });
+      return {
+        asked,
+        prompts,
+        ask: async () => "",
+        askSecret: async () => "",
+        capture: vi.fn(async (_command: string, args: readonly string[]) =>
+          args.join(" ") === "auth status"
+            ? { code: signedIn ? 0 : 1, stdout: "" }
+            : { code: 1, stdout: "" },
+        ),
+      };
+    };
+
+    it("lists the next steps in order", async () => {
+      const { stdout } = await run(["init", ...flags]);
+      expect(stdout).toContain(
+        `Next steps:\n  1. Check what each environment runs: npx @turbo-vibe/cli@${cliRange} plan\n  2. Connect your accounts: npx @turbo-vibe/cli@${cliRange} setup`,
+      );
+      expect(stdout).toContain(
+        '  4. To go live, run "Deploy to production" in the Actions tab',
+      );
+    });
+
+    it("runs setup when the person says yes", async () => {
+      const { code, stderr } = await run(
+        ["init", ...flags],
+        {},
+        {},
+        undefined,
+        undefined,
+        terminal(true),
+      );
+      expect(code).toBe(1);
+      expect(stderr).toBe(
+        "cannot tell which GitHub repository to set up; pass --repo owner/name\n",
+      );
+    });
+
+    it("prints the command when the person says no", async () => {
+      const { code, stdout, stderr } = await run(
+        ["init", ...flags],
+        {},
+        {},
+        undefined,
+        undefined,
+        terminal(false),
+      );
+      expect(code).toBe(0);
+      expect(stdout).toContain(
+        `run npx @turbo-vibe/cli@${cliRange} setup when you are ready\n`,
+      );
+      expect(stderr).toBe("");
+    });
+
+    it("does not offer setup without a signed-in GitHub CLI, or without a terminal", async () => {
+      const signedOut = terminal(true, false);
+      for (const io of [signedOut, {}]) {
+        const { code, stderr } = await run(
+          ["init", ...flags],
+          {},
+          {},
+          undefined,
+          undefined,
+          io,
+        );
+        expect(code).toBe(0);
+        expect(stderr).toBe("");
+      }
+      expect(signedOut.asked).toEqual([]);
+    });
+  });
+
   it("stops and leaves an existing config unchanged", async () => {
     const mine = "version: 1\nproject: mine\n";
     const { code, cwd, stderr } = await run(["init", ...flags], {
@@ -165,44 +268,166 @@ describe("turbo-vibe init", () => {
     );
   });
 
+  const replies = {
+    "Project name": "shop",
+    "Production domain": "shop.example.com",
+    Backend: "cloudflare-container",
+    Frontend: "vercel-nextjs",
+    Database: "none",
+    "Sign-in": "none",
+    "Coding assistants": [],
+  };
+
   it("asks for what the flags leave out", async () => {
-    const replies: Record<string, string> = {
-      "Project name": "shop",
-      "Production domain": "shop.example.com",
-      "Backend target": "cloudflare-container",
-      "Frontend target": "vercel-nextjs",
-      "Database target": "none",
-      "Identity target": "none",
-      "Coding assistants to write guidance for": "none",
-    };
-    const ask = vi.fn(
-      async (question: string) =>
-        Object.entries(replies).find(([prefix]) =>
-          question.startsWith(prefix),
-        )?.[1] ?? "",
-    );
+    const { prompts, asked } = fakePrompts(replies);
     const { code, cwd } = await run(["init"], {}, {}, undefined, undefined, {
-      ask,
+      prompts,
     });
     expect(code).toBe(0);
-    expect(ask).toHaveBeenCalledTimes(7);
+    expect(asked).toHaveLength(7);
     expect(await readFile(join(cwd, "turbo-vibe.yaml"), "utf8")).toContain(
       "target: vercel-nextjs",
     );
   });
 
-  it("points the config at the published schema of the running version line", () => {
-    expect(configFor(answers()).split("\n")[0]).toBe(
-      `# yaml-language-server: $schema=https://unpkg.com/@turbo-vibe/cli@${cliRange}/schema/turbo-vibe.schema.json`,
+  it("takes every default from the repository with Enter", async () => {
+    const { prompts } = fakePrompts({
+      "Project name": "",
+      "Production domain": "shop.example.com",
+      Backend: "",
+      Frontend: "",
+      Database: "",
+      "Sign-in": "",
+      "Coding assistants": [],
+    });
+    const { code, cwd } = await run(
+      ["init"],
+      {
+        "package.json": JSON.stringify({
+          name: "Shop",
+          dependencies: { next: "15.0.0" },
+        }),
+        Dockerfile: "FROM scratch\n",
+        "supabase/config.toml": "",
+      },
+      {},
+      undefined,
+      undefined,
+      { prompts },
+    );
+    expect(code).toBe(0);
+    const config = await readFile(join(cwd, "turbo-vibe.yaml"), "utf8");
+    expect(config).toContain("project: shop");
+    expect(config).toContain("target: vercel-nextjs");
+    expect(config).toContain("target: cloudflare-container");
+    expect(config).toContain("target: supabase");
+    expect(config).not.toContain("target: workos");
+  });
+
+  it("asks again for an invalid name instead of ending the run", async () => {
+    const { prompts, asked } = fakePrompts({
+      ...replies,
+      "Project name": ["My App", "shop"],
+    });
+    const { code, cwd } = await run(["init"], {}, {}, undefined, undefined, {
+      prompts,
+    });
+    expect(code).toBe(0);
+    expect(asked[0]?.problems).toEqual([
+      "must be lowercase letters, digits, and hyphens, start with a letter, and be at most 63 characters",
+    ]);
+    expect(await readFile(join(cwd, "turbo-vibe.yaml"), "utf8")).toContain(
+      "project: shop",
     );
   });
 
-  it("labels beta targets in the frontend question", async () => {
-    const ask = vi.fn(async (_question: string) => "");
-    await run(["init"], {}, {}, undefined, undefined, { ask });
-    const questions = ask.mock.calls.map(([question]) => question);
-    expect(questions).toContain(
-      "Frontend target (cloudflare-static, vercel-static (beta), vercel-nextjs (beta), none)",
+  it("writes nothing when the person cancels", async () => {
+    const { prompts } = fakePrompts({ ...replies, Frontend: undefined });
+    const { code, cwd, stderr } = await run(
+      ["init"],
+      {},
+      {},
+      undefined,
+      undefined,
+      { prompts },
+    );
+    expect(code).toBe(130);
+    expect(stderr).toBe("init cancelled; nothing was written\n");
+    await expect(
+      readFile(join(cwd, "turbo-vibe.yaml"), "utf8"),
+    ).rejects.toThrow();
+  });
+
+  it("asks nothing when the flags give every answer", async () => {
+    const { prompts, asked } = fakePrompts({});
+    const { code } = await run(
+      ["init", ...flags],
+      {},
+      {},
+      undefined,
+      undefined,
+      {
+        prompts,
+      },
+    );
+    expect(code).toBe(0);
+    expect(asked).toEqual([]);
+  });
+
+  it("refuses an unknown target flag before asking anything", async () => {
+    const { prompts, asked } = fakePrompts(replies);
+    const { code, stderr } = await run(
+      ["init", "--backend", "foo"],
+      {},
+      {},
+      undefined,
+      undefined,
+      { prompts },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "--backend must be one of cloudflare-container, none\n",
+    );
+    expect(asked).toEqual([]);
+  });
+
+  it("offers no empty backend when the frontend flag is none", async () => {
+    const { prompts, asked } = fakePrompts(replies);
+    await run(["init", "--frontend", "none"], {}, {}, undefined, undefined, {
+      prompts,
+    });
+    const backend = asked.find(({ message }) => message === "Backend");
+    expect(backend?.options?.map(({ value }) => value)).toEqual([
+      "cloudflare-container",
+    ]);
+  });
+
+  it("describes each target, labels beta ones, and offers no empty frontend without a backend", async () => {
+    const { prompts, asked } = fakePrompts({ ...replies, Backend: "none" });
+    await run(["init"], {}, {}, undefined, undefined, { prompts });
+    const frontend = asked.find(({ message }) => message === "Frontend");
+    expect(frontend?.options).toEqual([
+      {
+        value: "cloudflare-static",
+        label: "cloudflare-static",
+        hint: "static site on Cloudflare Workers, the successor to Pages",
+      },
+      {
+        value: "vercel-static",
+        label: "vercel-static (beta)",
+        hint: "static site on Vercel",
+      },
+      {
+        value: "vercel-nextjs",
+        label: "vercel-nextjs (beta)",
+        hint: "Next.js on Vercel",
+      },
+    ]);
+  });
+
+  it("points the config at the published schema of the running version line", () => {
+    expect(configFor(answers()).split("\n")[0]).toBe(
+      `# yaml-language-server: $schema=https://unpkg.com/@turbo-vibe/cli@${cliRange}/schema/turbo-vibe.schema.json`,
     );
   });
 

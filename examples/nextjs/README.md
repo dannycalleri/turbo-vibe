@@ -12,7 +12,6 @@ You need the GitHub repository, accounts and tokens from the [bootstrap checklis
    git clone git@github.com:you/my-site.git && cd my-site
    cp -R <turbo-vibe checkout>/examples/nextjs/. .
    rm -rf turbo-vibe.yaml node_modules
-   echo .turbo-vibe/ >> .gitignore
    ```
 
 2. Write the config and the two workflows:

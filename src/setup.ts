@@ -2,7 +2,7 @@ import { checksFor, formatFindings, runChecks } from "./check.js";
 import type { Finding } from "./checks/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import { environmentSecrets } from "./deploy.js";
-import type { Io } from "./io.js";
+import { Cancelled, type Io } from "./io.js";
 import {
   appPublic,
   appSecrets,
@@ -15,8 +15,18 @@ import {
   setupCloudflare,
 } from "./setup/cloudflare.js";
 import {
+  cloudflareStep,
+  showStep,
+  stepsToAsk,
+  supabaseStep,
+  type VendorStep,
+  vercelStep,
+  workosStep,
+} from "./setup/steps.js";
+import {
   supabaseSecrets,
   vercelSecrets,
+  workosKeyCheck,
   workosKeyProblem,
 } from "./setup/vendors.js";
 
@@ -73,6 +83,9 @@ async function gh(
     return undefined;
   }
 }
+
+export const githubSignedIn = async (io: Io) =>
+  (await gh(["auth", "status"], io))?.code === 0;
 
 async function ghRead<T>(args: readonly string[], io: Io): Promise<Read<T>> {
   const result = await gh(args, io);
@@ -361,9 +374,9 @@ function question(config: Config, environment: string, name: string): string {
   if (services)
     return `${environment} ${name} (declared by ${services.join(", ")}: the value for ${environment})`;
   if (name === "WORKOS_API_KEY")
-    return `${environment} WORKOS_API_KEY (API Keys of the WorkOS ${workos} environment)`;
+    return `${environment} WORKOS_API_KEY (the WorkOS ${workos} environment's secret key)`;
   if (name === "WORKOS_CLIENT_ID")
-    return `${environment} WORKOS_CLIENT_ID (on the application page linked from the API key's row)`;
+    return `${environment} WORKOS_CLIENT_ID (the WorkOS ${workos} environment's client ID)`;
   return `${environment} ${name}`;
 }
 
@@ -374,6 +387,7 @@ async function storeSecrets(
   present: ReadonlySet<string>,
   provided: Provided,
   askSecret: (question: string) => Promise<string>,
+  beforeAsking: (name: string) => Promise<void>,
   io: Io,
 ): Promise<Stored | undefined> {
   const needed = environmentSecrets(config, kindOf(environment));
@@ -384,6 +398,7 @@ async function storeSecrets(
   if (kept.length > 0) io.stdout(`${environment}: kept ${kept.join(", ")}\n`);
   for (const name of needed.filter(store)) {
     let value = provided.values[name]?.trim();
+    if (value === undefined) await beforeAsking(name);
     while (value === undefined) {
       const answer = (
         await askSecret(question(config, environment, name))
@@ -393,6 +408,12 @@ async function storeSecrets(
           ? workosKeyProblem(environment, answer)
           : undefined;
       if (problem) io.stdout(`${problem}\n`);
+      else if (
+        name === "WORKOS_API_KEY" &&
+        answer &&
+        !("value" in (await workosKeyCheck(answer, io)))
+      )
+        continue;
       else value = answer;
     }
     if (!value) {
@@ -464,6 +485,20 @@ async function verify(
 }
 
 export async function setup(
+  config: Config,
+  options: SetupOptions,
+  io: Io,
+): Promise<number> {
+  try {
+    return await runSetup(config, options, io);
+  } catch (error) {
+    if (!(error instanceof Cancelled)) throw error;
+    io.stderr("setup cancelled\n");
+    return 130;
+  }
+}
+
+async function runSetup(
   config: Config,
   options: SetupOptions,
   io: Io,
@@ -555,7 +590,11 @@ export async function setup(
     });
   let provided = new Map<string, Provided>();
   let afterStoring = async () => {};
+  const guided = stepsToAsk(needed, lacking);
+  const show = (step: VendorStep) =>
+    showStep(step, guided.indexOf(step) + 1, guided.length, config, io);
   if (needed.includes("CLOUDFLARE_ZONE_ID") && lacking(cloudflareSecrets)) {
+    await show(cloudflareStep);
     const created = await setupCloudflare(config, present, askSecret, io);
     if (!created) return 1;
     provided = created.provided;
@@ -563,15 +602,19 @@ export async function setup(
   }
   const shared: Record<string, string> = {};
   if (lacking(["SUPABASE_ACCESS_TOKEN", "SUPABASE_ORGANIZATION"])) {
-    const values = await supabaseSecrets(config, askSecret, io);
-    if (!values) return 1;
-    Object.assign(shared, values);
+    await show(supabaseStep);
+    Object.assign(shared, await supabaseSecrets(config, askSecret, io));
   }
   if (lacking(["VERCEL_API_TOKEN", "VERCEL_TEAM_ID"])) {
-    const values = await vercelSecrets(askSecret, io);
-    if (!values) return 1;
-    Object.assign(shared, values);
+    await show(vercelStep);
+    Object.assign(shared, await vercelSecrets(askSecret, io));
   }
+  let workosShown = false;
+  const beforeAsking = async (name: string) => {
+    if (workosShown || !workosStep.produces.includes(name)) return;
+    workosShown = true;
+    await show(workosStep);
+  };
   for (const name of present.keys()) {
     const own = provided.get(name) ?? { values: {}, replace: [] };
     provided.set(name, { ...own, values: { ...shared, ...own.values } });
@@ -595,6 +638,7 @@ export async function setup(
       names,
       provided.get(name) ?? { values: {}, replace: [] },
       askSecret,
+      beforeAsking,
       io,
     );
     if (!result) return 1;

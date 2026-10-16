@@ -12,7 +12,6 @@ You need the GitHub repository, accounts and tokens from the [bootstrap checklis
    git clone git@github.com:you/my-app.git && cd my-app
    cp -R <turbo-vibe checkout>/examples/go-api/. .
    rm turbo-vibe.yaml
-   echo .turbo-vibe/ >> .gitignore
    ```
 
 2. Write the config and the two workflows:

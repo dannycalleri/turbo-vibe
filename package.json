@@ -51,6 +51,7 @@
     "validate:infra": "make validate-infra"
   },
   "dependencies": {
+    "@clack/prompts": "1.8.1",
     "@cloudflare/containers": "0.3.7",
     "aws4fetch": "1.0.20",
     "commander": "15.0.0",

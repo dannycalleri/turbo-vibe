@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { vi } from "vitest";
-import type { Io } from "../src/io.js";
+import type { Choice, Io, Prompts } from "../src/io.js";
 import { main } from "../src/main.js";
 import type { Runner } from "../src/run.js";
 
@@ -155,4 +155,61 @@ export function runner(
       await writeFile(args[1] as string, "archive");
     return (await overrides(command, args, options)) ?? 0;
   });
+}
+
+// Replies are keyed by the start of a prompt's message. A text reply may be a list, tried in
+// order until one passes validation; undefined cancels; "" accepts the default.
+export function fakePrompts(replies: Record<string, unknown>) {
+  const asked: {
+    message: string;
+    options?: readonly Choice[];
+    problems: string[];
+  }[] = [];
+  const reply = (message: string) =>
+    replies[Object.keys(replies).find((key) => message.startsWith(key)) ?? ""];
+  const prompts: Prompts = {
+    async text(message, { initial, validate } = {}) {
+      const record = { message, problems: [] as string[] };
+      asked.push(record);
+      const given = reply(message);
+      for (const value of Array.isArray(given) ? given : [given]) {
+        if (typeof value !== "string") return undefined;
+        const answer = value === "" ? (initial ?? "") : value;
+        const problem = validate?.(answer);
+        if (!problem) return answer;
+        record.problems.push(problem);
+      }
+      return undefined;
+    },
+    async select<T extends string>(
+      message: string,
+      options: readonly Choice<T>[],
+      initial?: T,
+    ) {
+      asked.push({ message, options, problems: [] });
+      const given = reply(message);
+      return (given === "" ? initial : given) as T | undefined;
+    },
+    spinner(message) {
+      const record = { message, problems: [] as string[] };
+      asked.push(record);
+      return {
+        stop: (result: string, failed = false) => {
+          if (failed) record.problems.push(result);
+        },
+      };
+    },
+    async confirm(message) {
+      asked.push({ message, problems: [] });
+      return reply(message) as boolean | undefined;
+    },
+    async multiselect<T extends string>(
+      message: string,
+      options: readonly Choice<T>[],
+    ) {
+      asked.push({ message, options, problems: [] });
+      return reply(message) as T[] | undefined;
+    },
+  };
+  return { prompts, asked };
 }

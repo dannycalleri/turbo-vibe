@@ -27,12 +27,12 @@ You built it in a weekend. Shipping it shouldn't take a month. From one file, tu
 ## Get started
 
 ```sh
-npx @turbo-vibe/cli@1 init    # 1. Describe it: name, domain, a target per service → turbo-vibe.yaml and two workflows
-npx @turbo-vibe/cli@1 setup   # 2. Connect your accounts: GitHub environments and secrets, read without echo
+npx @turbo-vibe/cli@1 init    # 1. Describe it: arrow-key choices, defaults read from your repository → turbo-vibe.yaml and two workflows
+npx @turbo-vibe/cli@1 setup   # 2. Connect your accounts: one guided step per vendor, each token checked as you paste it
 git push origin main          # 3. Merge: every merge deploys to staging and is smoke-tested
 ```
 
-To go live, run **Deploy to production** from the Actions tab, type the build ID and approve.
+`init` ends by offering to run `setup` for you. To go live, run **Deploy to production** from the Actions tab, type the build ID and approve.
 
 **Have an app already?** Run `npx @turbo-vibe/cli@1 adopt` in your repository and ask your coding agent to make it deployable. It adapts the backend, runs step 1 and opens a pull request. Step 2 stays with you. The [adoption guide](docs/adoption.md) covers the same path by hand.
 
@@ -113,7 +113,7 @@ services:
 | `database` | `supabase`, a project per environment |
 | `identity` | `workos`, sign-in per environment |
 
-Every field is in the [file format](docs/file-format.md). [COMPATIBILITY.md](COMPATIBILITY.md) lists the versions each target pins and the date it last passed a live run.
+`cloudflare-static` runs on Workers Static Assets, which Cloudflare recommends instead of Pages for new projects. With `serve_with`, the page and the API share one Worker and one origin, so the page calls the API without CORS and the sign-in cookie reaches it. Every field is in the [file format](docs/file-format.md). [COMPATIBILITY.md](COMPATIBILITY.md) lists the versions each target pins and the date it last passed a live run.
 
 ## Commands
 

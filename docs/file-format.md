@@ -43,6 +43,8 @@ Paths are relative to the config file, and commands run in its directory unless 
 | `database` | `supabase` |
 | `identity` | `workos` |
 
+`cloudflare-static` runs on Workers Static Assets, which Cloudflare recommends instead of Pages for new projects. With `serve_with`, the page and the API share one Worker and one origin, so the page calls the API without CORS and the sign-in cookie reaches it.
+
 A backend is served under `/api/` and a frontend under `/`.
 
 ### `kind: backend`

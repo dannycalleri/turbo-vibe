@@ -22,7 +22,7 @@ The details behind the [README](../README.md): what each command does, how a rel
 
 ## Commands in detail
 
-**`init`** asks for the project's name, domain, and the target of each service, then writes `turbo-vibe.yaml` and the staging and production workflows. It never replaces existing files unless given `--force`. Every answer has a flag (`--name`, `--domain`, `--backend`, `--frontend`, `--database`, `--identity`, `--assistant`) for running it non-interactively. It treats a two-label domain (`example.com`) as the zone apex and anything longer as one level below the zone. For a domain on a multi-part suffix, such as `example.co.uk`, edit the hostnames it writes. Build commands, output directories and the Supabase region it fills in are marked as defaults to replace.
+**`init`** asks for the project's name, domain, and the target of each service, with defaults read from the repository, then writes `turbo-vibe.yaml` and the staging and production workflows and adds `.turbo-vibe/` to `.gitignore`. It ends with the next steps and, in a terminal with a signed-in GitHub CLI, offers to run `setup`. It never replaces existing files unless given `--force`. Every answer has a flag (`--name`, `--domain`, `--backend`, `--frontend`, `--database`, `--identity`, `--assistant`) for running it non-interactively. It treats a two-label domain (`example.com`) as the zone apex and anything longer as one level below the zone. For a domain on a multi-part suffix, such as `example.co.uk`, edit the hostnames it writes. Build commands, output directories and the Supabase region it fills in are marked as defaults to replace.
 
 **`adopt`** writes guidance for coding assistants (`--assistant claude`, `cursor`, or a list such as `claude,cursor`; by default, the ones the repository already uses) into an existing repository, which needs no `turbo-vibe.yaml` yet. Asked to make the project deployable with turbo-vibe, the assistant inspects the repository, maps each part to a target or names what turbo-vibe cannot run yet, changes the backend to the contract in [What a backend must do](#what-a-backend-must-do), writes the config and workflows with `init`, checks them with `plan`, `test` and `deploy --dry-run`, and leaves account setup and production to you. It never replaces existing files unless given `--force`.
 
@@ -209,7 +209,7 @@ Before each deploy, preview and promotion, the kit sets each value on that envir
 | `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` | the WorkOS environment's API key and client ID; set the staging ones on the `staging` and `preview` GitHub environments and the production ones on `production` (`apply` and `deploy`) |
 | `VERCEL_API_TOKEN`, `VERCEL_TEAM_ID` | a Vercel access token and the team (or personal account) ID, for `vercel-static` frontends (`apply` and `deploy`) |
 
-OpenTofu 1.10 or later must be on `PATH` as `tofu`. Docker must be available to `deploy`, which builds container images. Add `.turbo-vibe/` to the project's `.gitignore`; `apply` and `deploy` write their working files there.
+OpenTofu 1.10 or later must be on `PATH` as `tofu`. Docker must be available to `deploy`, which builds container images. `apply` and `deploy` write their working files to `.turbo-vibe/`, which `init` adds to `.gitignore`.
 
 ## Your application's own secrets
 

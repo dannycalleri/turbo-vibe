@@ -4,6 +4,7 @@ import { appPublic, appSecrets, buildSecrets } from "../secrets.js";
 import { kindOf } from "../setup.js";
 import { cliRange } from "../version.js";
 import { stateBucketName } from "./cloudflare.js";
+import { needsPaidSupabase, stepLines, stepsFor } from "./steps.js";
 
 const cloudflareDashboard = "https://dash.cloudflare.com/?to=/:account";
 
@@ -20,11 +21,7 @@ export function setupSteps(
   const vercel = services.some((service) =>
     service.target.startsWith("vercel-"),
   );
-  const paidDatabase =
-    database?.kind === "database" &&
-    (database.plan === "paid" ||
-      database.staging === "branch" ||
-      config.previews === true);
+  const paidDatabase = needsPaidSupabase(config);
 
   const accounts = [
     "GitHub: the repository, and the GitHub CLI signed in with `gh auth login` (https://cli.github.com)",
@@ -60,24 +57,9 @@ export function setupSteps(
       ? [`Subscribe to Workers Paid: ${cloudflareDashboard}/workers/plans`]
       : []),
     `Enable R2 once on the account: ${cloudflareDashboard}/r2/overview`,
-    `Create the Cloudflare bootstrap token, owned by the account, with only Account API Tokens: Edit and a one-day expiry: ${cloudflareDashboard}/api-tokens`,
-    "Copy the Cloudflare account ID: the part after dash.cloudflare.com/ in the dashboard's address",
     "If setup adds the zone to Cloudflare, set the zone's nameservers at your registrar when it prints them; that moves DNS for the whole zone",
     ...(database
-      ? [
-          "Create the Supabase organization: https://supabase.com/dashboard/new",
-          "Create a Supabase access token: https://supabase.com/dashboard/account/tokens",
-        ]
-      : []),
-    ...(identity
-      ? [
-          "Copy each WorkOS environment's API key and client ID (the client ID is on the application page linked from the key's row): https://dashboard.workos.com/api-keys",
-        ]
-      : []),
-    ...(vercel
-      ? [
-          "Create a Vercel access token, scoped to the team: https://vercel.com/account/settings/tokens",
-        ]
+      ? ["Create the Supabase organization: https://supabase.com/dashboard/new"]
       : []),
     ...(ownValues.length > 0
       ? [
@@ -124,6 +106,16 @@ export function setupSteps(
     "",
     "Steps only a person can do",
     ...steps.map((line, index) => `  ${index + 1}. ${line}`),
+    "",
+    "Tokens setup asks for, one step each",
+    ...stepsFor(
+      environments.flatMap((environment) =>
+        environmentSecrets(config, kindOf(environment)),
+      ),
+    ).flatMap((step) => [
+      `  ${step.vendor}`,
+      ...stepLines(step, config).map((line) => `  ${line}`),
+    ]),
     "",
     `Then, in a terminal: npx @turbo-vibe/cli@${cliRange} setup`,
     "",

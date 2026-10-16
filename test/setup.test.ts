@@ -5,8 +5,14 @@ import type { Check } from "../src/checks/types.js";
 import { fail, missing, ok } from "../src/checks/types.js";
 import { parseConfig } from "../src/config/load.js";
 import type { Io } from "../src/io.js";
-import type { Capturer } from "../src/run.js";
-import { project, run } from "./harness.js";
+import type { Capturer, Runner } from "../src/run.js";
+import {
+  bootstrapTokenUrl,
+  cloudflareStep,
+  stepLines,
+  supabaseStep,
+} from "../src/setup/steps.js";
+import { fakePrompts, project, run } from "./harness.js";
 
 const checks = vi.hoisted(() => ({ list: [] as Check[] }));
 vi.mock("../src/check.js", async (original) => ({
@@ -119,6 +125,7 @@ interface FakeCloudflare {
   }[];
   buckets?: string[];
   bootstrapPermissions?: string[];
+  accounts?: { id: string; name: string }[];
   refusedBuckets?: number;
   unpaidReads?: number;
   billingReadable?: boolean;
@@ -144,6 +151,7 @@ function fakeCloudflare({
   zones = [],
   buckets = [],
   bootstrapPermissions = ["Account API Tokens Write"],
+  accounts: visible = [{ id: "acc123", name: "Acme" }],
   refusedBuckets = 0,
   unpaidReads = 0,
   billingReadable = true,
@@ -171,6 +179,11 @@ function fakeCloudflare({
     Response.json({ success, result, errors: [] }, { status });
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const url = new URL(String(input));
+    if (url.host === "api.supabase.com")
+      return Response.json([{ id: "acme", name: "Acme" }]);
+    if (url.host === "api.vercel.com")
+      return Response.json({ teams: [{ id: "team_1", name: "Acme" }] });
+    if (url.host === "api.workos.com") return Response.json({ data: [] });
     const path = url.pathname.replace("/client/v4", "") + url.search;
     const method = init?.method ?? "GET";
     const token =
@@ -180,6 +193,7 @@ function fakeCloudflare({
     requests.push({ method, path, token, ...(body ? { body } : {}) });
     const caller = [...tokens.values()].find((t) => t.value === token);
     if (!caller) return json(null, false, 401);
+    if (path === "/accounts") return json(visible);
     const accounts = "/accounts/acc123";
     if (path === `${accounts}/tokens/verify`)
       return json({ id: caller.id, status: "active" });
@@ -270,8 +284,7 @@ function fakeCloudflare({
   return { fetch, requests, live, created };
 }
 
-const ask = async (question: string) =>
-  question.startsWith("Cloudflare account ID") ? "acc123" : "";
+const ask = async (_question: string) => "";
 const askSecret = async (question: string) =>
   question.startsWith("Cloudflare bootstrap token")
     ? "BOOTSTRAP"
@@ -504,13 +517,13 @@ describe("setup", () => {
       {
         env: "staging",
         name: "SUPABASE_ACCESS_TOKEN",
-        value: "value of Supabase access token (Account → Access Tokens)",
+        value: "value of Supabase access token",
       },
     ]);
     expect(result.stdout).toContain(
       `staging: kept ${cloudflareKept.join(", ")}`,
     );
-    expect(cloudflare.fetch).not.toHaveBeenCalled();
+    expect(cloudflare.requests).toEqual([]);
     for (const call of gh.calls()) expect(call).not.toContain("value of");
     expect(result.stdout + result.stderr).not.toContain("value of");
   });
@@ -730,9 +743,7 @@ describe("setup", () => {
       withDatabase,
     );
     expect(result.code).toBe(0);
-    expect(seen.SUPABASE_ACCESS_TOKEN).toBe(
-      "value of Supabase access token (Account → Access Tokens)",
-    );
+    expect(seen.SUPABASE_ACCESS_TOKEN).toBe("value of Supabase access token");
     expect(seen).toMatchObject({
       GITHUB_REPOSITORY: "acme/app",
       GITHUB_TOKEN: "gho_t0ken",
@@ -935,12 +946,33 @@ describe("setup on Cloudflare", () => {
     });
   });
 
-  it("stops before creating anything when the bootstrap token cannot create tokens", async () => {
+  it("asks again for a bootstrap token that cannot create tokens, and creates nothing", async () => {
     const cloudflare = fakeCloudflare({ bootstrapPermissions: ["Zone Read"] });
     const gh = fakeGh();
-    const result = await setup([], gh, true, cloudflare);
+    const tokens = ["BOOTSTRAP", ""];
+    const result = await run(
+      ["setup"],
+      { "turbo-vibe.yaml": project },
+      {},
+      undefined,
+      cloudflare.fetch,
+      {
+        capture: gh.capture,
+        ask,
+        askSecret: async (question) =>
+          question.startsWith("Cloudflare bootstrap token")
+            ? (tokens.shift() ?? "")
+            : askSecret(question),
+      },
+    );
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("lacks Account API Tokens Write");
+    expect(tokens).toEqual([]);
+    expect(result.stderr).toContain(
+      "lacks Account API Tokens Write, so it cannot create the CI tokens; create one with the steps above and paste it\n",
+    );
+    expect(result.stderr).toContain(
+      "setup needs a Cloudflare bootstrap token; create one with the steps above\n",
+    );
     expect(cloudflare.requests.some((r) => r.method === "POST")).toBe(false);
     expect(gh.stored).toEqual([]);
   });
@@ -1063,6 +1095,140 @@ services:
     expect(result.stdout).not.toContain("Workers Paid");
     const setupToken = cloudflare.created("turbo-vibe-acme-setup");
     expect(JSON.stringify(setupToken?.body)).not.toContain("Billing Read");
+  });
+
+  describe("the Cloudflare step", () => {
+    const guided = (
+      cloudflare: ReturnType<typeof fakeCloudflare>,
+      replies: Record<string, unknown>,
+      runner = vi.fn<Runner>(async () => 0),
+      tokens = ["BOOTSTRAP"],
+    ) => {
+      const { prompts, asked } = fakePrompts(replies);
+      const questions: string[] = [];
+      const gh = fakeGh();
+      return {
+        asked,
+        questions,
+        runner,
+        gh,
+        result: run(
+          ["setup", "--env", "staging"],
+          { "turbo-vibe.yaml": project },
+          {},
+          runner,
+          cloudflare.fetch,
+          {
+            capture: gh.capture,
+            ask: async (question) => {
+              questions.push(question);
+              return ask(question);
+            },
+            askSecret: async (question) =>
+              question.startsWith("Cloudflare bootstrap token")
+                ? (tokens.shift() ?? "")
+                : askSecret(question),
+            prompts,
+          },
+        ),
+      };
+    };
+
+    it("shows the clicks and permissions, and uses the token's only account without a question", async () => {
+      const { result, questions } = guided(fakeCloudflare(), {
+        "Open this page": false,
+      });
+      const { code, stdout } = await result;
+      expect(code).toBe(0);
+      expect(stdout).toContain(
+        "Step 1 of 1 · Cloudflare\n  Plan: Workers Paid, which Containers need\n  1. Open the page below: it fills in the name",
+      );
+      expect(stdout).toContain(
+        "  Permissions: Account API Tokens: Edit, and nothing else",
+      );
+      expect(stdout).toContain(
+        "cloudflare: the bootstrap token works on the account Acme\n",
+      );
+      expect(questions.some((q) => q.includes("account"))).toBe(false);
+    });
+
+    it("asks which account by name when the token sees several", async () => {
+      const cloudflare = fakeCloudflare({
+        accounts: [
+          { id: "other9", name: "Other" },
+          { id: "acc123", name: "Acme" },
+        ],
+      });
+      const { result, asked } = guided(cloudflare, {
+        "Open this page": false,
+        "Cloudflare account": "1",
+      });
+      expect((await result).code).toBe(0);
+      expect(
+        asked
+          .find(({ message }) => message === "Cloudflare account")
+          ?.options?.map(({ label }) => label),
+      ).toEqual(["Other (other9)", "Acme (acc123)"]);
+    });
+
+    it("ends the run when the person cancels the account choice, storing nothing", async () => {
+      const cloudflare = fakeCloudflare({
+        accounts: [
+          { id: "other9", name: "Other" },
+          { id: "acc123", name: "Acme" },
+        ],
+      });
+      const { result, gh } = guided(cloudflare, {
+        "Open this page": false,
+        "Cloudflare account": undefined,
+      });
+      const { code, stderr } = await result;
+      expect(code).toBe(130);
+      expect(stderr).toBe("setup cancelled\n");
+      expect(gh.stored).toEqual([]);
+      expect(cloudflare.requests.some((r) => r.method === "POST")).toBe(false);
+    });
+
+    it("tells a token that sees no account from one Cloudflare refuses", async () => {
+      const { result } = guided(
+        fakeCloudflare({ accounts: [] }),
+        { "Open this page": false },
+        undefined,
+        ["BOOTSTRAP", "WRONG", ""],
+      );
+      const { code, stderr } = await result;
+      expect(code).toBe(1);
+      expect(stderr).toContain(
+        "the bootstrap token sees no Cloudflare account; create it under Manage Account → Account API Tokens, so the account owns it, and paste it\n",
+      );
+      expect(stderr).toContain(
+        "Cloudflare refuses the bootstrap token (HTTP 401); create one with the steps above and paste it\n",
+      );
+    });
+
+    it("links to a token page prefilled with the name and the one permission", () => {
+      const url = new URL(bootstrapTokenUrl);
+      expect(url.origin).toBe("https://dash.cloudflare.com");
+      expect(url.searchParams.get("to")).toBe("/:account/api-tokens");
+      expect(
+        JSON.parse(url.searchParams.get("permissionGroupKeys") ?? ""),
+      ).toEqual([{ key: "account_api_tokens", type: "edit" }]);
+      expect(url.searchParams.get("name")).toBe("turbo-vibe bootstrap");
+    });
+
+    it("opens the page on request, and goes on with the printed address when no browser opens", async () => {
+      const { result, runner } = guided(
+        fakeCloudflare(),
+        { "Open this page": true },
+        vi.fn<Runner>(async () => 1),
+      );
+      const { code, stdout } = await result;
+      expect(code).toBe(0);
+      expect(runner.mock.calls[0]?.[1]).toContain(bootstrapTokenUrl);
+      expect(stdout).toContain(
+        "could not open a browser; open the address above\n",
+      );
+    });
   });
 
   it("asks for no bootstrap token when every environment has the Cloudflare secrets", async () => {
@@ -1266,9 +1432,7 @@ services:
         : gh.capture(command, args, options),
     );
     const cloudflare = fakeCloudflare();
-    const ask = vi.fn(async (question: string) =>
-      question.startsWith("Cloudflare account ID") ? "acc123" : "y",
-    );
+    const ask = vi.fn(async (_question: string) => "y");
     const result = await run(
       ["setup", "--env", "staging"],
       { "turbo-vibe.yaml": project },
@@ -1383,14 +1547,14 @@ describe("setup with vendor tokens", () => {
     expect(storedValue(gh, "staging", "SUPABASE_ORGANIZATION")).toBe("second");
   });
 
-  it("stores no organization when the config names one", async () => {
+  it("checks the token but stores no organization when the config names one", async () => {
     const gh = fakeGh({ secrets: allKept });
     const fetch = vendors(fakeCloudflare());
-    await setupWith(withDatabase, fetch, gh);
+    const { stdout } = await setupWith(withDatabase, fetch, gh);
     expect(gh.stored.map((s) => s.name)).not.toContain("SUPABASE_ORGANIZATION");
-    expect(
-      fetch.mock.calls.some(([url]) => String(url).includes("supabase")),
-    ).toBe(false);
+    expect(stdout).toContain(
+      "the Supabase token works and sees the organization Acme\n",
+    );
   });
 
   it("stores the only Vercel team the token sees, without a question", async () => {
@@ -1399,7 +1563,7 @@ describe("setup with vendor tokens", () => {
     expect(result.code).toBe(0);
     expect(storedValue(gh, "staging", "VERCEL_TEAM_ID")).toBe("team_1");
     expect(storedValue(gh, "production", "VERCEL_API_TOKEN")).toBe(
-      "value of Vercel access token (Account Settings → Tokens)",
+      "value of Vercel access token",
     );
   });
 
@@ -1427,6 +1591,131 @@ describe("setup with vendor tokens", () => {
     expect(result.stdout).toContain(
       "production needs the WorkOS production environment's key, which starts with sk_live_",
     );
+  });
+
+  it("asks again for a Supabase token that Supabase refuses, and never prints a token", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    const statuses = [401, 200];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) =>
+      String(input) === "https://api.supabase.com/v1/organizations"
+        ? Response.json([{ id: "acme", name: "acme" }], {
+            status: statuses.shift() ?? 200,
+          })
+        : fakeCloudflare().fetch(input, init),
+    );
+    const tokens = ["sbp_first_secret", "sbp_second_secret"];
+    const result = await setupWith(withDatabase, fetch, gh, {
+      askSecret: async (q: string) =>
+        q === "Supabase access token" ? (tokens.shift() ?? "") : askSecret(q),
+    });
+    expect(result.code).toBe(0);
+    expect(tokens).toEqual([]);
+    expect(result.stderr).toContain(
+      "Supabase refuses the token (HTTP 401); create a new one with the steps above and paste it\n",
+    );
+    expect(result.stdout).toContain(
+      "the Supabase token works and sees the organization acme\n",
+    );
+    expect(storedValue(gh, "staging", "SUPABASE_ACCESS_TOKEN")).toBe(
+      "sbp_second_secret",
+    );
+    expect(`${result.stdout}${result.stderr}`).not.toContain("_secret");
+  });
+
+  it("asks again for a WorkOS key that WorkOS refuses", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const key = new Headers(init?.headers).get("authorization") ?? "";
+      return String(input).startsWith("https://api.workos.com/")
+        ? Response.json({}, { status: key.includes("revoked") ? 401 : 200 })
+        : fakeCloudflare().fetch(input, init);
+    });
+    const answers: Record<string, string[]> = {
+      staging: ["sk_test_revoked", "sk_test_right"],
+      production: ["sk_live_right"],
+    };
+    const result = await setupWith(withSignIn, fetch, gh, {
+      askSecret: async (q: string) => {
+        const env = q.split(" ")[0] ?? "";
+        if (q.includes("WORKOS_API_KEY")) return answers[env]?.shift() ?? "";
+        return `value of ${q}`;
+      },
+    });
+    expect(result.code).toBe(0);
+    expect(storedValue(gh, "staging", "WORKOS_API_KEY")).toBe("sk_test_right");
+    expect(result.stderr).toContain(
+      "WorkOS refuses the key (HTTP 401); copy it again with the steps above\n",
+    );
+  });
+
+  it("numbers the vendor steps across the run, and shows WorkOS once for every environment", async () => {
+    const gh = fakeGh();
+    const everyVendor = `${onVercel}  db:
+    kind: database
+    target: supabase
+    region: eu-central-1
+  auth:
+    kind: identity
+    target: workos
+`;
+    const result = await setupWith(everyVendor, fakeCloudflare().fetch, gh, {
+      askSecret: async (q: string) =>
+        q.includes("WORKOS_API_KEY")
+          ? q.startsWith("production")
+            ? "sk_live_key"
+            : "sk_test_key"
+          : askSecret(q),
+    });
+    expect(result.code).toBe(0);
+    const headers = result.stdout.match(/Step \d of \d · \w+/g);
+    expect(headers).toEqual([
+      "Step 1 of 4 · Cloudflare",
+      "Step 2 of 4 · Supabase",
+      "Step 3 of 4 · Vercel",
+      "Step 4 of 4 · WorkOS",
+    ]);
+  });
+
+  it("asks again when the network fails during a check", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    let failures = 1;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      if (String(input) === "https://api.vercel.com/v2/teams" && failures-- > 0)
+        throw new TypeError("fetch failed");
+      return fakeCloudflare().fetch(input, init);
+    });
+    const result = await setupWith(onVercel, fetch, gh);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain(
+      "could not check it (fetch failed); check the connection and paste it again\n",
+    );
+    expect(storedValue(gh, "staging", "VERCEL_TEAM_ID")).toBe("team_1");
+  });
+
+  it("reports a refused value on the spinner in a terminal", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    const statuses = [401, 200];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) =>
+      String(input) === "https://api.vercel.com/v2/teams"
+        ? Response.json(
+            { teams: [{ id: "team_1", name: "Acme" }] },
+            { status: statuses.shift() ?? 200 },
+          )
+        : fakeCloudflare().fetch(input, init),
+    );
+    const { prompts, asked } = fakePrompts({ "Open this page": false });
+    const result = await setupWith(onVercel, fetch, gh, { prompts });
+    expect(result.code).toBe(0);
+    expect(
+      asked
+        .filter(({ message }) => message === "checking the Vercel token")
+        .map(({ problems }) => problems),
+    ).toEqual([
+      [
+        "Vercel refuses the token (HTTP 401); create a new one with the steps above and paste it",
+      ],
+      [],
+    ]);
   });
 
   it("leaves the organization to its own prompt when the person chooses none of two", async () => {
@@ -1469,7 +1758,7 @@ describe("setup on re-runs and other environments", () => {
       ["staging", "SUPABASE_ACCESS_TOKEN"],
       ["production", "SUPABASE_ACCESS_TOKEN"],
     ]);
-    expect(cloudflare.fetch).not.toHaveBeenCalled();
+    expect(cloudflare.requests).toEqual([]);
   });
 
   it("creates the Cloudflare token again for --replace CLOUDFLARE_API_TOKEN", async () => {
@@ -1583,6 +1872,28 @@ describe("setup --list", () => {
     expect(capture).not.toHaveBeenCalled();
   });
 
+  it("prints each token's steps exactly as setup shows them", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": withDatabase,
+    });
+    const config = parseConfig(withDatabase);
+    if (!config.ok) throw new Error("invalid fixture");
+    for (const step of [cloudflareStep, supabaseStep])
+      expect(result.stdout).toContain(
+        [
+          `  ${step.vendor}`,
+          ...stepLines(step, config.config).map((line) => `  ${line}`),
+        ].join("\n"),
+      );
+    for (const line of [
+      ...supabaseStep.clicks,
+      supabaseStep.permissions,
+      supabaseStep.url,
+    ])
+      expect(result.stdout).toContain(line);
+    expect(result.stdout).not.toContain("  WorkOS\n");
+  });
+
   it("tells the person to have the application's own values ready, by kind", async () => {
     const result = await run(["setup", "--list"], {
       "turbo-vibe.yaml": project
@@ -1646,7 +1957,9 @@ services:
     build: { command: "pnpm build", output: dist }
 `;
     const result = await run(["setup", "--list"], { "turbo-vibe.yaml": site });
-    expect(result.stdout).toContain("Create a Vercel access token");
+    expect(result.stdout).toContain(
+      "  Vercel\n    Plan: Hobby, or Pro for a commercial project\n",
+    );
     expect(result.stdout).toContain("a commercial project needs the Pro plan");
     expect(result.stdout).not.toContain("Workers Paid");
   });

@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { vendorSteps } from "../src/setup/steps.js";
 import { run } from "./harness.js";
 
 const root = join(import.meta.dirname, "..");
@@ -74,5 +75,14 @@ describe("the example walkthroughs", () => {
         }
       }
     }
+  });
+});
+
+describe("the bootstrap checklist", () => {
+  it("shows every vendor step's clicks, permissions and page as setup does", async () => {
+    const checklist = await readFile(join(root, "docs/bootstrap.md"), "utf8");
+    for (const step of vendorSteps)
+      for (const line of [...step.clicks, step.permissions, step.url])
+        expect(checklist, `${step.vendor}: ${line}`).toContain(line);
   });
 });
