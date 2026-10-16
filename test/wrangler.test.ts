@@ -113,15 +113,18 @@ describe("workerEntry", () => {
 });
 
 describe("routingModule", () => {
-  async function instanceName(rule?: string) {
+  async function instanceName(rule?: string, buildId = "abc1230000000000") {
     const dir = await mkdtemp(join(tmpdir(), "turbo-vibe-routing-"));
     const file = join(dir, "routing.mjs");
     await writeFile(
       file,
-      routingModule({
-        ...backend,
-        ...(rule ? { container: { instance_from: rule } } : {}),
-      }),
+      routingModule(
+        {
+          ...backend,
+          ...(rule ? { container: { instance_from: rule } } : {}),
+        },
+        buildId,
+      ),
     );
     return (
       (await import(pathToFileURL(file).href)) as {
@@ -134,10 +137,18 @@ describe("routingModule", () => {
     const route = await instanceName("query:session");
     expect(
       route(new Request("https://app.example.com/api/ws?session=room-7")),
-    ).toBe("room-7");
+    ).toBe("room-7@abc123000000");
     expect(route(new Request("https://app.example.com/api/ws"))).toBe(
-      "default",
+      "default@abc123000000",
     );
+  });
+
+  it("gives the next build new instances, so no request reaches the old image after a deploy", async () => {
+    const before = await instanceName("query:session", "aaaa1111bbbb2222");
+    const after = await instanceName("query:session", "cccc3333dddd4444");
+    const request = new Request("https://app.example.com/api/health");
+    expect(before(request)).toBe("default@aaaa1111bbbb");
+    expect(after(request)).toBe("default@cccc3333dddd");
   });
 
   it("routes a request to the instance its header names", async () => {
@@ -148,9 +159,9 @@ describe("routingModule", () => {
           headers: { "x-session": "user-42" },
         }),
       ),
-    ).toBe("user-42");
+    ).toBe("user-42@abc123000000");
     expect(route(new Request("https://app.example.com/api/ws"))).toBe(
-      "default",
+      "default@abc123000000",
     );
   });
 
