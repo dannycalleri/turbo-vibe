@@ -81,6 +81,16 @@ npx @turbo-vibe/cli@1 preview remove --branch "$BRANCH"
 
 The reusable `preview.yml` workflow runs this for you on `pull_request` events: `opened`, `synchronize` and `reopened` deploy, `closed` removes. It runs in the `preview` GitHub environment, which `setup` creates with its own state bucket and tokens, so pull request code never receives the `staging` or `production` GitHub environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. The bootstrap checklist's [What one account leaves shared](bootstrap.md#8-what-one-account-leaves-shared) lists every such limit. It posts the preview's URLs (or the reason there is none) as a comment on the pull request: a page at its root, and a backend with no page on its hostname at `/api/health`, which reports the build it runs. A pull request from a fork gets no preview, because its run receives no secrets, and the run says so. `.github/workflows/previews.yml` previews the kit's Python and Vercel examples.
 
+## HTTPS only
+
+Cloudflare also answers on port 80. So when a Worker serves a hostname, `apply` for staging and production turns on the zone's **Always Use HTTPS** setting. Cloudflare then redirects each `http://` request to `https://` before a Worker receives it.
+
+- The setting covers the whole zone. A hostname in the zone that turbo-vibe does not deploy also redirects.
+- Previews never manage the setting, and the preview CI token has no Zone Settings: Edit. Pull-request code runs with that token, so it cannot change zone-wide settings.
+- When the setting leaves the state, Cloudflare keeps it on. To turn it off, use the zone's SSL/TLS → Edge Certificates page.
+
+A project set up before this setting existed needs new CI tokens with Zone Settings: Edit. Run `setup --replace CLOUDFLARE_API_TOKEN` once: it creates a new CI token for each environment. Until then, `apply` for staging and production fails on the zone setting, and `check` names the missing permission.
+
 ## What a backend must do
 
 A `cloudflare-container` backend listens on port 8080 (also given as `PORT`), reads its database, if the project has one, from `DATABASE_URL`, and answers `GET /api/health` with JSON containing `build_id`. The kit passes the build ID to `docker build` as the build argument `BUILD_ID`; the Dockerfile's final stage turns it into the environment variable the app reports:
@@ -198,7 +208,7 @@ Before each deploy, preview and promotion, the kit sets each value on that envir
 
 | Variable | What it is |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | API token, which `setup` creates per environment, with Workers Scripts: Edit and Workers Containers: Edit (account), Workers Routes: Edit and DNS: Edit (zone), Account API Tokens: Read (User API Tokens: Read on a user token) so `check` can confirm the token's own permissions, and, with a container backend, Account → Billing: Read so `check` can confirm the Workers Paid plan |
+| `CLOUDFLARE_API_TOKEN` | API token, which `setup` creates per environment, with Workers Scripts: Edit and Workers Containers: Edit (account), Workers Routes: Edit, DNS: Edit and, for staging and production with a Worker, Zone Settings: Edit (zone), Account API Tokens: Read (User API Tokens: Read on a user token) so `check` can confirm the token's own permissions, and, with a container backend, Account → Billing: Read so `check` can confirm the Workers Paid plan |
 | `CLOUDFLARE_ACCOUNT_ID` | the Cloudflare account that runs the Workers and holds the state buckets |
 | `CLOUDFLARE_ZONE_ID` | the zone of the project's `domain` |
 | `TURBO_VIBE_STATE_BUCKET` | an R2 bucket for OpenTofu state, which `setup` creates; staging also keeps its build records and asset archives there |
