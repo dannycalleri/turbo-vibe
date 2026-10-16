@@ -15,7 +15,7 @@ const answers = (overrides: Partial<Answers> = {}): Answers => ({
   frontend: "cloudflare-static",
   database: "none",
   identity: "none",
-  assistant: "none",
+  assistant: [],
   ...overrides,
 });
 
@@ -173,7 +173,7 @@ describe("turbo-vibe init", () => {
       "Frontend target": "vercel-nextjs",
       "Database target": "none",
       "Identity target": "none",
-      "Coding assistant guidance": "none",
+      "Coding assistants to write guidance for": "none",
     };
     const ask = vi.fn(
       async (question: string) =>
@@ -240,7 +240,7 @@ describe("turbo-vibe init", () => {
 
   it("writes the chosen assistant guidance, stamped with the CLI's version", async () => {
     const withAssistant = [...flags];
-    withAssistant[withAssistant.indexOf("--assistant") + 1] = "both";
+    withAssistant[withAssistant.indexOf("--assistant") + 1] = "claude,cursor";
     const { code, cwd } = await run(["init", ...withAssistant]);
     expect(code).toBe(0);
     const skill = await readFile(
@@ -265,6 +265,41 @@ describe("turbo-vibe init", () => {
       expect(file).toContain(`deployed by turbo-vibe ${version}.`);
       expect(file).toContain("Do not run `promote`");
     }
+  });
+
+  it("writes guidance for the assistant the repository already uses, and none when it has nothing to go on", async () => {
+    const withoutAssistant = flags.filter(
+      (_flag, index) =>
+        flags[index] !== "--assistant" && flags[index - 1] !== "--assistant",
+    );
+    const detected = await run(["init", ...withoutAssistant], {
+      "CLAUDE.md": "# notes\n",
+    });
+    expect(detected.code).toBe(0);
+    expect(detected.stdout).toContain(
+      "writing guidance for claude, found in this repository\n",
+    );
+    await readFile(
+      join(detected.cwd, ".claude/skills/turbo-vibe/SKILL.md"),
+      "utf8",
+    );
+    const bare = await run(["init", ...withoutAssistant]);
+    expect(bare.code).toBe(0);
+    await expect(
+      readFile(join(bare.cwd, ".claude/skills/turbo-vibe/SKILL.md"), "utf8"),
+    ).rejects.toThrow();
+    const declined = await run(
+      ["init", ...withoutAssistant, "--no-assistant"],
+      {
+        "CLAUDE.md": "# notes\n",
+      },
+    );
+    await expect(
+      readFile(
+        join(declined.cwd, ".claude/skills/turbo-vibe/SKILL.md"),
+        "utf8",
+      ),
+    ).rejects.toThrow();
   });
 
   it("writes no guidance for none, and leaves existing guidance unchanged", async () => {

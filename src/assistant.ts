@@ -1,3 +1,5 @@
+import { access } from "node:fs/promises";
+import { join } from "node:path";
 import { adapters } from "./adapters/index.js";
 import { reservedNames } from "./config/load.js";
 import { serviceKinds } from "./config/schema.js";
@@ -9,8 +11,60 @@ import {
 } from "./contract.js";
 import { references } from "./version.js";
 
-export const assistants = ["claude", "cursor", "both", "none"] as const;
-export type Assistant = (typeof assistants)[number];
+export const assistantNames = ["claude", "cursor"] as const;
+export type AssistantName = (typeof assistantNames)[number];
+
+// `both` and `none` were the only choices before the list; keeping them keeps old commands working.
+const aliases: Readonly<Record<string, readonly AssistantName[]>> = {
+  both: assistantNames,
+  none: [],
+};
+
+export function parseAssistants(
+  values: readonly string[],
+): AssistantName[] | string {
+  const names: AssistantName[] = [];
+  let named = false;
+  for (const value of values.flatMap((entry) => entry.split(","))) {
+    const name = value.trim();
+    if (!name) continue;
+    const expanded =
+      aliases[name] ??
+      ((assistantNames as readonly string[]).includes(name)
+        ? [name as AssistantName]
+        : undefined);
+    if (!expanded)
+      return `unknown assistant ${name}; choose from ${assistantNames.join(", ")}, as a comma-separated list`;
+    for (const each of expanded) if (!names.includes(each)) names.push(each);
+    named = true;
+  }
+  return named
+    ? names
+    : `no assistant named; choose from ${assistantNames.join(", ")}, as a comma-separated list`;
+}
+
+const markers: Readonly<Record<AssistantName, readonly string[]>> = {
+  claude: [".claude", "CLAUDE.md"],
+  cursor: [".cursor", ".cursorrules"],
+};
+
+export async function detectAssistants(cwd: string): Promise<AssistantName[]> {
+  const found: AssistantName[] = [];
+  for (const name of assistantNames) {
+    for (const marker of markers[name]) {
+      if (
+        await access(join(cwd, marker)).then(
+          () => true,
+          () => false,
+        )
+      ) {
+        found.push(name);
+        break;
+      }
+    }
+  }
+  return found;
+}
 
 const description =
   "Deploying this project with turbo-vibe: editing turbo-vibe.yaml, checking a plan, guiding a person through account setup, and leaving production promotion to a person.";
@@ -191,7 +245,7 @@ A frontend's build receives none of the runtime secrets. A value it inlines keep
 Run \`init\` with every flag, so it asks nothing, choosing \`none\` where a kind has no target:
 
 \`\`\`sh
-${cli(version)} init --name <project> --domain <production hostname> --backend <target|none> --frontend <target|none> --database <target|none> --identity <target|none> --assistant <claude|cursor|both>
+${cli(version)} init --name <project> --domain <production hostname> --backend <target|none> --frontend <target|none> --database <target|none> --identity <target|none> --assistant <claude, cursor or claude,cursor>
 \`\`\`
 
 \`--name\` is lowercase letters, digits and hyphens; it names the Workers, the state and the Supabase projects. \`init\` writes \`turbo-vibe.yaml\`, \`.github/workflows/staging.yml\`, \`.github/workflows/production.yml\`, and the guidance for working on the project afterwards. Commit what it writes, the guidance included. It never overwrites a file: if one of those exists, move it aside with the person's agreement and merge what it did by hand.
@@ -226,14 +280,14 @@ Report what passed, what you could not run, and why.
 `;
 
 export function assistantFiles(
-  choice: Assistant,
+  choice: readonly AssistantName[],
   version: string,
 ): Record<string, string> {
   return wrapped(choice, "turbo-vibe", description, guidance(version), true);
 }
 
 export function adoptionFiles(
-  choice: Assistant,
+  choice: readonly AssistantName[],
   version: string,
 ): Record<string, string> {
   return wrapped(
@@ -246,18 +300,18 @@ export function adoptionFiles(
 }
 
 function wrapped(
-  choice: Assistant,
+  choice: readonly AssistantName[],
   name: string,
   summary: string,
   body: string,
   scoped: boolean,
 ): Record<string, string> {
   const files: Record<string, string> = {};
-  if (choice === "claude" || choice === "both") {
+  if (choice.includes("claude")) {
     files[`.claude/skills/${name}/SKILL.md`] =
       `---\nname: ${name}\ndescription: ${JSON.stringify(summary)}\n---\n\n${body}`;
   }
-  if (choice === "cursor" || choice === "both") {
+  if (choice.includes("cursor")) {
     files[`.cursor/rules/${name}.mdc`] =
       `---\ndescription: ${JSON.stringify(summary)}\n${scoped ? "globs: turbo-vibe.yaml\n" : ""}alwaysApply: false\n---\n\n${body}`;
   }
