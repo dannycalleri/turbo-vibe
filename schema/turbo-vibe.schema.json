@@ -49,6 +49,9 @@
                 "emails"
               ],
               "additionalProperties": false
+            },
+            "analytics": {
+              "type": "boolean"
             }
           },
           "additionalProperties": false
@@ -80,6 +83,9 @@
                 "emails"
               ],
               "additionalProperties": false
+            },
+            "analytics": {
+              "type": "boolean"
             }
           },
           "additionalProperties": false

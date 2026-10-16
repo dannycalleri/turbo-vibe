@@ -38,6 +38,16 @@ export function accessFor(
     ?.access;
 }
 
+export function analyticsFor(
+  config: Config,
+  environment: EnvironmentName,
+): boolean {
+  return (
+    !isPreview(environment) &&
+    config.environments?.[environment]?.analytics === true
+  );
+}
+
 export interface Layout {
   hostname: string;
   backendHostname: string;

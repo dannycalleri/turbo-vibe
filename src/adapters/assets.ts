@@ -2,6 +2,7 @@ import {
   appendFile,
   cp,
   mkdir,
+  readdir,
   readFile,
   rm,
   writeFile,
@@ -14,6 +15,7 @@ import { buildIdPath } from "./wrangler.js";
 
 export interface SiteEdits {
   noindex?: boolean;
+  analyticsToken?: string;
 }
 
 export async function recordedOrBuilt(
@@ -54,7 +56,7 @@ async function forThisEnvironment(
   const { service } = context;
   const names = service.kind === "frontend" ? (service.public ?? []) : [];
   const fillPublic = names.length > 0 && !context.dryRun;
-  if (!fillPublic && !edits.noindex) return built;
+  if (!fillPublic && !edits.noindex && !edits.analyticsToken) return built;
   const copy = await copySite(
     built.dir,
     join(context.workDir, `${context.name}-site`),
@@ -64,6 +66,7 @@ async function forThisEnvironment(
     : copy;
   if (typeof dir === "number") return dir;
   if (edits.noindex) await keepFromSearchEngines(dir);
+  if (edits.analyticsToken) await addAnalytics(dir, edits.analyticsToken);
   return {
     dir,
     ...(built.outputs
@@ -88,6 +91,35 @@ export async function keepFromSearchEngines(dir: string): Promise<void> {
   const existing = await readFile(file, "utf8").catch(() => "");
   const separator = existing === "" || existing.endsWith("\n") ? "" : "\n";
   await appendFile(file, `${separator}/*\n  X-Robots-Tag: noindex\n`);
+}
+
+const beaconScript = "https://static.cloudflareinsights.com/beacon.min.js";
+
+export function analyticsBeacon(token: string): string {
+  return `<script defer src="${beaconScript}" data-cf-beacon='${JSON.stringify({ token })}'></script>`;
+}
+
+const utf8 = new TextDecoder("utf-8", { fatal: true });
+
+export async function addAnalytics(dir: string, token: string): Promise<void> {
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isFile() || !/\.html?$/i.test(entry.name)) continue;
+    const file = join(entry.parentPath, entry.name);
+    let page: string;
+    try {
+      page = utf8.decode(await readFile(file));
+    } catch {
+      continue;
+    }
+    if (page.includes(beaconScript)) continue;
+    const end = [...page.matchAll(/<\/body\s*>/gi)].at(-1)?.index;
+    if (end === undefined) continue;
+    await writeFile(
+      file,
+      `${page.slice(0, end)}${analyticsBeacon(token)}${page.slice(end)}`,
+    );
+  }
 }
 
 export function runBuildCommand(

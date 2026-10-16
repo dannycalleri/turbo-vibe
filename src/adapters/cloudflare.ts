@@ -355,8 +355,12 @@ export const cloudflareStatic: Adapter = {
     const { service } = context;
     if (service.kind !== "frontend")
       throw new Error(`${context.name} is not a frontend`);
+    const token = context.outputs.analytics_token;
     const assets = await recordedOrBuilt(context, () => staticBuild(context), {
       noindex: context.environment !== "production",
+      ...(typeof token === "string" && token !== ""
+        ? { analyticsToken: token }
+        : {}),
     });
     if (typeof assets === "number") return { code: assets };
     const result = {

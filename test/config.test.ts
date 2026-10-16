@@ -106,6 +106,28 @@ services:
     ]);
   });
 
+  it("counts visits only where a cloudflare-static frontend serves the pages", () => {
+    const withAnalytics = (source: string) =>
+      source.replace(
+        "services:",
+        "environments:\n  production:\n    analytics: true\nservices:",
+      );
+    expect(parseConfig(withAnalytics(valid)).ok).toBe(true);
+    expect(
+      problems(
+        withAnalytics(
+          "version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  api:\n    kind: backend\n    target: cloudflare-container\n    build: { dockerfile: Dockerfile }\n",
+        ),
+      ),
+    ).toEqual([
+      {
+        line: 6,
+        message:
+          "analytics counts the pages of a cloudflare-static frontend, and this project has none",
+      },
+    ]);
+  });
+
   it("reports an unknown top-level key with its line", () => {
     expect(problems(valid.replace("domain:", "domian:"))).toContainEqual({
       line: 3,

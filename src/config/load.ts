@@ -436,6 +436,18 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
       });
     }
   }
+  for (const environment of environmentNames) {
+    if (!config.environments?.[environment]?.analytics) continue;
+    const pages = Object.values(config.services).some(
+      (service) => service.target === "cloudflare-static",
+    );
+    if (!pages) {
+      problems.push({
+        path: ["environments", environment, "analytics"],
+        message: `analytics counts the pages of a cloudflare-static frontend, and this project has none`,
+      });
+    }
+  }
   return problems;
 }
 

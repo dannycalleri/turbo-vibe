@@ -260,6 +260,54 @@ services:
       expect(await shipped(first.cwd, "staging")).toBe(own + rule);
     });
 
+    it("counts staging's visits only in its copy: the build output and the archive keep no beacon", async () => {
+      const page = "<body>hi</body>";
+      let archived: string | undefined;
+      const calls = runner(async (command, args) => {
+        if (command === "tar" && args[0] === "-czf")
+          archived = await readFile(
+            join(args[3] as string, "index.html"),
+            "utf8",
+          );
+        return undefined;
+      });
+      const { code, cwd } = await run(
+        [
+          "deploy",
+          "--env",
+          "staging",
+          "--build-id",
+          "abc1230000000000000000000000000000000000",
+        ],
+        {
+          "turbo-vibe.yaml": project.replace(
+            "services:",
+            "environments:\n  staging:\n    analytics: true\nservices:",
+          ),
+          "dist/index.html": page,
+        },
+        env,
+        calls,
+        fakeR2().fetch(),
+        { capture: capturing({ analytics_token: { value: "tok123" } }) },
+      );
+      expect(code).toBe(0);
+      expect(archived).toBe(page);
+      expect(await readFile(join(cwd, "dist", "index.html"), "utf8")).toBe(
+        page,
+      );
+      expect(
+        await readFile(
+          join(
+            (await workerConfig(cwd, "staging", "acme-api-staging")).assets
+              .directory,
+            "index.html",
+          ),
+          "utf8",
+        ),
+      ).toContain('data-cf-beacon=\'{"token":"tok123"}\'');
+    });
+
     it("adds the rule in a dry run without touching the build output", async () => {
       const { code, cwd } = await deployTo("staging", project, ["--dry-run"]);
       expect(code).toBe(0);
@@ -859,6 +907,80 @@ describe("promote", () => {
       "no staging build has passed its smoke test; production is unchanged\n",
     );
     expect(calls).not.toHaveBeenCalled();
+  });
+
+  it("adds the Web Analytics beacon to production's copy of the pages", async () => {
+    const calls = runner(async (command, args) => {
+      if (command === "tar" && args[0] === "-xzf")
+        await writeFile(
+          join(args[3] as string, "index.html"),
+          "<body>hi</body>",
+        );
+      return undefined;
+    });
+    const r2 = fakeR2({
+      ...seeded(record({})),
+      "acme/builds/abc1230000000000000000000000000000000000/web.tar.gz":
+        "archive",
+    });
+    const { code, cwd } = await run(
+      ["promote", "--env", "production"],
+      {
+        "turbo-vibe.yaml": project.replace(
+          "services:",
+          "environments:\n  production:\n    analytics: true\nservices:",
+        ),
+      },
+      production,
+      calls,
+      r2.fetch(),
+      { capture: capturing({ analytics_token: { value: "tok123" } }) },
+    );
+    expect(code).toBe(0);
+    const served = (
+      await workerConfig(cwd, "production", "acme-api-production")
+    ).assets.directory;
+    expect(await readFile(join(served, "index.html"), "utf8")).toBe(
+      `<body>hi<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token":"tok123"}'></script></body>`,
+    );
+    expect(
+      await readFile(
+        join(
+          cwd,
+          ".turbo-vibe",
+          "wrangler",
+          "production",
+          "web-assets",
+          "index.html",
+        ),
+        "utf8",
+      ),
+    ).toBe("<body>hi</body>");
+  });
+
+  it("stops before deploying when production counts visits but its Web Analytics token is missing", async () => {
+    const calls = runner();
+    const r2 = fakeR2(seeded(record({})));
+    const { code, stderr } = await run(
+      ["promote", "--env", "production"],
+      {
+        "turbo-vibe.yaml": project.replace(
+          "services:",
+          "environments:\n  production:\n    analytics: true\nservices:",
+        ),
+      },
+      production,
+      calls,
+      r2.fetch(),
+      { capture: capturing({}) },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain(
+      "production counts visits, but its Web Analytics token is not in the infrastructure outputs; run apply first\n",
+    );
+    expect(calls.mock.calls.some(([, args]) => args.includes("deploy"))).toBe(
+      false,
+    );
   });
 
   it("skips a newer failed build for the last passing one, and deploys only its recorded outputs", async () => {
