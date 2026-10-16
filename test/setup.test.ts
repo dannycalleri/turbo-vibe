@@ -173,6 +173,11 @@ function fakeCloudflare({
     Response.json({ success, result, errors: [] }, { status });
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const url = new URL(String(input));
+    if (url.host === "api.supabase.com")
+      return Response.json([{ id: "acme", name: "Acme" }]);
+    if (url.host === "api.vercel.com")
+      return Response.json({ teams: [{ id: "team_1", name: "Acme" }] });
+    if (url.host === "api.workos.com") return Response.json({ data: [] });
     const path = url.pathname.replace("/client/v4", "") + url.search;
     const method = init?.method ?? "GET";
     const token =
@@ -506,13 +511,13 @@ describe("setup", () => {
       {
         env: "staging",
         name: "SUPABASE_ACCESS_TOKEN",
-        value: "value of Supabase access token (Account → Access Tokens)",
+        value: "value of Supabase access token",
       },
     ]);
     expect(result.stdout).toContain(
       `staging: kept ${cloudflareKept.join(", ")}`,
     );
-    expect(cloudflare.fetch).not.toHaveBeenCalled();
+    expect(cloudflare.requests).toEqual([]);
     for (const call of gh.calls()) expect(call).not.toContain("value of");
     expect(result.stdout + result.stderr).not.toContain("value of");
   });
@@ -732,9 +737,7 @@ describe("setup", () => {
       withDatabase,
     );
     expect(result.code).toBe(0);
-    expect(seen.SUPABASE_ACCESS_TOKEN).toBe(
-      "value of Supabase access token (Account → Access Tokens)",
-    );
+    expect(seen.SUPABASE_ACCESS_TOKEN).toBe("value of Supabase access token");
     expect(seen).toMatchObject({
       GITHUB_REPOSITORY: "acme/app",
       GITHUB_TOKEN: "gho_t0ken",
@@ -1530,14 +1533,14 @@ describe("setup with vendor tokens", () => {
     expect(storedValue(gh, "staging", "SUPABASE_ORGANIZATION")).toBe("second");
   });
 
-  it("stores no organization when the config names one", async () => {
+  it("checks the token but stores no organization when the config names one", async () => {
     const gh = fakeGh({ secrets: allKept });
     const fetch = vendors(fakeCloudflare());
-    await setupWith(withDatabase, fetch, gh);
+    const { stdout } = await setupWith(withDatabase, fetch, gh);
     expect(gh.stored.map((s) => s.name)).not.toContain("SUPABASE_ORGANIZATION");
-    expect(
-      fetch.mock.calls.some(([url]) => String(url).includes("supabase")),
-    ).toBe(false);
+    expect(stdout).toContain(
+      "the Supabase token works and sees the organization Acme\n",
+    );
   });
 
   it("stores the only Vercel team the token sees, without a question", async () => {
@@ -1546,7 +1549,7 @@ describe("setup with vendor tokens", () => {
     expect(result.code).toBe(0);
     expect(storedValue(gh, "staging", "VERCEL_TEAM_ID")).toBe("team_1");
     expect(storedValue(gh, "production", "VERCEL_API_TOKEN")).toBe(
-      "value of Vercel access token (Account Settings → Tokens)",
+      "value of Vercel access token",
     );
   });
 
@@ -1574,6 +1577,131 @@ describe("setup with vendor tokens", () => {
     expect(result.stdout).toContain(
       "production needs the WorkOS production environment's key, which starts with sk_live_",
     );
+  });
+
+  it("asks again for a Supabase token that Supabase refuses, and never prints a token", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    const statuses = [401, 200];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) =>
+      String(input) === "https://api.supabase.com/v1/organizations"
+        ? Response.json([{ id: "acme", name: "acme" }], {
+            status: statuses.shift() ?? 200,
+          })
+        : fakeCloudflare().fetch(input, init),
+    );
+    const tokens = ["sbp_first_secret", "sbp_second_secret"];
+    const result = await setupWith(withDatabase, fetch, gh, {
+      askSecret: async (q: string) =>
+        q === "Supabase access token" ? (tokens.shift() ?? "") : askSecret(q),
+    });
+    expect(result.code).toBe(0);
+    expect(tokens).toEqual([]);
+    expect(result.stderr).toContain(
+      "Supabase refuses the token (HTTP 401); create a new one with the steps above and paste it\n",
+    );
+    expect(result.stdout).toContain(
+      "the Supabase token works and sees the organization acme\n",
+    );
+    expect(storedValue(gh, "staging", "SUPABASE_ACCESS_TOKEN")).toBe(
+      "sbp_second_secret",
+    );
+    expect(`${result.stdout}${result.stderr}`).not.toContain("_secret");
+  });
+
+  it("asks again for a WorkOS key that WorkOS refuses", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const key = new Headers(init?.headers).get("authorization") ?? "";
+      return String(input).startsWith("https://api.workos.com/")
+        ? Response.json({}, { status: key.includes("revoked") ? 401 : 200 })
+        : fakeCloudflare().fetch(input, init);
+    });
+    const answers: Record<string, string[]> = {
+      staging: ["sk_test_revoked", "sk_test_right"],
+      production: ["sk_live_right"],
+    };
+    const result = await setupWith(withSignIn, fetch, gh, {
+      askSecret: async (q: string) => {
+        const env = q.split(" ")[0] ?? "";
+        if (q.includes("WORKOS_API_KEY")) return answers[env]?.shift() ?? "";
+        return `value of ${q}`;
+      },
+    });
+    expect(result.code).toBe(0);
+    expect(storedValue(gh, "staging", "WORKOS_API_KEY")).toBe("sk_test_right");
+    expect(result.stderr).toContain(
+      "WorkOS refuses the key (HTTP 401); copy it again with the steps above\n",
+    );
+  });
+
+  it("numbers the vendor steps across the run, and shows WorkOS once for every environment", async () => {
+    const gh = fakeGh();
+    const everyVendor = `${onVercel}  db:
+    kind: database
+    target: supabase
+    region: eu-central-1
+  auth:
+    kind: identity
+    target: workos
+`;
+    const result = await setupWith(everyVendor, fakeCloudflare().fetch, gh, {
+      askSecret: async (q: string) =>
+        q.includes("WORKOS_API_KEY")
+          ? q.startsWith("production")
+            ? "sk_live_key"
+            : "sk_test_key"
+          : askSecret(q),
+    });
+    expect(result.code).toBe(0);
+    const headers = result.stdout.match(/Step \d of \d · \w+/g);
+    expect(headers).toEqual([
+      "Step 1 of 4 · Cloudflare",
+      "Step 2 of 4 · Supabase",
+      "Step 3 of 4 · Vercel",
+      "Step 4 of 4 · WorkOS",
+    ]);
+  });
+
+  it("asks again when the network fails during a check", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    let failures = 1;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      if (String(input) === "https://api.vercel.com/v2/teams" && failures-- > 0)
+        throw new TypeError("fetch failed");
+      return fakeCloudflare().fetch(input, init);
+    });
+    const result = await setupWith(onVercel, fetch, gh);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain(
+      "could not check it (fetch failed); check the connection and paste it again\n",
+    );
+    expect(storedValue(gh, "staging", "VERCEL_TEAM_ID")).toBe("team_1");
+  });
+
+  it("reports a refused value on the spinner in a terminal", async () => {
+    const gh = fakeGh({ secrets: allKept });
+    const statuses = [401, 200];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) =>
+      String(input) === "https://api.vercel.com/v2/teams"
+        ? Response.json(
+            { teams: [{ id: "team_1", name: "Acme" }] },
+            { status: statuses.shift() ?? 200 },
+          )
+        : fakeCloudflare().fetch(input, init),
+    );
+    const { prompts, asked } = fakePrompts({ "Open this page": false });
+    const result = await setupWith(onVercel, fetch, gh, { prompts });
+    expect(result.code).toBe(0);
+    expect(
+      asked
+        .filter(({ message }) => message === "checking the Vercel token")
+        .map(({ problems }) => problems),
+    ).toEqual([
+      [
+        "Vercel refuses the token (HTTP 401); create a new one with the steps above and paste it",
+      ],
+      [],
+    ]);
   });
 
   it("leaves the organization to its own prompt when the person chooses none of two", async () => {
@@ -1616,7 +1744,7 @@ describe("setup on re-runs and other environments", () => {
       ["staging", "SUPABASE_ACCESS_TOKEN"],
       ["production", "SUPABASE_ACCESS_TOKEN"],
     ]);
-    expect(cloudflare.fetch).not.toHaveBeenCalled();
+    expect(cloudflare.requests).toEqual([]);
   });
 
   it("creates the Cloudflare token again for --replace CLOUDFLARE_API_TOKEN", async () => {

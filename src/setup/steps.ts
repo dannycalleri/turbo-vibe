@@ -34,7 +34,66 @@ export const cloudflareStep: VendorStep = {
   produces: cloudflareSecrets,
 };
 
-export const vendorSteps: readonly VendorStep[] = [cloudflareStep];
+function needsPaidSupabase(config: Config): boolean {
+  return Object.values(config.services).some(
+    (service) =>
+      service.kind === "database" &&
+      (service.plan === "paid" ||
+        service.staging === "branch" ||
+        config.previews === true),
+  );
+}
+
+export const supabaseStep: VendorStep = {
+  vendor: "Supabase",
+  plan: (config) =>
+    needsPaidSupabase(config)
+      ? "Pro, because the config asks for plan: paid, staging: branch or previews"
+      : "the Free plan or higher",
+  url: "https://supabase.com/dashboard/account/tokens",
+  clicks: [
+    'Click "Generate new token"',
+    'Name it "turbo-vibe" and choose an expiry',
+    'Click "Generate token", and copy the token',
+  ],
+  permissions:
+    "a personal access token reaches every organization you belong to; setup lists them and you choose one",
+  produces: ["SUPABASE_ACCESS_TOKEN", "SUPABASE_ORGANIZATION"],
+};
+
+export const vercelStep: VendorStep = {
+  vendor: "Vercel",
+  plan: () => "Hobby, or Pro for a commercial project",
+  url: "https://vercel.com/account/settings/tokens",
+  clicks: [
+    'Under "Create Token", name it "turbo-vibe"',
+    "Under Scope, choose the team that will own the projects",
+    'Choose an expiration, click "Create", and copy the token',
+  ],
+  permissions: "scoped to the one team that owns the projects",
+  produces: ["VERCEL_API_TOKEN", "VERCEL_TEAM_ID"],
+};
+
+export const workosStep: VendorStep = {
+  vendor: "WorkOS",
+  plan: () => "production needs billing, which a team admin adds",
+  url: "https://dashboard.workos.com/api-keys",
+  clicks: [
+    "Choose the environment at the top left: Staging for staging and previews, Production for production",
+    "On API Keys, copy the secret key; a production key is shown only when it is created",
+    "Open the application linked from the key's row, and copy its Client ID",
+  ],
+  permissions:
+    "the environment's own secret key: staging's starts with sk_test_, production's with sk_live_",
+  produces: ["WORKOS_API_KEY", "WORKOS_CLIENT_ID"],
+};
+
+export const vendorSteps: readonly VendorStep[] = [
+  cloudflareStep,
+  supabaseStep,
+  vercelStep,
+  workosStep,
+];
 
 export function stepsToAsk(
   needed: readonly string[],

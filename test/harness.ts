@@ -190,6 +190,15 @@ export function fakePrompts(replies: Record<string, unknown>) {
       const given = reply(message);
       return (given === "" ? initial : given) as T | undefined;
     },
+    spinner(message) {
+      const record = { message, problems: [] as string[] };
+      asked.push(record);
+      return {
+        stop: (result: string, failed = false) => {
+          if (failed) record.problems.push(result);
+        },
+      };
+    },
     async confirm(message) {
       asked.push({ message, problems: [] });
       return reply(message) as boolean | undefined;

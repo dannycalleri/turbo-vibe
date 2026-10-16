@@ -4,6 +4,7 @@ import {
   multiselect,
   password,
   select,
+  spinner,
   text,
 } from "@clack/prompts";
 import type { Choice, Prompts } from "./io.js";
@@ -41,6 +42,14 @@ export const clackPrompts: Prompts = {
   async confirm(message) {
     const value = await confirm({ message });
     return isCancel(value) ? undefined : value;
+  },
+  spinner(message) {
+    const spin = spinner();
+    spin.start(message);
+    return {
+      stop: (message, failed = false) =>
+        failed ? spin.error(message) : spin.stop(message),
+    };
   },
   async multiselect<T extends string>(
     message: string,

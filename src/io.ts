@@ -24,6 +24,9 @@ export interface Prompts {
     initial?: T,
   ) => Promise<T | undefined>;
   confirm: (message: string) => Promise<boolean | undefined>;
+  spinner: (message: string) => {
+    stop: (message: string, failed?: boolean) => void;
+  };
   multiselect: <T extends string>(
     message: string,
     options: readonly Choice<T>[],
