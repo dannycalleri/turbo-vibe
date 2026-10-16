@@ -1,12 +1,12 @@
 {
   "name": "@turbo-vibe/cli",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@turbo-vibe/cli",
-      "version": "1.0.0-rc.2",
+      "version": "1.0.0-rc.3",
       "license": "MIT",
       "dependencies": {
         "@cloudflare/containers": "0.3.7",
