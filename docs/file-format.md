@@ -31,6 +31,7 @@ The schema checks each field on its own. The rules that relate fields to each ot
 |---|---|---|---|
 | `hostname` | hostname | `staging.<domain>` for staging, `<domain>` for production | Where the environment's frontend and backend are served. Keep it one level below the zone, such as `staging-app.example.com`: Cloudflare's free certificate covers only the apex and first-level names, so the staging default suits only a domain at the apex. `init` writes a staging hostname that follows this rule. |
 | `api_hostname` | hostname | `api.<hostname>` | The backend's own hostname, used only when the frontend runs on Vercel. Set it when `api.<hostname>` would be two levels below the zone. It must be under the same parent domain as `hostname`. |
+| `access.emails` | list of email addresses | none | Make the environment private with Cloudflare Access. Only these people get in: Cloudflare sends a one-time code to the address they enter. A preview is private when staging is. The account needs Zero Trust; see the reference's [Private environments](reference.md#private-environments). |
 
 ## Services
 
@@ -103,4 +104,5 @@ These need more than one field, or the list of adapters, so the JSON Schema cann
 - **Instance routing.** `instance_from` needs `max_instances` of 3 or more, because during a deploy the previous build's instances still count until they stop, and `max_instances` above 1 needs `instance_from`.
 - **`staging: branch`** needs `plan: paid`.
 - **Previews with a database** need `plan: paid`. `preview deploy` does not fail without it: it prints why there is no preview and exits successfully, so a pull request still passes.
+- **Private environments.** `access` refuses a service on a Vercel target, and needs at least one service on a Cloudflare target: Access cannot guard a hostname that Vercel serves, and it needs a hostname that Cloudflare serves.
 - **Hostnames.** No two environments share a hostname, nor an environment and an API hostname, and an API hostname must be under the frontend hostname's parent domain, so the browser treats the two as one site and sends the API's sign-in cookie with the frontend's requests.

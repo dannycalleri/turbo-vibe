@@ -91,6 +91,28 @@ Cloudflare also answers on port 80. So when a Worker serves a hostname, `apply` 
 
 A project set up before this setting existed needs new CI tokens with Zone Settings: Edit. Run `setup --replace CLOUDFLARE_API_TOKEN` once: it creates a new CI token for each environment. Until then, `apply` for staging and production fails on the zone setting, and `check` names the missing permission.
 
+## Private environments
+
+An environment with `access.emails` is private. Its hostnames answer only the listed people:
+
+1. A person opens the environment's hostname.
+2. Cloudflare Access asks for an email address, and sends a one-time code to a listed address.
+3. After the person enters the code, the page loads. The session lasts 24 hours.
+
+`apply` creates one Access application for all of the environment's Cloudflare hostnames. It also creates a policy for the people, and a service token for the smoke test. `smoke` reads the token from the environment's OpenTofu outputs and sends it as `CF-Access-Client-Id` and `CF-Access-Client-Secret`. No command prints the secret. A preview uses the `access` of staging. So the CI tokens of `preview`, and of any GitHub environment that `setup --env` sets up like staging (such as `live`), need the Access permissions too.
+
+Access needs Zero Trust on the account. Enable it once:
+
+1. Open the [Zero Trust dashboard](https://one.dash.cloudflare.com/).
+2. Choose a team name.
+3. Choose the Free plan. Cloudflare asks for payment details, but it does not charge for the Free plan.
+
+`setup --list` names this step, and `check` fails until it is done. The CI token of a private environment needs Access: Apps and Policies: Edit and Access: Service Tokens: Edit. A project that becomes private after `setup` needs new CI tokens: run `setup --replace CLOUDFLARE_API_TOKEN` once, and add `--env live` for such an environment. Until then, `apply` fails on the Access resources, and `check` names the missing permissions.
+
+### Search engines index only production
+
+Every deploy of a `cloudflare-static` frontend outside production adds `X-Robots-Tag: noindex` to every page, whether the environment is private or not. The deploy copies the built site to `.turbo-vibe/wrangler/<environment>/<service>-site` and appends the rule to the copy's `_headers` file, after any rules the build has. It never changes the build output folder, and it makes the copy after the build is archived. Thus `promote` ships production the build without the rule. Vercel frontends do not get the rule, because Vercel serves `_headers` as a public file.
+
 ## What a backend must do
 
 A `cloudflare-container` backend listens on port 8080 (also given as `PORT`), reads its database, if the project has one, from `DATABASE_URL`, and answers `GET /api/health` with JSON containing `build_id`. The kit passes the build ID to `docker build` as the build argument `BUILD_ID`; the Dockerfile's final stage turns it into the environment variable the app reports:
@@ -208,7 +230,7 @@ Before each deploy, preview and promotion, the kit sets each value on that envir
 
 | Variable | What it is |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | API token, which `setup` creates per environment, with Workers Scripts: Edit and Workers Containers: Edit (account), Workers Routes: Edit, DNS: Edit and, for staging and production with a Worker, Zone Settings: Edit (zone), Account API Tokens: Read (User API Tokens: Read on a user token) so `check` can confirm the token's own permissions, and, with a container backend, Account → Billing: Read so `check` can confirm the Workers Paid plan |
+| `CLOUDFLARE_API_TOKEN` | API token, which `setup` creates per environment, with Workers Scripts: Edit and Workers Containers: Edit (account), Workers Routes: Edit, DNS: Edit and, for staging and production with a Worker, Zone Settings: Edit (zone), Access: Apps and Policies: Edit and Access: Service Tokens: Edit (account) for a private environment, Account API Tokens: Read (User API Tokens: Read on a user token) so `check` can confirm the token's own permissions, and, with a container backend, Account → Billing: Read so `check` can confirm the Workers Paid plan |
 | `CLOUDFLARE_ACCOUNT_ID` | the Cloudflare account that runs the Workers and holds the state buckets |
 | `CLOUDFLARE_ZONE_ID` | the zone of the project's `domain` |
 | `TURBO_VIBE_STATE_BUCKET` | an R2 bucket for OpenTofu state, which `setup` creates; staging also keeps its build records and asset archives there |
