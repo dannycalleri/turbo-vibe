@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.0-rc.5](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.4...v1.0.0-rc.5) (2026-10-16)
+
+
+### Features
+
+* **cloudflare:** keep every environment but production out of search engines ([221f382](https://github.com/dannycalleri/turbo-vibe/commit/221f38267f3c20c2863dca268849f8c9cf148f8d))
+* **cloudflare:** redirect HTTP to HTTPS from staging and production ([798ce6d](https://github.com/dannycalleri/turbo-vibe/commit/798ce6d90169f11f50493a36a9ac534b29a3f0ab))
+* **cloudflare:** redirect HTTP to HTTPS on the zone from staging and production ([16ef509](https://github.com/dannycalleri/turbo-vibe/commit/16ef509c57db2cb07bda42ccb01d89895c1faeee))
+* **config:** count visits with Cloudflare Web Analytics ([40dc834](https://github.com/dannycalleri/turbo-vibe/commit/40dc834293286ba197abb1312eab923a08d088e4))
+* **config:** count visits with Cloudflare Web Analytics ([15f9ee7](https://github.com/dannycalleri/turbo-vibe/commit/15f9ee766678d838e27fda51da0a00b5275061c5))
+* **config:** private environments behind Cloudflare Access ([b03b0a2](https://github.com/dannycalleri/turbo-vibe/commit/b03b0a272a9528508c1902f6db34dc2c39abe7a6))
+* **config:** private environments behind Cloudflare Access, and noindex outside production ([eac61fa](https://github.com/dannycalleri/turbo-vibe/commit/eac61faa9090b3ee9508e7930bd17aabc0bab7e6))
+
 ## [1.0.0-rc.4](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.3...v1.0.0-rc.4) (2026-10-16)
 
 
