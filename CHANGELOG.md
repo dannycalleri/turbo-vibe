@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.0-rc.6](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.5...v1.0.0-rc.6) (2026-10-18)
+
+
+### Features
+
+* **cloudflare:** stop a 404-page deploy whose build has no 404.html ([fd1e978](https://github.com/dannycalleri/turbo-vibe/commit/fd1e978c22c9153216fe3756ca1e0d215a7c82fc))
+* **config:** not_found answers a missing page with 404 and the site's 404.html ([70cd4fc](https://github.com/dannycalleri/turbo-vibe/commit/70cd4fc23e387c3a1f4f8bfc9f49db857f345dd6))
+* **config:** not_found chooses a frontend's answer to a missing page ([631498d](https://github.com/dannycalleri/turbo-vibe/commit/631498d057d21718bbc222f1a3851efda8225e6e))
+
 ## [1.0.0-rc.5](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.4...v1.0.0-rc.5) (2026-10-16)
 
 
