@@ -265,6 +265,8 @@ export const cloudflareContainer: Adapter = {
     const frontend = servedFrontend(context);
     const name = workerName(context);
     const assets = frontend ? context.assetsDirs[frontend] : undefined;
+    const served = frontend ? context.config.services[frontend] : undefined;
+    const notFound = served?.kind === "frontend" ? served.not_found : undefined;
     const file = await writeWorker(join(context.workDir, name), {
       name,
       buildId: context.buildId,
@@ -273,6 +275,7 @@ export const cloudflareContainer: Adapter = {
       secretNames: context.secretNames,
       ...(image ? { image } : {}),
       ...(assets ? { assets } : {}),
+      ...(notFound ? { notFound } : {}),
     });
     const application = `${name}-backend`;
     const before = context.dryRun
@@ -375,6 +378,7 @@ export const cloudflareStatic: Adapter = {
       buildId: context.buildId,
       configDir: context.configDir,
       assets: assets.dir,
+      ...(service.not_found ? { notFound: service.not_found } : {}),
     });
     return { code: await wranglerDeploy(context, file), ...result };
   },

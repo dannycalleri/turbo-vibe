@@ -75,6 +75,7 @@ export interface WorkerSpec {
   configDir: string;
   backend?: Backend;
   assets?: string;
+  notFound?: "spa" | "404-page";
 }
 
 export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
@@ -115,7 +116,8 @@ export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
   if (spec.assets) {
     config.assets = {
       directory: spec.assets,
-      not_found_handling: "single-page-application",
+      not_found_handling:
+        spec.notFound === "404-page" ? "404-page" : "single-page-application",
       ...(spec.backend ? { run_worker_first: [`${backendPrefix}*`] } : {}),
     };
   }

@@ -150,6 +150,56 @@ describe("deploy to staging", () => {
     expect(r2.unsigned).toEqual([]);
   });
 
+  it("gives the backend's Worker the 404 page of the frontend it serves", async () => {
+    const { code, cwd } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      {
+        "turbo-vibe.yaml": project.replace(
+          "    serve_with: api\n",
+          "    serve_with: api\n    not_found: 404-page\n",
+        ),
+      },
+      env,
+      runner(),
+      fakeR2().fetch(),
+      { capture: capturing() },
+    );
+    expect(code).toBe(0);
+    const config = await workerConfig(cwd, "staging", "acme-api-staging");
+    expect(config.assets).toMatchObject({
+      not_found_handling: "404-page",
+      run_worker_first: ["/api/*"],
+    });
+  });
+
+  it("gives a frontend's own Worker its 404 page", async () => {
+    const { code, cwd } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      {
+        "turbo-vibe.yaml":
+          "version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  web:\n    kind: frontend\n    target: cloudflare-static\n    not_found: 404-page\n    build: { command: pnpm build, output: dist }\n",
+      },
+      env,
+      runner(),
+      fakeR2().fetch(),
+    );
+    expect(code).toBe(0);
+    const config = await workerConfig(cwd, "staging", "acme-web-staging");
+    expect(config.assets.not_found_handling).toBe("404-page");
+  });
+
   it("ships a frontend without serve_with as its own assets-only Worker", async () => {
     const frontendOnly = `version: 1
 project: acme

@@ -81,6 +81,7 @@ const frontend = z.strictObject({
   secrets: secretNames,
   public: secretNames,
   serve_with: name.optional(),
+  not_found: z.enum(["spa", "404-page"]).optional(),
   build: z.strictObject({
     command: z.string().min(1),
     output: z.string().min(1).optional(),
