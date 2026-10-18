@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.0-rc.7](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.6...v1.0.0-rc.7) (2026-10-18)
+
+
+### Bug Fixes
+
+* **check:** give a token that counts visits Account Settings Read ([55cc56b](https://github.com/dannycalleri/turbo-vibe/commit/55cc56b5bd744d52820860f12f9897a521361e4c))
+* **check:** give a token that counts visits Account Settings Read ([b3e8ab5](https://github.com/dannycalleri/turbo-vibe/commit/b3e8ab5cc19c2f44699f35fd865438f37ce44622))
+
 ## [1.0.0-rc.6](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.5...v1.0.0-rc.6) (2026-10-18)
 
 
