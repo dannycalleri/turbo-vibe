@@ -86,6 +86,44 @@ describe("wranglerConfig", () => {
       },
     });
   });
+
+  it("answers a missing page as the frontend asks: the nearest 404.html or index.html, with /api/ kept on the backend", () => {
+    expect(
+      wranglerConfig({
+        name: "acme-web-staging",
+        buildId: "abc",
+        configDir: "/repo",
+        assets: "/repo/dist",
+        notFound: "404-page",
+      }).assets,
+    ).toEqual({ directory: "/repo/dist", not_found_handling: "404-page" });
+    expect(
+      wranglerConfig({
+        name: "acme-web-staging",
+        buildId: "abc",
+        configDir: "/repo",
+        assets: "/repo/dist",
+        notFound: "spa",
+      }).assets,
+    ).toEqual({
+      directory: "/repo/dist",
+      not_found_handling: "single-page-application",
+    });
+    expect(
+      wranglerConfig({
+        name: "acme-api-staging",
+        buildId: "abc",
+        configDir: "/repo",
+        backend,
+        assets: "/repo/web/dist",
+        notFound: "404-page",
+      }).assets,
+    ).toEqual({
+      directory: "/repo/web/dist",
+      not_found_handling: "404-page",
+      run_worker_first: ["/api/*"],
+    });
+  });
 });
 
 describe("workerEntry", () => {

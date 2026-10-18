@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   addAnalytics,
   analyticsBeacon,
+  hasNotFoundPage,
   keepFromSearchEngines,
 } from "../src/adapters/assets.js";
 
@@ -16,6 +17,18 @@ async function site(files: Record<string, string | Uint8Array>) {
   }
   return dir;
 }
+
+describe("hasNotFoundPage", () => {
+  it("finds only a 404.html at the root, where every missing path falls back to", async () => {
+    expect(await hasNotFoundPage(await site({ "404.html": "x" }))).toBe(true);
+    expect(await hasNotFoundPage(await site({ "index.html": "x" }))).toBe(
+      false,
+    );
+    expect(await hasNotFoundPage(await site({ "docs/404.html": "x" }))).toBe(
+      false,
+    );
+  });
+});
 
 describe("keepFromSearchEngines", () => {
   it("writes a _headers file when the build has none", async () => {

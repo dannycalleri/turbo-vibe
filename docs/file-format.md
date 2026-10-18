@@ -68,6 +68,7 @@ A backend is served under `/api/` and a frontend under `/`.
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `serve_with` | service name | none | `cloudflare-static` only: serve the files from that backend's Worker, on the same hostname. |
+| `not_found` | `spa` or `404-page` | `spa` | `cloudflare-static` only: the answer to a path that matches no built file. `spa` answers `200` with `index.html`, for a single-page app that routes in the browser. `404-page` answers `404` with the nearest `404.html`, for a site with one file per page. See the reference's [Missing pages](reference.md#missing-pages). |
 | `public` | list of names | none | Public values the build inlines, such as `[NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY]`. The build sees a placeholder; each deploy puts that environment's value into a copy of the built files. See the reference's [Public values in a frontend build](reference.md#public-values-in-a-frontend-build). |
 | `secrets` | list of names | none | `vercel-nextjs` only: the app's own secrets, which its server code reads; each environment's value is set on that environment's Vercel project. |
 | `build.command` | command | required | Builds the frontend. For `vercel-nextjs` it runs in `build.root`. |
@@ -100,6 +101,7 @@ These need more than one field, or the list of adapters, so the JSON Schema cann
 - **One of each, for databases and sign-in.** A project has at most one `database` and one `identity` service.
 - **No two services at one path.** Two backends, or two frontends, would both be served at `/api/` or `/`.
 - **`serve_with`** names a backend service, and only `cloudflare-static` takes it.
+- **`not_found`** applies only to `cloudflare-static`.
 - **`build.output` and `build.root`.** `cloudflare-static` and `vercel-static` need `build.output`; `vercel-nextjs` builds its own output, so it takes `build.root` and refuses `build.output`; the other frontend targets refuse `build.root`.
 - **Secret and public names.** Each name in `secrets`, `public` and `build.secrets` is a variable name (capital letters, digits and underscores, starting with a letter), appears once in a service's list, does not start with `GITHUB_` or `TURBO_VIBE_`, and is not a name the kit sets in a service or keeps for its own credentials. The error names the conflict and suggests a prefixed name, such as `APP_AWS_ACCESS_KEY_ID`. A name belongs to one kind of list: runtime secret, public value or build secret. Of the frontends, only `vercel-nextjs` takes `secrets`, for its server code; a static frontend's build is public.
 - **Instance routing.** `instance_from` needs `max_instances` of 3 or more, because during a deploy the previous build's instances still count until they stop, and `max_instances` above 1 needs `instance_from`.

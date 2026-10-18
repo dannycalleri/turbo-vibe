@@ -150,6 +150,84 @@ describe("deploy to staging", () => {
     expect(r2.unsigned).toEqual([]);
   });
 
+  it("gives the backend's Worker the 404 page of the frontend it serves", async () => {
+    const { code, cwd } = await run(
+      [
+        "deploy",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      {
+        "turbo-vibe.yaml": project.replace(
+          "    serve_with: api\n",
+          "    serve_with: api\n    not_found: 404-page\n",
+        ),
+        "dist/404.html": "<h1>Not here</h1>",
+      },
+      env,
+      runner(),
+      fakeR2().fetch(),
+      { capture: capturing() },
+    );
+    expect(code).toBe(0);
+    const config = await workerConfig(cwd, "staging", "acme-api-staging");
+    expect(config.assets).toMatchObject({
+      not_found_handling: "404-page",
+      run_worker_first: ["/api/*"],
+    });
+  });
+
+  describe("a frontend that answers a missing page with its 404 page", () => {
+    const ownWorker =
+      "version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  web:\n    kind: frontend\n    target: cloudflare-static\n    not_found: 404-page\n    build: { command: pnpm build, output: dist }\n";
+    const deployStaging = (
+      files: Record<string, string>,
+      calls = runner(),
+      extra: string[] = [],
+    ) =>
+      run(
+        [
+          "deploy",
+          "--env",
+          "staging",
+          "--build-id",
+          "abc1230000000000000000000000000000000000",
+          ...extra,
+        ],
+        { "turbo-vibe.yaml": ownWorker, ...files },
+        env,
+        calls,
+        fakeR2().fetch(),
+      );
+
+    it("gives its own Worker the 404 page", async () => {
+      const { code, cwd } = await deployStaging({
+        "dist/404.html": "<h1>Not here</h1>",
+      });
+      expect(code).toBe(0);
+      const config = await workerConfig(cwd, "staging", "acme-web-staging");
+      expect(config.assets.not_found_handling).toBe("404-page");
+    });
+
+    it("stops before wrangler deploy when the build has no 404.html, also in a dry run", async () => {
+      const calls = runner();
+      const { code, stderr } = await deployStaging(
+        { "dist/index.html": "<h1>Home</h1>" },
+        calls,
+        ["--dry-run"],
+      );
+      expect(code).toBe(1);
+      expect(stderr).toContain(
+        "web: not_found is 404-page, but the build output (dist) has no 404.html at its root\n",
+      );
+      expect(calls.mock.calls.some(([, args]) => args[1] === "deploy")).toBe(
+        false,
+      );
+    });
+  });
+
   it("ships a frontend without serve_with as its own assets-only Worker", async () => {
     const frontendOnly = `version: 1
 project: acme

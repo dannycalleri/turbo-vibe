@@ -289,6 +289,42 @@ services:
     ]);
   });
 
+  it("answers a missing page as a single-page app unless the frontend asks for its 404 page", () => {
+    const parsed = (source: string) => {
+      const result = parseConfig(source);
+      if (!result.ok) throw new Error("expected the config to be accepted");
+      return result.config.services.web;
+    };
+    expect(parsed(valid)).not.toHaveProperty("not_found");
+    expect(
+      parsed(
+        valid.replace(
+          "    serve_with: api\n",
+          "    serve_with: api\n    not_found: 404-page\n",
+        ),
+      ),
+    ).toMatchObject({ not_found: "404-page" });
+    expect(
+      problems(
+        valid.replace(
+          "    serve_with: api\n",
+          "    serve_with: api\n    not_found: 404\n",
+        ),
+      ),
+    ).toHaveLength(1);
+    expect(
+      problems(
+        "version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  web:\n    kind: frontend\n    target: vercel-static\n    not_found: 404-page\n    build: { command: npm ci, output: dist }\n",
+      ),
+    ).toEqual([
+      {
+        line: 8,
+        message:
+          "`services.web.not_found` applies only to cloudflare-static, not vercel-static",
+      },
+    ]);
+  });
+
   it("allows at most one identity service", () => {
     const identity = (name: string) =>
       `  ${name}:\n    kind: identity\n    target: workos\n`;

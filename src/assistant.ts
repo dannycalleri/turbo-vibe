@@ -137,7 +137,7 @@ ${contract}
 const targetRuns: Record<string, string> = {
   "cloudflare-container":
     "an HTTP server in any language, built from a Dockerfile and run as a container",
-  "cloudflare-static": `a static site or single-page app: a build command that writes HTML, JS and CSS to a folder. With a backend it is served from the backend's Worker: the page at \`/\`, the API at \`${backendPrefix}\`. Unknown paths get \`index.html\`, so client-side routing works.`,
+  "cloudflare-static": `a static site or single-page app: a build command that writes HTML, JS and CSS to a folder. With a backend it is served from the backend's Worker: the page at \`/\`, the API at \`${backendPrefix}\`. By default unknown paths get \`index.html\` with \`200\`, so a single-page app's client-side routing works; a site with one file per page (Astro, Hugo, Docusaurus) sets \`not_found: 404-page\` and ships a root \`404.html\`, so unknown paths get \`404\`.`,
   "vercel-static":
     "the same kind of static build, hosted on Vercel; the backend then moves to its own API hostname, and the page reads the API's URL at run time",
   "vercel-nextjs":

@@ -235,6 +235,12 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
         message: `${field("output")} does not apply to ${service.target}, which builds its own output`,
       });
     }
+    if (service.not_found && service.target !== "cloudflare-static") {
+      problems.push({
+        path: ["services", name, "not_found"],
+        message: `\`services.${name}.not_found\` applies only to cloudflare-static, not ${service.target}`,
+      });
+    }
   }
 
   for (const [name, service] of Object.entries(config.services)) {

@@ -7,7 +7,7 @@ import {
   healthPath,
 } from "../contract.js";
 import { checkBuildId } from "../smoke.js";
-import { recordedOrBuilt, staticBuild } from "./assets.js";
+import { hasNotFoundPage, recordedOrBuilt, staticBuild } from "./assets.js";
 import { awaitRollout, existingRollouts } from "./rollout.js";
 import type { Adapter, DeployContext, ServiceContext } from "./types.js";
 import {
@@ -265,6 +265,8 @@ export const cloudflareContainer: Adapter = {
     const frontend = servedFrontend(context);
     const name = workerName(context);
     const assets = frontend ? context.assetsDirs[frontend] : undefined;
+    const served = frontend ? context.config.services[frontend] : undefined;
+    const notFound = served?.kind === "frontend" ? served.not_found : undefined;
     const file = await writeWorker(join(context.workDir, name), {
       name,
       buildId: context.buildId,
@@ -273,6 +275,7 @@ export const cloudflareContainer: Adapter = {
       secretNames: context.secretNames,
       ...(image ? { image } : {}),
       ...(assets ? { assets } : {}),
+      ...(notFound ? { notFound } : {}),
     });
     const application = `${name}-backend`;
     const before = context.dryRun
@@ -363,6 +366,15 @@ export const cloudflareStatic: Adapter = {
         : {}),
     });
     if (typeof assets === "number") return { code: assets };
+    if (
+      service.not_found === "404-page" &&
+      !(await hasNotFoundPage(assets.dir))
+    ) {
+      context.io.stderr(
+        `${context.name}: not_found is 404-page, but the build output (${service.build.output}) has no 404.html at its root\n`,
+      );
+      return { code: 1 };
+    }
     const result = {
       assetsDir: assets.dir,
       ...(assets.outputs ? { outputs: assets.outputs } : {}),
@@ -375,6 +387,7 @@ export const cloudflareStatic: Adapter = {
       buildId: context.buildId,
       configDir: context.configDir,
       assets: assets.dir,
+      ...(service.not_found ? { notFound: service.not_found } : {}),
     });
     return { code: await wranglerDeploy(context, file), ...result };
   },

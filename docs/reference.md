@@ -127,6 +127,21 @@ The numbers are in the Cloudflare dashboard, under Analytics & Logs → Web Anal
 
 Cloudflare guards Web Analytics sites with Account Settings: Edit, so the CI token of an environment that counts visits gets it. That permission also reaches the account's other settings. A project that adds `analytics` after `setup` needs new CI tokens: run `setup --replace CLOUDFLARE_API_TOKEN` once. Until then, `apply` fails on the Web Analytics site, and `check` names the missing permission.
 
+## Missing pages
+
+A `cloudflare-static` frontend answers a path that matches no built file as its `not_found` field says:
+
+| `not_found` | Answer | For |
+|---|---|---|
+| `spa` (default) | `200` with `index.html` | A single-page app (React, Vue, Vite) that routes in the browser. A reload of `/settings` must get the app. |
+| `404-page` | `404` with the nearest `404.html` | A site with one file per page (Astro, Hugo, Docusaurus, a Next.js static export). |
+
+On a site with one file per page, `spa` answers `200` with the home page for `/.env` or `/wp-login.php`. Scanners then continue, and crawlers follow the page's relative links below the fake path, as in `/images/images/cache.php`. A person who follows a broken link sees the home page, not the site's 404 page.
+
+With `404-page`, Cloudflare serves the `404.html` of the nearest folder on the path, and the root `404.html` when no folder has one. Without a root `404.html`, Cloudflare answers with an empty `404`. So `deploy` and `promote` stop before `wrangler deploy` when the root of the build output has no `404.html`, and name the output folder. A `deploy --dry-run` runs the same check.
+
+With `serve_with`, the backend's Worker serves the frontend with the frontend's `not_found`, and `/api/` still reaches the backend. The field applies only to `cloudflare-static`.
+
 ## What a backend must do
 
 A `cloudflare-container` backend listens on port 8080 (also given as `PORT`), reads its database, if the project has one, from `DATABASE_URL`, and answers `GET /api/health` with JSON containing `build_id`. The kit passes the build ID to `docker build` as the build argument `BUILD_ID`; the Dockerfile's final stage turns it into the environment variable the app reports:
