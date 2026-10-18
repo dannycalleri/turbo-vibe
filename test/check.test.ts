@@ -361,25 +361,29 @@ describe("against recorded fakes", () => {
     expect(findings.every((finding) => finding.severity === "ok")).toBe(true);
   });
 
-  it("asks for Account Settings Write only for the staging and production tokens of environments that count visits", () => {
+  it("asks for Account Settings Write and Read only for the staging and production tokens of environments that count visits", () => {
     const parsed = parseConfig(
       "version: 1\nproject: acme\ndomain: app.turbovibe.ai\nenvironments:\n  production:\n    analytics: true\n  staging:\n    analytics: true\nservices:\n  web:\n    kind: frontend\n    target: cloudflare-static\n    build: { command: x, output: dist }\n",
     );
     if (!parsed.ok) throw new Error(JSON.stringify(parsed.problems));
-    expect(
-      requiredPermissions({
-        config: parsed.config,
-        environment: "production",
-      }),
-    ).toContain("Account Settings Write");
-    expect(
-      requiredPermissions({ config: parsed.config, environment: "staging" }),
-    ).toContain("Account Settings Write");
-    for (const environment of ["preview", "live"])
+    for (const environment of ["production", "staging"])
       expect(
         requiredPermissions({ config: parsed.config, environment }),
         environment,
-      ).not.toContain("Account Settings Write");
+      ).toEqual(
+        expect.arrayContaining([
+          "Account Settings Write",
+          "Account Settings Read",
+        ]),
+      );
+    for (const environment of ["preview", "live"]) {
+      const permissions = requiredPermissions({
+        config: parsed.config,
+        environment,
+      });
+      expect(permissions, environment).not.toContain("Account Settings Write");
+      expect(permissions, environment).not.toContain("Account Settings Read");
+    }
   });
 
   describe("a private environment", () => {
