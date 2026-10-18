@@ -140,12 +140,14 @@ export function requiredPermissions(context: {
   const like = name === "production" ? "production" : "staging";
   if (accessFor(context.config, like))
     for (const permission of accessPermissions) needed.add(permission);
-  // Cloudflare guards Web Analytics sites with this permission.
+  // Creating a Web Analytics site takes Write, but reading it back takes Read: Write does not include it.
   if (
     (name === "staging" || name === "production") &&
     analyticsFor(context.config, name)
-  )
+  ) {
     needed.add("Account Settings Write");
+    needed.add("Account Settings Read");
+  }
   return [...needed];
 }
 

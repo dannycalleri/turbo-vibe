@@ -125,7 +125,7 @@ An environment with `analytics: true` counts visits with [Cloudflare Web Analyti
 
 The numbers are in the Cloudflare dashboard, under Analytics & Logs → Web Analytics. A Content Security Policy must allow `https://static.cloudflareinsights.com` in `script-src` and `https://cloudflareinsights.com` in `connect-src`.
 
-Cloudflare guards Web Analytics sites with Account Settings: Edit, so the CI token of an environment that counts visits gets it. That permission also reaches the account's other settings. A project that adds `analytics` after `setup` needs new CI tokens: run `setup --replace CLOUDFLARE_API_TOKEN` once. Until then, `apply` fails on the Web Analytics site, and `check` names the missing permission.
+Cloudflare guards Web Analytics sites with Account Settings: Edit to create one and Account Settings: Read to read it back, which every `apply` after the first does. So the CI token of an environment that counts visits gets both. They also reach the account's other settings. A project that adds `analytics` after `setup` needs new CI tokens: run `setup --replace CLOUDFLARE_API_TOKEN` once. Until then, `apply` fails on the Web Analytics site, and `check` names the missing permission.
 
 ## Missing pages
 
@@ -259,7 +259,7 @@ Before each deploy, preview and promotion, the kit sets each value on that envir
 
 | Variable | What it is |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | API token, which `setup` creates per environment, with Workers Scripts: Edit and Workers Containers: Edit (account), Workers Routes: Edit, DNS: Edit and, for staging and production with a Worker, Zone Settings: Edit (zone), Access: Apps and Policies: Edit and Access: Service Tokens: Edit (account) for a private environment, Account Settings: Edit (account) for staging or production when it counts visits, Account API Tokens: Read (User API Tokens: Read on a user token) so `check` can confirm the token's own permissions, and, with a container backend, Account → Billing: Read so `check` can confirm the Workers Paid plan |
+| `CLOUDFLARE_API_TOKEN` | API token, which `setup` creates per environment, with Workers Scripts: Edit and Workers Containers: Edit (account), Workers Routes: Edit, DNS: Edit and, for staging and production with a Worker, Zone Settings: Edit (zone), Access: Apps and Policies: Edit and Access: Service Tokens: Edit (account) for a private environment, Account Settings: Edit and Account Settings: Read (account) for staging or production when it counts visits, Account API Tokens: Read (User API Tokens: Read on a user token) so `check` can confirm the token's own permissions, and, with a container backend, Account → Billing: Read so `check` can confirm the Workers Paid plan |
 | `CLOUDFLARE_ACCOUNT_ID` | the Cloudflare account that runs the Workers and holds the state buckets |
 | `CLOUDFLARE_ZONE_ID` | the zone of the project's `domain` |
 | `TURBO_VIBE_STATE_BUCKET` | an R2 bucket for OpenTofu state, which `setup` creates; staging also keeps its build records and asset archives there |
