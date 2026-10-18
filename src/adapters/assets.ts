@@ -5,6 +5,7 @@ import {
   readdir,
   readFile,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -84,6 +85,11 @@ export async function copySite(dir: string, copy: string): Promise<string> {
   await mkdir(copy, { recursive: true });
   await cp(dir, copy, { recursive: true, verbatimSymlinks: true });
   return copy;
+}
+
+export async function hasNotFoundPage(dir: string): Promise<boolean> {
+  const page = await stat(join(dir, "404.html")).catch(() => undefined);
+  return page?.isFile() ?? false;
 }
 
 export async function keepFromSearchEngines(dir: string): Promise<void> {

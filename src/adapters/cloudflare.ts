@@ -7,7 +7,7 @@ import {
   healthPath,
 } from "../contract.js";
 import { checkBuildId } from "../smoke.js";
-import { recordedOrBuilt, staticBuild } from "./assets.js";
+import { hasNotFoundPage, recordedOrBuilt, staticBuild } from "./assets.js";
 import { awaitRollout, existingRollouts } from "./rollout.js";
 import type { Adapter, DeployContext, ServiceContext } from "./types.js";
 import {
@@ -366,6 +366,15 @@ export const cloudflareStatic: Adapter = {
         : {}),
     });
     if (typeof assets === "number") return { code: assets };
+    if (
+      service.not_found === "404-page" &&
+      !(await hasNotFoundPage(assets.dir))
+    ) {
+      context.io.stderr(
+        `${context.name}: not_found is 404-page, but the build output (${service.build.output}) has no 404.html at its root\n`,
+      );
+      return { code: 1 };
+    }
     const result = {
       assetsDir: assets.dir,
       ...(assets.outputs ? { outputs: assets.outputs } : {}),
