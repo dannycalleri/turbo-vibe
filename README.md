@@ -5,7 +5,7 @@
 <p align="center"><strong>From prototype to production in an afternoon.</strong></p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@turbo-vibe/cli"><img alt="npm" src="https://img.shields.io/npm/v/@turbo-vibe/cli/next?label=npm&color=F5731A"></a>
+  <a href="https://www.npmjs.com/package/@turbo-vibe/cli"><img alt="npm" src="https://img.shields.io/npm/v/@turbo-vibe/cli?label=npm&color=F5731A"></a>
   <a href="https://github.com/dannycalleri/turbo-vibe/actions/workflows/pipeline.yml"><img alt="Pipeline" src="https://img.shields.io/github/actions/workflow/status/dannycalleri/turbo-vibe/pipeline.yml?branch=main&label=pipeline"></a>
   <a href="https://github.com/dannycalleri/turbo-vibe/actions/workflows/live-tests.yml"><img alt="Live tests" src="https://img.shields.io/github/actions/workflow/status/dannycalleri/turbo-vibe/live-tests.yml?branch=main&label=live%20tests"></a>
   <a href="https://www.npmjs.com/package/@turbo-vibe/cli"><img alt="npm provenance" src="https://img.shields.io/badge/provenance-signed-2EA44F?logo=npm"></a>
