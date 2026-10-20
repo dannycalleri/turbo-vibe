@@ -83,6 +83,9 @@ async function buildAndPush(
   return digest;
 }
 
+// A new container application's first start can take minutes: six seconds apart, these wait five.
+export const containerStartAttempts = 50;
+
 const healthBuildId = async (response: Response) => {
   const body: unknown = await response.json().catch(() => undefined);
   const buildId = (body as { build_id?: unknown } | undefined)?.build_id;
@@ -331,6 +334,7 @@ export const cloudflareContainer: Adapter = {
       },
       context.buildId,
       context.io,
+      { startingAttempts: containerStartAttempts },
     );
   },
 };

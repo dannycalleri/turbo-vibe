@@ -794,6 +794,25 @@ describe("smoke", () => {
     ).toBe("passed");
   });
 
+  it("waits for a container that answers 503 while it starts for the first time", async () => {
+    const r2 = fakeR2(seeded(record({ smoke: "pending" })));
+    const buildId = "abc1230000000000000000000000000000000000";
+    let starting = 20;
+    const { code } = await run(
+      ["smoke", "--env", "staging", "--build-id", buildId],
+      { "turbo-vibe.yaml": project },
+      stateEnv,
+      undefined,
+      r2.fetch((url) =>
+        url.endsWith("/api/health") && starting-- > 0
+          ? new Response("", { status: 503 })
+          : serving(buildId)(url),
+      ),
+    );
+    expect(code).toBe(0);
+    expect(r2.record(`acme/builds/${buildId}.json`).smoke).toBe("passed");
+  });
+
   const privateProject = project.replace(
     "services:",
     "environments:\n  staging:\n    access: { emails: [ada@example.com] }\nservices:",
