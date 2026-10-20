@@ -2,7 +2,7 @@
 
 turbo-vibe is the production step after the prototype: a staging copy and a production copy, the build tested on staging promoted unchanged, and a person approving the switch. Everything it creates lives in your own accounts. This guide takes a repository that already has a backend with a Dockerfile, and optionally a single-page app, to "merge deploys staging, one approved click deploys production". Follow it in order: each step names what you should see before moving on.
 
-**With a coding assistant:** run `npx @turbo-vibe/cli@1 adopt` at the repository root (`@next` while only release candidates are published). It writes guidance for the assistants the repository already uses, or for those you name with `--assistant claude`, `cursor` or `claude,cursor`, then ask the assistant to make the project deployable with turbo-vibe. It follows the steps below, checks the result locally, and stops before anything that needs your accounts. The rest of this guide is the same work by hand.
+**With a coding assistant:** run `npx @turbo-vibe/cli@1 adopt` at the repository root. It writes guidance for the assistants the repository already uses, or for those you name with `--assistant claude`, `cursor` or `claude,cursor`, then ask the assistant to make the project deployable with turbo-vibe. It follows the steps below, checks the result locally, and stops before anything that needs your accounts. The rest of this guide is the same work by hand.
 
 ## 1. Make the backend report its build
 
