@@ -295,7 +295,7 @@ describe("secrets", () => {
       "deploy.yml",
       "promote.yml",
       "preview.yml",
-      "live-tests.yml",
+      "live-run.yml",
     ]) {
       const definition = await workflow(file);
       expect(JSON.stringify(definition.env ?? {})).not.toContain(
@@ -596,15 +596,33 @@ describe("the live tests workflow", () => {
     const live = await workflow("live-tests.yml");
     expect(live.on.schedule).toEqual([{ cron: "0 6 * * 1" }]);
     expect(live.on).toHaveProperty("workflow_dispatch");
-    const job = live.jobs.live;
-    expect(job.if).toBe("github.ref == 'refs/heads/main'");
-    expect(job.environment).toBe("live");
-    expect(live.env.BRANCH).toMatch(/^live run /);
+    const caller = live.jobs.live;
+    expect(caller.if).toBe("github.ref == 'refs/heads/main'");
+    expect(caller.uses).toBe("./.github/workflows/live-run.yml");
+    expect(caller.secrets).toBe("inherit");
+    expect(caller.permissions).toEqual({ contents: "write" });
+    const run = await workflow("live-run.yml");
+    expect(Object.keys(run.on)).toEqual(["workflow_call"]);
+    expect(run.jobs.live.environment).toBe("live");
+    expect(run.env.BRANCH).toMatch(/^live run /);
+  });
+
+  it("passes the whole set of secrets only from reusable workflows, which GitHub does not hold as malicious", async () => {
+    for (const file of await readdir(new URL(".github/workflows/", root))) {
+      const text = await readFile(
+        new URL(`.github/workflows/${file}`, root),
+        "utf8",
+      );
+      if (!text.includes("toJSON(secrets)")) continue;
+      expect(Object.keys((await workflow(file)).on), file).toEqual([
+        "workflow_call",
+      ]);
+    }
   });
 
   describe("commits COMPATIBILITY.md alone", () => {
     async function commitStep(): Promise<string> {
-      const { steps } = (await workflow("live-tests.yml")).jobs.live;
+      const { steps } = (await workflow("live-run.yml")).jobs.live;
       return steps.find(
         (step: { name?: string }) =>
           step.name === "Commit COMPATIBILITY.md when it changed",
@@ -659,7 +677,7 @@ describe("the live tests workflow", () => {
   });
 
   it("removes every preview it deploys, whatever the deploy's outcome", async () => {
-    const { steps } = (await workflow("live-tests.yml")).jobs.live;
+    const { steps } = (await workflow("live-run.yml")).jobs.live;
     const loop = steps.find((step: { run?: string }) =>
       step.run?.includes("preview deploy"),
     ).run as string;
