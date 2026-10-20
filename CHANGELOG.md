@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.7...v1.0.0) (2026-10-20)
+
+
+### Miscellaneous Chores
+
+* release 1.0.0 ([7f81d97](https://github.com/dannycalleri/turbo-vibe/commit/7f81d97c2c75f6965346612fa655eac318801441))
+
 ## [1.0.0-rc.7](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.6...v1.0.0-rc.7) (2026-10-18)
 
 
