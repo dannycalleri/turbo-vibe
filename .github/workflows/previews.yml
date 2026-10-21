@@ -3,6 +3,8 @@ name: Previews
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
+    # The live tests' weekly results change nothing a preview would show.
+    paths-ignore: [COMPATIBILITY.md]
 
 permissions:
   contents: read
