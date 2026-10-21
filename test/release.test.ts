@@ -813,6 +813,25 @@ describe("smoke", () => {
     expect(r2.record(`acme/builds/${buildId}.json`).smoke).toBe("passed");
   });
 
+  it("waits for a container that still reports the previous build after a deploy", async () => {
+    const r2 = fakeR2(seeded(record({ smoke: "pending" })));
+    const buildId = "abc1230000000000000000000000000000000000";
+    let switching = 20;
+    const { code } = await run(
+      ["smoke", "--env", "staging", "--build-id", buildId],
+      { "turbo-vibe.yaml": project },
+      stateEnv,
+      undefined,
+      r2.fetch((url) =>
+        url.endsWith("/api/health") && switching-- > 0
+          ? Response.json({ build_id: "previous" })
+          : serving(buildId)(url),
+      ),
+    );
+    expect(code).toBe(0);
+    expect(r2.record(`acme/builds/${buildId}.json`).smoke).toBe("passed");
+  });
+
   const privateProject = project.replace(
     "services:",
     "environments:\n  staging:\n    access: { emails: [ada@example.com] }\nservices:",

@@ -43,8 +43,8 @@ export async function checkBuildId(
   {
     attempts = 10,
     delayMs = 6000,
-    startingAttempts = attempts,
-  }: { attempts?: number; delayMs?: number; startingAttempts?: number } = {},
+    switchingAttempts = attempts,
+  }: { attempts?: number; delayMs?: number; switchingAttempts?: number } = {},
 ): Promise<SmokeResult> {
   let result: SmokeResult = { ok: false, message: `${probe.url} not checked` };
   for (let attempt = 1; ; attempt++) {
@@ -64,9 +64,12 @@ export async function checkBuildId(
       };
     }
     result = judge(probe.url, expected, observed);
-    // A service that is still starting answers 503; it may use the longer allowance.
-    const starting = "status" in observed && observed.status === 503;
-    if (result.ok || attempt >= (starting ? startingAttempts : attempts)) break;
+    // A service still starting answers 503, and one still switching over reports the previous build: both may use the longer allowance.
+    const switching =
+      "status" in observed &&
+      (observed.status === 503 || observed.buildId !== undefined);
+    if (result.ok || attempt >= (switching ? switchingAttempts : attempts))
+      break;
     await sleep(delayMs);
   }
   return result;

@@ -74,7 +74,7 @@ describe("checkBuildId", () => {
       { url, read },
       "abc",
       { fetch, sleep },
-      { attempts: 3, startingAttempts: 10 },
+      { attempts: 3, switchingAttempts: 10 },
     );
     expect(result.ok).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(7);
@@ -88,7 +88,7 @@ describe("checkBuildId", () => {
       { url, read },
       "abc",
       { fetch, sleep },
-      { attempts: 3, startingAttempts: 10 },
+      { attempts: 3, switchingAttempts: 10 },
     );
     expect(result).toEqual({ ok: false, message: `${url} answered HTTP 500` });
     expect(fetch).toHaveBeenCalledTimes(3);
@@ -102,9 +102,41 @@ describe("checkBuildId", () => {
       { url, read },
       "abc",
       { fetch, sleep },
-      { attempts: 3, startingAttempts: 10 },
+      { attempts: 3, switchingAttempts: 10 },
     );
     expect(result).toEqual({ ok: false, message: `${url} answered HTTP 503` });
     expect(fetch).toHaveBeenCalledTimes(10);
+  });
+
+  it("waits longer while the service still reports the previous build", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    for (let i = 0; i < 6; i++)
+      fetch.mockResolvedValueOnce(new Response("old"));
+    fetch.mockResolvedValueOnce(new Response("abc"));
+    const result = await checkBuildId(
+      { url, read },
+      "abc",
+      { fetch, sleep },
+      { attempts: 3, switchingAttempts: 10 },
+    );
+    expect(result.ok).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(7);
+  });
+
+  it("gives up after the usual attempts when the service reports no build", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () => new Response("{}"),
+    );
+    const result = await checkBuildId(
+      { url, read: async () => undefined },
+      "abc",
+      { fetch, sleep },
+      { attempts: 3, switchingAttempts: 10 },
+    );
+    expect(result).toEqual({
+      ok: false,
+      message: `${url} reports build (none), expected abc`,
+    });
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 });
