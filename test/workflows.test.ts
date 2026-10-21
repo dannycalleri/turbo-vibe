@@ -696,7 +696,7 @@ describe("the live tests workflow", () => {
         ),
       ).toBe(true);
       expect(made.at(-1)).toBe(
-        "pr merge live-results/7 --auto --merge --delete-branch",
+        "pr merge live-results/7 --auto --rebase --delete-branch",
       );
     });
 
