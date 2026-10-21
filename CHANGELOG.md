@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.1](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0...v1.0.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **ci:** propose the live results in a pull request that merges itself ([58e6e31](https://github.com/dannycalleri/turbo-vibe/commit/58e6e31ccf06829801a0a8edeb0cfb480c7e48ce))
+* **ci:** run the live tests through a reusable workflow ([88d502e](https://github.com/dannycalleri/turbo-vibe/commit/88d502e8354a2babeeda3e46aa29b773c0a1c92f))
+* **smoke:** wait for a container backend to switch over from the previous build ([96c7363](https://github.com/dannycalleri/turbo-vibe/commit/96c7363b4fbe8aee75184b3a3d4869440ec71b89))
+* **smoke:** wait up to five minutes for a container that is still starting ([9448da2](https://github.com/dannycalleri/turbo-vibe/commit/9448da2a2034f974445d4c84368d8941fc412b42))
+
 ## [1.0.0](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0-rc.7...v1.0.0) (2026-10-20)
 
 
