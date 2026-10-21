@@ -64,4 +64,47 @@ describe("checkBuildId", () => {
     });
     expect(fetch).toHaveBeenCalledTimes(3);
   });
+
+  it("waits longer while the service answers 503, as a starting container does", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    for (let i = 0; i < 6; i++)
+      fetch.mockResolvedValueOnce(new Response("", { status: 503 }));
+    fetch.mockResolvedValueOnce(new Response("abc"));
+    const result = await checkBuildId(
+      { url, read },
+      "abc",
+      { fetch, sleep },
+      { attempts: 3, startingAttempts: 10 },
+    );
+    expect(result.ok).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(7);
+  });
+
+  it("gives up after the usual attempts on any other failure", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () => new Response("", { status: 500 }),
+    );
+    const result = await checkBuildId(
+      { url, read },
+      "abc",
+      { fetch, sleep },
+      { attempts: 3, startingAttempts: 10 },
+    );
+    expect(result).toEqual({ ok: false, message: `${url} answered HTTP 500` });
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops at the longer allowance when the service never starts", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () => new Response("", { status: 503 }),
+    );
+    const result = await checkBuildId(
+      { url, read },
+      "abc",
+      { fetch, sleep },
+      { attempts: 3, startingAttempts: 10 },
+    );
+    expect(result).toEqual({ ok: false, message: `${url} answered HTTP 503` });
+    expect(fetch).toHaveBeenCalledTimes(10);
+  });
 });

@@ -40,10 +40,14 @@ export async function checkBuildId(
     fetch,
     sleep,
   }: { fetch: typeof globalThis.fetch; sleep: (ms: number) => Promise<void> },
-  { attempts = 10, delayMs = 6000 } = {},
+  {
+    attempts = 10,
+    delayMs = 6000,
+    startingAttempts = attempts,
+  }: { attempts?: number; delayMs?: number; startingAttempts?: number } = {},
 ): Promise<SmokeResult> {
   let result: SmokeResult = { ok: false, message: `${probe.url} not checked` };
-  for (let attempt = 1; attempt <= attempts; attempt++) {
+  for (let attempt = 1; ; attempt++) {
     let observed: Observation;
     try {
       const response = await fetch(probe.url, {
@@ -60,7 +64,9 @@ export async function checkBuildId(
       };
     }
     result = judge(probe.url, expected, observed);
-    if (result.ok || attempt === attempts) break;
+    // A service that is still starting answers 503; it may use the longer allowance.
+    const starting = "status" in observed && observed.status === 503;
+    if (result.ok || attempt >= (starting ? startingAttempts : attempts)) break;
     await sleep(delayMs);
   }
   return result;
