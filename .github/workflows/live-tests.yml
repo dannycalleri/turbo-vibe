@@ -17,6 +17,4 @@ jobs:
     name: Live run
     if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/live-run.yml
-    permissions:
-      contents: write
     secrets: inherit
