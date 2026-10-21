@@ -110,7 +110,7 @@ jobs:
           gh pr create --base main --head "$RESULTS" \
             --title "chore: record the weekly live run in COMPATIBILITY.md" \
             --body "Results of live run ${GITHUB_RUN_NUMBER}: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          gh pr merge "$RESULTS" --auto --merge --delete-branch
+          gh pr merge "$RESULTS" --auto --rebase --delete-branch
       - name: Fail when a preview could not be removed
         if: always() && env.removal == 'failed'
         run: |
