@@ -20,6 +20,7 @@ import {
   rootModule,
 } from "./infrastructure.js";
 import type { Io } from "./io.js";
+import { accessFor } from "./origins.js";
 import { appPublicValues, appSecretValues } from "./secrets.js";
 
 export function missingVariables(names: Iterable<string>, io: Io): boolean {
@@ -35,12 +36,13 @@ async function writeRoot(
   io: Io,
   managedRedirectUris: Readonly<Record<string, string[]>> = {},
   parentRefs: Readonly<Record<string, string>> = {},
+  accessOnAccount = false,
 ): Promise<string> {
   const dir = join(io.cwd, ".turbo-vibe", "tofu", environment);
   await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, "main.tf.json"),
-    `${JSON.stringify(rootModule(config, environment, io.env, managedRedirectUris, parentRefs), null, 2)}\n`,
+    `${JSON.stringify(rootModule(config, environment, io.env, managedRedirectUris, parentRefs, accessOnAccount), null, 2)}\n`,
   );
   return dir;
 }
@@ -111,26 +113,57 @@ async function prepare(
   }
   const { dir, code } = await initRoot(config, environment, io, parentRefs);
   if (code !== 0) return { code };
-  if (
-    Object.values(config.services).some(
-      (service) => service.kind === "identity",
-    )
-  ) {
+  const identity = Object.values(config.services).some(
+    (service) => service.kind === "identity",
+  );
+  const access = accessFor(config, environment) !== undefined;
+  if (identity || access) {
     const outputs = await currentOutputs(dir, io);
     if (!outputs) {
       io.stderr(`cannot read the current ${environment} outputs\n`);
       return { code: 1 };
     }
-    let managed: Record<string, string[]>;
-    try {
-      managed = await discoverRedirectUris(config, environment, outputs, io);
-    } catch (error) {
-      io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
-      return { code: 1 };
+    let managed: Record<string, string[]> = {};
+    if (identity) {
+      try {
+        managed = await discoverRedirectUris(config, environment, outputs, io);
+      } catch (error) {
+        io.stderr(
+          `${error instanceof Error ? error.message : String(error)}\n`,
+        );
+        return { code: 1 };
+      }
     }
-    await writeRoot(config, environment, io, managed, parentRefs);
+    const onAccount = access && (await accessOnAccount(outputs, io));
+    await writeRoot(config, environment, io, managed, parentRefs, onAccount);
   }
   return { dir };
+}
+
+// Made private with turbo-vibe 1.0, an environment keeps its Access resources on the account, so upgrading deletes
+// nothing. A new preview of such a staging has no outputs yet, but its 1.0 token reaches Access on the account only.
+async function accessOnAccount(
+  outputs: Readonly<Record<string, unknown>>,
+  io: Io,
+): Promise<boolean> {
+  if (typeof outputs.access_on_account === "boolean")
+    return outputs.access_on_account;
+  if (typeof outputs.access_client_id === "string") return true;
+  const reaches = async (path: string) => {
+    try {
+      const response = await io.fetch(
+        `https://api.cloudflare.com/client/v4${path}/access/apps`,
+        { headers: { authorization: `Bearer ${io.env.CLOUDFLARE_API_TOKEN}` } },
+      );
+      return response.ok;
+    } catch {
+      return false;
+    }
+  };
+  return (
+    !(await reaches(`/zones/${io.env.CLOUDFLARE_ZONE_ID}`)) &&
+    (await reaches(`/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}`))
+  );
 }
 
 async function planChanges(

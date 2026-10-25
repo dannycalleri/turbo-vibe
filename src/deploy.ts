@@ -490,6 +490,7 @@ function analyticsTokenMissing(
   return true;
 }
 
+// Only an environment made private with turbo-vibe 1.0 has a service token: newer ones let the probes through.
 async function accessHeaders(
   config: Config,
   environment: EnvironmentName,
@@ -497,14 +498,13 @@ async function accessHeaders(
 ): Promise<Record<string, string> | undefined | null> {
   if (!accessFor(config, environment)) return undefined;
   const outputs = await readOutputs(config, environment, io);
-  const id = outputs?.access_client_id;
-  const secret = outputs?.access_client_secret;
-  if (typeof id !== "string" || typeof secret !== "string") {
-    io.stderr(
-      `${environment} is private, but its Access service token is not in the infrastructure outputs; run apply first\n`,
-    );
+  if (!outputs) {
+    io.stderr(`cannot read the current ${environment} outputs\n`);
     return null;
   }
+  const id = outputs.access_client_id;
+  const secret = outputs.access_client_secret;
+  if (typeof id !== "string" || typeof secret !== "string") return undefined;
   return { "cf-access-client-id": id, "cf-access-client-secret": secret };
 }
 

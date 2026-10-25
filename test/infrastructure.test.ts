@@ -340,17 +340,22 @@ describe("access", () => {
     return result.config;
   })();
 
-  it("puts a private environment's hostnames behind Access and outputs the smoke test's service token", () => {
+  it("puts a private environment's hostnames behind Access, with the smoke test's probe paths public", () => {
     const root = rootModule(privateStaging, "staging", {});
     expect(root.module.cloudflare?.access).toEqual({
       name: "acme-staging",
       domains: ["staging.acme.example.com"],
       emails: ["ada@example.com"],
+      public_paths: ["/_turbo-vibe/build-id", "/api/health"],
     });
-    expect(root.output?.access_client_secret).toEqual({
-      value: `\${module.cloudflare.access_client_secret}`,
-      sensitive: true,
-    });
+    expect(root.output).toHaveProperty("access_client_id");
+  });
+
+  it("keeps the Access resources of an environment made private with turbo-vibe 1.0 on the account", () => {
+    expect(
+      rootModule(privateStaging, "staging", {}, {}, {}, true).module.cloudflare
+        ?.access,
+    ).toMatchObject({ name: "acme-staging", on_account: true });
   });
 
   it("guards a preview like staging, under its own name", () => {

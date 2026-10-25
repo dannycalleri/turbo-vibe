@@ -699,6 +699,90 @@ services:
   });
 });
 
+describe("turbo-vibe apply on a private staging", () => {
+  const privateProject = project.replace(
+    "services:",
+    "environments:\n  staging:\n    access: { emails: [ada@example.com] }\nservices:",
+  );
+  const env = {
+    TURBO_VIBE_STATE_BUCKET: "tv-state",
+    AWS_ACCESS_KEY_ID: "key-id",
+    AWS_SECRET_ACCESS_KEY: "s3cr3t-key",
+    CLOUDFLARE_ACCOUNT_ID: "acc123",
+    CLOUDFLARE_ZONE_ID: "zone456",
+    CLOUDFLARE_API_TOKEN: "s3cr3t-token",
+  };
+  const reachable = (...paths: string[]) =>
+    vi.fn<typeof globalThis.fetch>(async (url) =>
+      paths.some((path) => String(url).endsWith(`${path}/access/apps`))
+        ? Response.json({ success: true, result: [] })
+        : Response.json({ success: false }, { status: 403 }),
+    );
+  const applyWith = (
+    outputs: Record<string, unknown>,
+    fetch = reachable("/zones/zone456"),
+  ) =>
+    run(
+      ["apply", "--env", "staging"],
+      { "turbo-vibe.yaml": privateProject },
+      env,
+      vi.fn<Runner>(async () => 0),
+      fetch,
+      {
+        capture: async (_command, args) => ({
+          code: 0,
+          stdout:
+            args[0] === "output"
+              ? JSON.stringify(
+                  Object.fromEntries(
+                    Object.entries(outputs).map(([name, value]) => [
+                      name,
+                      { value },
+                    ]),
+                  ),
+                )
+              : "{}",
+        }),
+      },
+    );
+  const access = async (cwd: string) =>
+    JSON.parse(
+      await readFile(
+        join(cwd, ".turbo-vibe", "tofu", "staging", "main.tf.json"),
+        "utf8",
+      ),
+    ).module.cloudflare.access;
+
+  it("puts Access on the zone for an environment that becomes private", async () => {
+    const { code, cwd } = await applyWith({});
+    expect(code).toBe(0);
+    expect(await access(cwd)).not.toHaveProperty("on_account");
+  });
+
+  it("keeps Access on the account for an environment whose outputs hold the 1.0 service token", async () => {
+    const { code, cwd } = await applyWith({
+      access_client_id: "client.access",
+      access_client_secret: "client-secret",
+    });
+    expect(code).toBe(0);
+    expect(await access(cwd)).toMatchObject({ on_account: true });
+  });
+
+  it("keeps an environment already on the zone there, without asking Cloudflare", async () => {
+    const fetch = reachable();
+    const { code, cwd } = await applyWith({ access_on_account: false }, fetch);
+    expect(code).toBe(0);
+    expect(await access(cwd)).not.toHaveProperty("on_account");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("puts a new environment on the account when its 1.0 token reaches Access there only, as a new preview of a 1.0 staging", async () => {
+    const { code, cwd } = await applyWith({}, reachable("/accounts/acc123"));
+    expect(code).toBe(0);
+    expect(await access(cwd)).toMatchObject({ on_account: true });
+  });
+});
+
 describe("turbo-vibe apply with identity", () => {
   const withAuth = `${project}  auth:
     kind: identity

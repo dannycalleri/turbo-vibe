@@ -130,7 +130,10 @@ async function canCreateTokens(
 interface PermissionGroup {
   id: string;
   name: string;
+  scopes?: string[];
 }
+
+const zoneScope = "com.cloudflare.api.account.zone";
 
 async function permissionGroups(
   cloudflare: CloudflareApi,
@@ -142,9 +145,13 @@ async function permissionGroups(
     "GET",
     `/accounts/${account}/tokens/permission_groups`,
   );
-  const ids = new Map(
-    (listed.body?.result ?? []).map((group) => [group.name, group.id]),
-  );
+  // One name can belong to an account group and a zone group, such as Access: Apps and Policies Write.
+  const ids = new Map<string, string>();
+  for (const group of listed.body?.result ?? []) {
+    const onZone = group.scopes?.includes(zoneScope) ?? false;
+    if (!ids.has(group.name) || onZone === zoneScoped.has(group.name))
+      ids.set(group.name, group.id);
+  }
   const unknown = names.filter((name) => !ids.has(name));
   if (unknown.length > 0) {
     io.stderr(

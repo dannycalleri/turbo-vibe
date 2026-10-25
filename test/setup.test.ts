@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { granted, requiredPermissions } from "../src/checks/cloudflare.js";
+import {
+  granted,
+  requiredPermissions,
+  zoneScoped,
+} from "../src/checks/cloudflare.js";
 import { stateBucket } from "../src/checks/state.js";
 import type { Check } from "../src/checks/types.js";
 import { fail, missing, ok } from "../src/checks/types.js";
@@ -145,6 +149,7 @@ interface FakeCloudflare {
 }
 
 const groupNames = [
+  "Access: Apps and Policies Write",
   "Account API Tokens Read",
   "Account API Tokens Write",
   "Billing Read",
@@ -210,7 +215,23 @@ function fakeCloudflare({
     if (path === `${accounts}/tokens/verify`)
       return json({ id: caller.id, status: "active" });
     if (path === `${accounts}/tokens/permission_groups`)
-      return json(groups.map((name) => ({ id: `id-${name}`, name })));
+      return json([
+        ...groups.map((name) => ({
+          id: `id-${name}`,
+          name,
+          scopes: [
+            zoneScoped.has(name)
+              ? "com.cloudflare.api.account.zone"
+              : "com.cloudflare.api.account",
+          ],
+        })),
+        // Cloudflare lists this name twice, once per scope; the account group comes last here.
+        {
+          id: "id-account-Access: Apps and Policies Write",
+          name: "Access: Apps and Policies Write",
+          scopes: ["com.cloudflare.api.account"],
+        },
+      ]);
     if (path === `${accounts}/tokens/boot` && method === "GET")
       return json({
         name: "bootstrap",
@@ -2175,6 +2196,28 @@ describe("setup with previews", () => {
     expect(JSON.stringify(policies("turbo-vibe-acme-preview"))).not.toContain(
       "Zone Settings Write",
     );
+  });
+
+  it("gives every CI token Access on the zone only, though no environment is private", async () => {
+    const cloudflare = fakeCloudflare();
+    await setupWith(withPreviews, cloudflare.fetch, fakeGh());
+    for (const environment of ["staging", "production", "preview"]) {
+      const { policies } = (cloudflare.created(`turbo-vibe-acme-${environment}`)
+        ?.body ?? { policies: [] }) as {
+        policies: {
+          resources: Record<string, unknown>;
+          permission_groups: { id: string }[];
+        }[];
+      };
+      const holding = policies.filter((policy) =>
+        policy.permission_groups.some(
+          ({ id }) => id === "id-Access: Apps and Policies Write",
+        ),
+      );
+      expect(holding.map((policy) => Object.keys(policy.resources))).toEqual([
+        ["com.cloudflare.api.account.zone.zone-new"],
+      ]);
+    }
   });
 
   it("creates no preview environment when the config has no previews", async () => {
