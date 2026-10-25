@@ -2,6 +2,8 @@
 
 turbo-vibe is the production step after the prototype: a staging copy and a production copy, the build tested on staging promoted unchanged, and a person approving the switch. Everything it creates lives in your own accounts. This guide takes a repository that already has a backend with a Dockerfile, and optionally a single-page app, to "merge deploys staging, one approved click deploys production". Follow it in order: each step names what you should see before moving on.
 
+A static site, or an app whose server already meets the backend contract, needs only `npx @turbo-vibe/cli@1 init`. This guide is for a backend that must change to fit.
+
 **With a coding assistant:** run `npx @turbo-vibe/cli@1 adopt` at the repository root. It writes guidance for the assistants the repository already uses, or for those you name with `--assistant claude`, `cursor` or `claude,cursor`, then ask the assistant to make the project deployable with turbo-vibe. It follows the steps below, checks the result locally, and stops before anything that needs your accounts. The rest of this guide is the same work by hand.
 
 ## 1. Make the backend report its build
@@ -29,7 +31,7 @@ Check: once `turbo-vibe.yaml` exists (step 2), `npx @turbo-vibe/cli@1 deploy --e
 
 ## 2. Add `turbo-vibe.yaml`
 
-`npx @turbo-vibe/cli@1 init` writes this file and the two workflows in step 3, and never overwrites existing files. It asks with arrow-key choices and offers defaults it reads from the repository: the name from `package.json`, a backend for a `Dockerfile`, a frontend for a `next` dependency or a `build` script, a database for a `supabase/` folder. Adjust the build commands it leaves as defaults. To write the files by hand instead:
+`npx @turbo-vibe/cli@1 init` writes this file and the two workflows in step 3, and never overwrites existing files. It asks with arrow-key choices and offers defaults it reads from the repository: the name from `package.json`, a backend for a `Dockerfile`, a frontend for a `next` dependency or a `build` script, a database for a `supabase/` folder. Adjust the build commands it leaves as defaults. It then offers to run `setup`: answer yes once the accounts and tokens of step 4 exist, otherwise answer no and run `setup` at step 4. To write the files by hand instead:
 
 At the repository root:
 

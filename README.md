@@ -27,14 +27,13 @@ You built it in a weekend. Shipping it shouldn't take a month. From one file, tu
 ## Get started
 
 ```sh
-npx @turbo-vibe/cli@1 init    # 1. Describe it: arrow-key choices, defaults read from your repository → turbo-vibe.yaml and two workflows
-npx @turbo-vibe/cli@1 setup   # 2. Connect your accounts: one guided step per vendor, each token checked as you paste it
-git push origin main          # 3. Merge: every merge deploys to staging and is smoke-tested
+npx @turbo-vibe/cli@1 init    # 1. Describe it and connect your accounts: defaults read from your repository, then one guided step per vendor
+git push origin main          # 2. Merge: every merge deploys to staging and is smoke-tested
 ```
 
-`init` ends by offering to run `setup` for you. To go live, run **Deploy to production** from the Actions tab, type the build ID and approve.
+`init` writes `turbo-vibe.yaml` and two workflows, then offers to run `setup` (it needs a signed-in GitHub CLI), which checks each token as you paste it and stores it in GitHub. Run `npx @turbo-vibe/cli@1 setup` yourself if `init` didn't run it, and again when you add a secret, replace a token or add an environment. To go live, run **Deploy to production** from the Actions tab, type the build ID and approve.
 
-**Have an app already?** Run `npx @turbo-vibe/cli@1 adopt` in your repository and ask your coding agent to make it deployable. It adapts the backend, runs step 1 and opens a pull request. Step 2 stays with you. The [adoption guide](docs/adoption.md) covers the same path by hand.
+**Does your server need changes to fit?** `init` is enough for a static site, or for an app that already meets the [backend contract](docs/reference.md#what-a-backend-must-do). When the backend must change (its port, routes under `/api/`, a health route, a Dockerfile), run `npx @turbo-vibe/cli@1 adopt` and ask your coding agent to make the project deployable. It adapts the backend, runs `init` with flags and opens a pull request; `setup` stays with you. The [adoption guide](docs/adoption.md) covers the same path by hand.
 
 You need Node 24, [OpenTofu](https://opentofu.org/docs/intro/install/) 1.10 or later as `tofu`, Docker, a signed-in [GitHub CLI](https://cli.github.com), and the accounts in the [bootstrap checklist](docs/bootstrap.md). `setup --list` prints the ones your file needs.
 
@@ -75,8 +74,8 @@ flowchart LR
 Built it with an agent? Ship it with one. `adopt` teaches Claude Code or Cursor how to adapt the project, walk you through the accounts, and make every change after. The agent edits code and config. Secrets and the production deploy stay with you.
 
 ```sh
-npx @turbo-vibe/cli@1 adopt                 # for a project that doesn't use turbo-vibe yet
-npx @turbo-vibe/cli@1 init --only-assistant # guidance for everyday changes in a project that does
+npx @turbo-vibe/cli@1 adopt                 # for a project whose server must change to fit
+npx @turbo-vibe/cli@1 init --only-assistant # guidance for everyday changes in a project that uses turbo-vibe
 ```
 
 ## The file
@@ -121,9 +120,9 @@ The reusable workflows run these for you. Each one also runs from a terminal, va
 
 | Command | What it does |
 |---|---|
-| `init` | Writes `turbo-vibe.yaml` and the staging and production workflows. |
-| `adopt` | Teaches your coding agent to adapt an existing project. |
-| `setup` | Creates the GitHub environments and stores every secret. `--list` prints what a person must do first. |
+| `init` | Writes `turbo-vibe.yaml` and the staging and production workflows, then offers to run `setup`. |
+| `setup` | Creates the GitHub environments and stores every secret. Run it again to add a secret, replace a token or add an environment. `--list` prints what a person must do first. |
+| `adopt` | Teaches your coding agent to adapt a project whose server must change to fit. |
 | `check --env <env>` | Lists each missing account, token or tool, with its fix. |
 | `plan [--env <env>]` | What each environment runs, or what applying it would change. |
 | `apply --env <env>` | Creates or updates the infrastructure with OpenTofu. |
