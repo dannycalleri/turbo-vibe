@@ -37,16 +37,14 @@ interface Policy {
 
 export const zeroTrustPage = "https://one.dash.cloudflare.com/";
 
-const accessPermissions = [
-  "Access: Apps and Policies Write",
-  "Access: Service Tokens Write",
-];
+const accessPermission = "Access: Apps and Policies Write";
 
 export function hasPrivateEnvironment(config: Config): boolean {
   return environmentNames.some((environment) => accessFor(config, environment));
 }
 
 export const zoneScoped: ReadonlySet<string> = new Set([
+  accessPermission,
   "DNS Write",
   "Workers Routes Write",
   "Zone Settings Write",
@@ -56,6 +54,7 @@ export function covers(
   resources: Record<string, unknown>,
   permission: string,
   ids: { account: string; zone: string },
+  onZone = zoneScoped.has(permission),
 ): boolean {
   const account = `com.cloudflare.api.account.${ids.account}`;
   const allAccounts = "com.cloudflare.api.account.*";
@@ -63,8 +62,7 @@ export function covers(
     `com.cloudflare.api.account.zone.${ids.zone}`,
     "com.cloudflare.api.account.zone.*",
   ];
-  if (!zoneScoped.has(permission))
-    return account in resources || allAccounts in resources;
+  if (!onZone) return account in resources || allAccounts in resources;
   if (zoneKeys.some((key) => key in resources)) return true;
   return [account, allAccounts].some((key) => {
     const nested = resources[key];
@@ -80,12 +78,13 @@ export function granted(
   policies: readonly Policy[],
   permission: string,
   ids: { account: string; zone: string },
+  onZone = zoneScoped.has(permission),
 ): boolean {
   const matching = policies.filter(
     (policy) =>
       (policy.permission_groups ?? []).some(
         (group) => group.name === permission,
-      ) && covers(policy.resources ?? {}, permission, ids),
+      ) && covers(policy.resources ?? {}, permission, ids, onZone),
   );
   return (
     matching.some((policy) => policy.effect === "allow") &&
@@ -132,14 +131,12 @@ export function requiredPermissions(context: {
   if (targets.has("cloudflare-container") || targets.has("cloudflare-static")) {
     needed.add("Workers Scripts Write");
     needed.add("Workers Routes Write");
+    // Granted before any environment is private, so making one private needs no token change.
+    needed.add(accessPermission);
     if (isStable(name)) needed.add("Zone Settings Write");
   }
   if (targets.has("cloudflare-container"))
     needed.add("Workers Containers Write");
-  // Every environment but production deploys like staging: `preview`, `live` and each preview inherit its access.
-  const like = name === "production" ? "production" : "staging";
-  if (accessFor(context.config, like))
-    for (const permission of accessPermissions) needed.add(permission);
   // Creating a Web Analytics site takes Write, but reading it back takes Read: Write does not include it.
   if (
     (name === "staging" || name === "production") &&
@@ -232,7 +229,7 @@ export const cloudflare: Check = async (context) => {
     );
   }
 
-  let accessGranted = true;
+  let accessScope: "zone" | "account" | undefined = "zone";
   const token = await get<{ policies?: Policy[] }>(
     context,
     `${tokens}/${verified.body.result.id}`,
@@ -253,15 +250,25 @@ export const cloudflare: Check = async (context) => {
       account: io.env.CLOUDFLARE_ACCOUNT_ID ?? "",
       zone: io.env.CLOUDFLARE_ZONE_ID ?? "",
     };
+    // A public environment works without Access; an environment made private with turbo-vibe 1.0 has it on the account.
     const checkable = requiredPermissions(context).filter(
-      (permission) => ids.account || zoneScoped.has(permission),
+      (permission) =>
+        (ids.account || zoneScoped.has(permission)) &&
+        (permission !== accessPermission ||
+          accessFor(config, context.environment)),
     );
-    accessGranted = accessPermissions.every((permission) =>
-      granted(policies, permission, ids),
-    );
+    accessScope = granted(policies, accessPermission, ids)
+      ? "zone"
+      : ids.account && granted(policies, accessPermission, ids, false)
+        ? "account"
+        : undefined;
     for (const permission of checkable) {
       findings.push(
-        granted(policies, permission, ids)
+        (
+          permission === accessPermission
+            ? accessScope
+            : granted(policies, permission, ids)
+        )
           ? ok("cloudflare", `CLOUDFLARE_API_TOKEN has ${permission}`)
           : fail(
               "cloudflare",
@@ -273,15 +280,14 @@ export const cloudflare: Check = async (context) => {
   }
 
   // Without these permissions the probe fails anyway, and blaming Zero Trust would mislead.
-  if (
-    io.env.CLOUDFLARE_ACCOUNT_ID &&
-    accessFor(config, context.environment) &&
-    accessGranted
-  ) {
-    const apps = await get<unknown[]>(
-      context,
-      `/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}/access/apps`,
-    );
+  const appsPath =
+    accessScope === "zone" && io.env.CLOUDFLARE_ZONE_ID
+      ? `/zones/${io.env.CLOUDFLARE_ZONE_ID}/access/apps`
+      : accessScope === "account" && io.env.CLOUDFLARE_ACCOUNT_ID
+        ? `/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}/access/apps`
+        : undefined;
+  if (appsPath && accessFor(config, context.environment)) {
+    const apps = await get<unknown[]>(context, appsPath);
     findings.push(
       apps.body?.success
         ? ok(

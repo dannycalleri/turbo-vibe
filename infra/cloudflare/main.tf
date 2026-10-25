@@ -79,8 +79,14 @@ resource "cloudflare_zone_setting" "always_use_https" {
   value      = "on"
 }
 
+locals {
+  access_on_account = var.access == null ? false : var.access.on_account
+  access_on_zone    = var.access != null && !local.access_on_account
+}
+
+# An environment made private with turbo-vibe 1.0 keeps these account-level resources, so upgrading deletes nothing.
 resource "cloudflare_zero_trust_access_service_token" "smoke" {
-  count = var.access == null ? 0 : 1
+  count = local.access_on_account ? 1 : 0
 
   account_id = var.account_id
   name       = "${var.access.name}-smoke"
@@ -88,7 +94,7 @@ resource "cloudflare_zero_trust_access_service_token" "smoke" {
 }
 
 resource "cloudflare_zero_trust_access_policy" "people" {
-  count = var.access == null ? 0 : 1
+  count = local.access_on_account ? 1 : 0
 
   account_id = var.account_id
   name       = "${var.access.name} people"
@@ -97,7 +103,7 @@ resource "cloudflare_zero_trust_access_policy" "people" {
 }
 
 resource "cloudflare_zero_trust_access_policy" "smoke" {
-  count = var.access == null ? 0 : 1
+  count = local.access_on_account ? 1 : 0
 
   account_id = var.account_id
   name       = "${var.access.name} smoke test"
@@ -106,7 +112,7 @@ resource "cloudflare_zero_trust_access_policy" "smoke" {
 }
 
 resource "cloudflare_zero_trust_access_application" "this" {
-  count = var.access == null ? 0 : 1
+  count = local.access_on_account ? 1 : 0
 
   account_id       = var.account_id
   name             = var.access.name
@@ -118,6 +124,45 @@ resource "cloudflare_zero_trust_access_application" "this" {
     { id = cloudflare_zero_trust_access_policy.smoke[0].id, precedence = 1 },
     { id = cloudflare_zero_trust_access_policy.people[0].id, precedence = 2 },
   ]
+}
+
+# On the zone, so the CI token needs Access permissions on this zone only.
+resource "cloudflare_zero_trust_access_application" "zone" {
+  count = local.access_on_zone ? 1 : 0
+
+  zone_id          = var.zone_id
+  name             = var.access.name
+  type             = "self_hosted"
+  domain           = var.access.domains[0]
+  destinations     = [for domain in var.access.domains : { type = "public", uri = domain }]
+  session_duration = "24h"
+  policies = [{
+    name       = "${var.access.name} people"
+    decision   = "allow"
+    precedence = 1
+    include    = [for email in var.access.emails : { email = { email = email } }]
+  }]
+}
+
+# The smoke test's probes skip the login: an Access service token needs an account-wide permission.
+resource "cloudflare_zero_trust_access_application" "probes" {
+  count = local.access_on_zone ? 1 : 0
+
+  zone_id = var.zone_id
+  name    = "${var.access.name} smoke"
+  type    = "self_hosted"
+  domain  = "${var.access.domains[0]}${var.access.public_paths[0]}"
+  destinations = flatten([
+    for domain in var.access.domains : [
+      for path in var.access.public_paths : { type = "public", uri = "${domain}${path}" }
+    ]
+  ])
+  policies = [{
+    name       = "${var.access.name} smoke"
+    decision   = "bypass"
+    precedence = 1
+    include    = [{ everyone = {} }]
+  }]
 }
 
 # Not auto_install: Cloudflare does not document it for Workers static assets, and it would count every hostname in the zone.

@@ -28,9 +28,11 @@ variable "always_use_https" {
 
 variable "access" {
   type = object({
-    name    = string
-    domains = list(string)
-    emails  = list(string)
+    name         = string
+    domains      = list(string)
+    emails       = list(string)
+    public_paths = list(string)
+    on_account   = optional(bool, false)
   })
   default = null
 }

@@ -852,7 +852,36 @@ describe("smoke", () => {
           : "{}",
     }));
 
-  it("passes Cloudflare Access with the environment's service token when staging is private", async () => {
+  it("passes a private staging without an Access credential, through the public probe paths", async () => {
+    const r2 = fakeR2(seeded(record({ smoke: "pending" })));
+    const seen: (string | null)[] = [];
+    const { code } = await run(
+      [
+        "smoke",
+        "--env",
+        "staging",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      { "turbo-vibe.yaml": privateProject },
+      stateEnv,
+      undefined,
+      r2.fetch((url, { headers }) => {
+        seen.push(headers.get("cf-access-client-id"));
+        return serving("abc1230000000000000000000000000000000000")(url);
+      }),
+      {
+        capture: tofuOutputs({
+          access_client_id: null,
+          access_client_secret: null,
+        }),
+      },
+    );
+    expect(code).toBe(0);
+    expect(seen).toEqual([null, null]);
+  });
+
+  it("passes Access with the service token of a staging made private with turbo-vibe 1.0", async () => {
     const r2 = fakeR2(seeded(record({ smoke: "pending" })));
     const seen: (string | null)[] = [];
     const { code } = await run(
@@ -884,28 +913,6 @@ describe("smoke", () => {
       "client.access/client-secret",
       "client.access/client-secret",
     ]);
-  });
-
-  it("fails a private environment's smoke test before any request when its service token is missing", async () => {
-    const r2 = fakeR2(seeded(record({ smoke: "pending" })));
-    const { code, stderr } = await run(
-      [
-        "smoke",
-        "--env",
-        "staging",
-        "--build-id",
-        "abc1230000000000000000000000000000000000",
-      ],
-      { "turbo-vibe.yaml": privateProject },
-      stateEnv,
-      undefined,
-      r2.fetch(serving("abc1230000000000000000000000000000000000")),
-      { capture: tofuOutputs({}) },
-    );
-    expect(code).toBe(1);
-    expect(stderr).toBe(
-      "staging is private, but its Access service token is not in the infrastructure outputs; run apply first\n",
-    );
   });
 
   it("records a failing staging build and names both build IDs", async () => {

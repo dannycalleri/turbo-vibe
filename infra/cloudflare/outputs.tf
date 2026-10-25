@@ -2,12 +2,16 @@ output "workers" {
   value = { for name, worker in cloudflare_worker.this : name => worker.id }
 }
 
+output "access_on_account" {
+  value = local.access_on_account
+}
+
 output "access_client_id" {
-  value = var.access == null ? null : cloudflare_zero_trust_access_service_token.smoke[0].client_id
+  value = local.access_on_account ? cloudflare_zero_trust_access_service_token.smoke[0].client_id : null
 }
 
 output "access_client_secret" {
-  value     = var.access == null ? null : cloudflare_zero_trust_access_service_token.smoke[0].client_secret
+  value     = local.access_on_account ? cloudflare_zero_trust_access_service_token.smoke[0].client_secret : null
   sensitive = true
 }
 

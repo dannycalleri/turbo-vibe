@@ -145,6 +145,7 @@ describe("checks are limited to what the project uses", () => {
       "DNS Write",
       "Workers Scripts Write",
       "Workers Routes Write",
+      "Access: Apps and Policies Write",
       "Zone Settings Write",
       "Workers Containers Write",
     ]);
@@ -245,14 +246,25 @@ describe("against recorded fakes", () => {
   };
   const envelope = (result: unknown) =>
     HttpResponse.json({ success: true, errors: [], result });
-  type Grant = { name: string; zone?: string; effect?: "allow" | "deny" };
-  function policy({ name, zone = "zone456", effect = "allow" }: Grant) {
+  type Grant = {
+    name: string;
+    zone?: string;
+    effect?: "allow" | "deny";
+    account?: boolean;
+  };
+  function policy({
+    name,
+    zone = "zone456",
+    effect = "allow",
+    account = false,
+  }: Grant) {
     return {
       effect,
       permission_groups: [{ name }],
-      resources: zoneScoped.has(name)
-        ? { [`com.cloudflare.api.account.zone.${zone}`]: "*" }
-        : { "com.cloudflare.api.account.acc123": "*" },
+      resources:
+        zoneScoped.has(name) && !account
+          ? { [`com.cloudflare.api.account.zone.${zone}`]: "*" }
+          : { "com.cloudflare.api.account.acc123": "*" },
     };
   }
   function cloudflareApi({
@@ -321,6 +333,7 @@ describe("against recorded fakes", () => {
           ...[dns].flat(),
           "Workers Scripts Write",
           "Workers Routes Write",
+          "Access: Apps and Policies Write",
           "Zone Settings Write",
           "Workers Containers Write",
         ],
@@ -340,6 +353,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Access: Apps and Policies Write",
         "Workers Containers Write",
       ],
     });
@@ -360,6 +374,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Access: Apps and Policies Write",
         "Workers Containers Write",
       ],
     });
@@ -410,14 +425,13 @@ describe("against recorded fakes", () => {
       "DNS Write",
       "Workers Scripts Write",
       "Workers Routes Write",
-      "Zone Settings Write",
       "Access: Apps and Policies Write",
-      "Access: Service Tokens Write",
+      "Zone Settings Write",
     ];
     const zeroTrust = (enabled: boolean) =>
       server.use(
         http.get(
-          "https://api.cloudflare.com/client/v4/accounts/acc123/access/apps",
+          "https://api.cloudflare.com/client/v4/zones/zone456/access/apps",
           () =>
             enabled
               ? envelope([])
@@ -428,20 +442,50 @@ describe("against recorded fakes", () => {
         ),
       );
 
-    it("asks for the Access permissions", () => {
+    it("asks every token for Access on the zone, private or not", () => {
       expect(requiredPermissions(privateContext())).toEqual(granted);
-    });
-
-    it("asks a public production token for no Access permission while staging is private", () => {
       expect(
         requiredPermissions({ ...privateContext(), environment: "production" }),
-      ).not.toContain("Access: Apps and Policies Write");
-      expect(
-        requiredPermissions({
-          ...privateContext(),
-          githubEnvironment: "preview",
-        }),
       ).toContain("Access: Apps and Policies Write");
+      expect(zoneScoped.has("Access: Apps and Policies Write")).toBe(true);
+      expect(requiredPermissions(privateContext())).not.toContain(
+        "Access: Service Tokens Write",
+      );
+    });
+
+    it("accepts Access on the account, as turbo-vibe 1.0 granted it, and probes Zero Trust there", async () => {
+      cloudflareApi({
+        permissions: [
+          ...granted.filter(
+            (permission) => permission !== "Access: Apps and Policies Write",
+          ),
+          { name: "Access: Apps and Policies Write", account: true },
+        ],
+      });
+      server.use(
+        http.get(
+          "https://api.cloudflare.com/client/v4/accounts/acc123/access/apps",
+          () => envelope([]),
+        ),
+      );
+      const findings = await cloudflare(privateContext());
+      expect(findings.every((finding) => finding.severity === "ok")).toBe(true);
+      expect(findings.map((finding) => finding.message)).toContain(
+        "Zero Trust is enabled, so Access can keep staging private",
+      );
+    });
+
+    it("does not ask a public environment's token for Access", async () => {
+      cloudflareApi({
+        permissions: granted.filter(
+          (permission) => permission !== "Access: Apps and Policies Write",
+        ),
+      });
+      const findings = await cloudflare({
+        ...privateContext(),
+        environment: "production",
+      });
+      expect(findings.every((finding) => finding.severity === "ok")).toBe(true);
     });
 
     it("confirms Zero Trust is enabled", async () => {
@@ -454,15 +498,18 @@ describe("against recorded fakes", () => {
       );
     });
 
-    it("names the missing Access permissions without blaming Zero Trust", async () => {
-      cloudflareApi({ permissions: granted.slice(0, 4) });
+    it("names the missing Access permission without blaming Zero Trust", async () => {
+      cloudflareApi({
+        permissions: granted.filter(
+          (permission) => permission !== "Access: Apps and Policies Write",
+        ),
+      });
       zeroTrust(false);
       const messages = (await cloudflare(privateContext()))
         .filter((finding) => finding.severity === "fail")
         .map((finding) => finding.message);
       expect(messages).toEqual([
-        "CLOUDFLARE_API_TOKEN lacks Access: Apps and Policies Write",
-        "CLOUDFLARE_API_TOKEN lacks Access: Service Tokens Write",
+        "CLOUDFLARE_API_TOKEN lacks Access: Apps and Policies Write on turbovibe.ai",
       ]);
     });
 
@@ -490,6 +537,7 @@ describe("against recorded fakes", () => {
       permissions: [
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Access: Apps and Policies Write",
         "Zone Settings Write",
         "Workers Containers Write",
       ],
@@ -511,6 +559,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Access: Apps and Policies Write",
         "Zone Settings Write",
         "Workers Containers Write",
       ],
@@ -529,6 +578,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Access: Apps and Policies Write",
         "Zone Settings Write",
         "Workers Containers Write",
       ],
@@ -547,6 +597,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Access: Apps and Policies Write",
         "Zone Settings Write",
         "Cloudchamber Write",
       ],
@@ -590,6 +641,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Access: Apps and Policies Write",
         "Zone Settings Write",
         "Workers Containers Write",
       ],
@@ -609,6 +661,7 @@ describe("against recorded fakes", () => {
         "DNS Write",
         "Workers Scripts Write",
         "Workers Routes Write",
+        "Access: Apps and Policies Write",
         "Zone Settings Write",
         "Workers Containers Write",
       ],
