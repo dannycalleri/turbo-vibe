@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import {
@@ -15,13 +18,13 @@ import {
   requiredPermissions,
   zoneScoped,
 } from "../src/checks/cloudflare.js";
-import { localTools } from "../src/checks/local.js";
+import { localTools, npmLockfile } from "../src/checks/local.js";
 import { stateBucket } from "../src/checks/state.js";
 import type { CheckContext, Finding } from "../src/checks/types.js";
 import { fail, ok, warn } from "../src/checks/types.js";
 import { github, supabase, vercel, workos } from "../src/checks/vendors.js";
 import { parseConfig } from "../src/config/load.js";
-import type { Config } from "../src/config/schema.js";
+import type { Config, EnvironmentName } from "../src/config/schema.js";
 import type { Io } from "../src/io.js";
 
 function config(services: string): Config {
@@ -152,20 +155,26 @@ describe("check", () => {
   const io = context(container).io;
   it("exits non-zero when any check fails", async () => {
     const { check } = await import("../src/check.js");
-    const code = await check(config(container), "staging", io, "24.12.0", [
-      async () => [
-        ok("node", "Node 24"),
-        fail("cloudflare", "token lacks DNS Write", "add it"),
+    const code = await check(config(container), "staging", io, {
+      nodeVersion: "24.12.0",
+      checks: [
+        async () => [
+          ok("node", "Node 24"),
+          fail("cloudflare", "token lacks DNS Write", "add it"),
+        ],
       ],
-    ]);
+    });
     expect(code).toBe(1);
   });
 
   it("exits zero when nothing fails, warnings included", async () => {
     const { check } = await import("../src/check.js");
-    const code = await check(config(container), "staging", io, "24.12.0", [
-      async () => [ok("node", "Node 24"), warn("vercel", "Hobby plan")],
-    ]);
+    const code = await check(config(container), "staging", io, {
+      nodeVersion: "24.12.0",
+      checks: [
+        async () => [ok("node", "Node 24"), warn("vercel", "Hobby plan")],
+      ],
+    });
     expect(code).toBe(0);
   });
 });
@@ -1172,5 +1181,135 @@ describe("against recorded fakes", () => {
         ],
       ]);
     });
+  });
+});
+
+describe("npmLockfile", () => {
+  const site = (command: string) =>
+    `  web:\n    kind: frontend\n    target: cloudflare-static\n    build: { command: "${command}", output: dist }\n`;
+  const npm = (code: number, stdout: string) =>
+    vi.fn(async () => ({ code, stdout }));
+  async function lockfileCheck(
+    capture: Io["capture"],
+    {
+      lockfile = true,
+      environment = "staging",
+    }: { lockfile?: boolean; environment?: EnvironmentName } = {},
+  ) {
+    const configDir = await mkdtemp(join(tmpdir(), "turbo-vibe-lockfile-"));
+    if (lockfile) await writeFile(join(configDir, "package-lock.json"), "{}");
+    const base = context(site("npm ci && npm run build"), {}, { capture });
+    return npmLockfile({ ...base, environment, configDir });
+  }
+
+  it("passes when npm ci accepts the lockfile, asking npm without installing", async () => {
+    const capture = npm(0, '{"add":[]}');
+    const findings = await lockfileCheck(capture);
+    expect(findings).toEqual([
+      ok("lockfile", "web: npm ci accepts the lockfile in ."),
+    ]);
+    expect(capture).toHaveBeenCalledWith(
+      "npm",
+      [
+        "ci",
+        "--dry-run",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        "--json",
+      ],
+      expect.objectContaining({ quiet: true }),
+    );
+  });
+
+  it("fails when npm ci refuses a lockfile that does not match package.json", async () => {
+    const findings = await lockfileCheck(
+      npm(1, '{"error":{"code":"EUSAGE","summary":"not in sync"}}'),
+    );
+    expect(findings).toEqual([
+      fail(
+        "lockfile",
+        "web: npm ci refuses the lockfile in ., which does not match package.json",
+        "run npm install in . and commit package-lock.json",
+      ),
+    ]);
+  });
+
+  it("asks npm when the lockfile sits in a workspace root above build.root", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "turbo-vibe-lockfile-"));
+    await writeFile(join(configDir, "package-lock.json"), "{}");
+    const capture = npm(0, '{"add":[]}');
+    const base = context(
+      '  web:\n    kind: frontend\n    target: vercel-nextjs\n    build: { command: "npm ci", root: apps/web }\n',
+      {},
+      { capture },
+    );
+    const findings = await npmLockfile({ ...base, configDir });
+    expect(findings).toEqual([
+      ok("lockfile", "web: npm ci accepts the lockfile in apps/web"),
+    ]);
+    expect(capture).toHaveBeenCalledWith(
+      "npm",
+      expect.anything(),
+      expect.objectContaining({ cwd: join(configDir, "apps/web") }),
+    );
+  });
+
+  it("does not look above a build.root outside the config folder", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "turbo-vibe-lockfile-"));
+    await writeFile(join(parent, "package-lock.json"), "{}");
+    const capture = npm(0, "");
+    const base = context(
+      '  web:\n    kind: frontend\n    target: vercel-nextjs\n    build: { command: "npm ci", root: ../site-web }\n',
+      {},
+      { capture },
+    );
+    const findings = await npmLockfile({
+      ...base,
+      configDir: join(parent, "site"),
+    });
+    expect(findings[0]?.message).toContain("has no package-lock.json");
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("fails without asking npm when there is no lockfile", async () => {
+    const capture = npm(0, "");
+    const findings = await lockfileCheck(capture, { lockfile: false });
+    expect(findings[0]?.severity).toBe("fail");
+    expect(findings[0]?.message).toContain("has no package-lock.json");
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("only warns when npm cannot answer, such as without a network or without npm", async () => {
+    const offline = await lockfileCheck(
+      npm(1, '{"error":{"code":"ENOTCACHED"}}'),
+    );
+    expect(offline[0]?.severity).toBe("warn");
+    expect(offline[0]?.message).toContain("(ENOTCACHED)");
+    const missing = await lockfileCheck(
+      vi.fn(async () => {
+        throw new Error("spawn npm ENOENT");
+      }),
+    );
+    expect(missing[0]?.severity).toBe("warn");
+  });
+
+  it("skips production, which deploys staging's build", async () => {
+    const capture = npm(0, "");
+    expect(await lockfileCheck(capture, { environment: "production" })).toEqual(
+      [],
+    );
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("runs only for a frontend that installs with npm ci", () => {
+    expect(checksFor(config(site("npm ci && npm run build")))).toContain(
+      npmLockfile,
+    );
+    expect(
+      checksFor(
+        config(site("corepack enable && pnpm install --frozen-lockfile")),
+      ),
+    ).not.toContain(npmLockfile);
   });
 });

@@ -1,6 +1,6 @@
 import { adapterFor } from "./adapters/index.js";
 import { cloudflare } from "./checks/cloudflare.js";
-import { localTools } from "./checks/local.js";
+import { installsWithNpmCi, localTools, npmLockfile } from "./checks/local.js";
 import { stateBucket } from "./checks/state.js";
 import type { Check, CheckContext, Finding } from "./checks/types.js";
 import { fail } from "./checks/types.js";
@@ -21,6 +21,12 @@ export function checksFor(config: Config): Check[] {
     ...(secrets.has("SUPABASE_ACCESS_TOKEN") ? [supabase] : []),
     ...(secrets.has("WORKOS_API_KEY") ? [workos] : []),
     ...(secrets.has("VERCEL_API_TOKEN") ? [vercel] : []),
+    ...(Object.values(config.services).some(
+      (service) =>
+        service.kind === "frontend" && installsWithNpmCi(service.build.command),
+    )
+      ? [npmLockfile]
+      : []),
     github,
   ];
 }
@@ -75,14 +81,22 @@ export async function check(
   config: Config,
   environment: EnvironmentName,
   io: Io,
-  nodeVersion = process.versions.node,
-  checks: readonly Check[] = checksFor(config),
+  {
+    nodeVersion = process.versions.node,
+    checks = checksFor(config),
+    configDir,
+  }: {
+    nodeVersion?: string;
+    checks?: readonly Check[];
+    configDir?: string;
+  } = {},
 ): Promise<number> {
   const findings = await runChecks(checks, {
     config,
     environment,
     io,
     nodeVersion,
+    ...(configDir ? { configDir } : {}),
   });
   io.stdout(formatFindings(environment, findings));
   return findings.some((finding) => finding.severity === "fail") ? 1 : 0;

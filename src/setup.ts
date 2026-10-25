@@ -34,6 +34,7 @@ export interface SetupOptions {
   env: readonly string[];
   repo?: string;
   replace?: readonly string[];
+  configDir?: string;
 }
 
 export function defaultEnvironments(config: Config): string[] {
@@ -472,6 +473,7 @@ async function verify(
   { entered, kept }: Stored,
   github: Record<string, string>,
   io: Io,
+  configDir?: string,
 ): Promise<boolean> {
   const secrets = new Set(environmentSecrets(config, kindOf(environment)));
   // The shell can hold its own values for these names; the checks must see only what this run stored.
@@ -489,6 +491,7 @@ async function verify(
       githubEnvironment: environment,
       io: { ...io, env },
       nodeVersion: process.versions.node,
+      ...(configDir ? { configDir } : {}),
     })
   ).flatMap((finding) => withoutKept(finding, kept) ?? []);
   io.stdout(formatFindings(environment, findings));
@@ -670,6 +673,8 @@ async function runSetup(
   };
   let ready = true;
   for (const [name, result] of stored)
-    ready = (await verify(config, name, result, github, io)) && ready;
+    ready =
+      (await verify(config, name, result, github, io, options.configDir)) &&
+      ready;
   return ready ? 0 : 1;
 }

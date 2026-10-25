@@ -221,7 +221,10 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     .addOption(environmentOption())
     .action(async (options: { env: EnvironmentName }) => {
       const project = await loadProject();
-      if (project) exitCode = await check(project.config, options.env, io);
+      if (project)
+        exitCode = await check(project.config, options.env, io, {
+          configDir: project.configDir,
+        });
     });
 
   program
@@ -253,7 +256,12 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
         if (!project) return;
         const env = options.env ?? defaultEnvironments(project.config);
         if (options.list) io.stdout(setupSteps(project.config, env));
-        else exitCode = await setup(project.config, { ...options, env }, io);
+        else
+          exitCode = await setup(
+            project.config,
+            { ...options, env, configDir: project.configDir },
+            io,
+          );
       },
     );
 

@@ -18,6 +18,7 @@ export interface CheckContext {
   githubEnvironment?: string;
   io: Io;
   nodeVersion: string;
+  configDir?: string;
 }
 
 export type Check = (context: CheckContext) => Promise<Finding[]>;
