@@ -60,7 +60,7 @@ export function setupSteps(
     `Enable R2 once on the account: ${cloudflareDashboard}/r2/overview`,
     ...(hasPrivateEnvironment(config)
       ? [
-          `Enable Zero Trust once, for the private environments: open ${zeroTrustPage}, choose a team name and the Free plan (it asks for payment details but does not charge)`,
+          `If Zero Trust is not on yet, enable it once for the private environments: open ${zeroTrustPage}, choose a team name and the Free plan (it asks for payment details but does not charge); the checks at the end of setup say whether it is on`,
         ]
       : []),
     "If setup adds the zone to Cloudflare, set the zone's nameservers at your registrar when it prints them; that moves DNS for the whole zone",

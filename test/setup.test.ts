@@ -2120,7 +2120,7 @@ describe("setup on re-runs and other environments", () => {
 });
 
 describe("setup --list", () => {
-  it("asks the person to enable Zero Trust once when an environment is private", async () => {
+  it("names the Zero Trust step for a private environment, only for when it is not on yet", async () => {
     const result = await run(["setup", "--list"], {
       "turbo-vibe.yaml": project.replace(
         "services:",
@@ -2129,7 +2129,7 @@ describe("setup --list", () => {
     });
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "Enable Zero Trust once, for the private environments: open https://one.dash.cloudflare.com/, choose a team name and the Free plan",
+      "If Zero Trust is not on yet, enable it once for the private environments: open https://one.dash.cloudflare.com/, choose a team name and the Free plan (it asks for payment details but does not charge); the checks at the end of setup say whether it is on",
     );
   });
 
