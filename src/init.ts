@@ -375,27 +375,62 @@ export async function init(
   if (written !== 0) return written;
   if (onlyAssistant || !parsed?.ok) return 0;
   await ignoreWorkingFiles(io);
-  const cli = `npx @turbo-vibe/cli@${cliRange}`;
-  io.stdout(
-    [
-      "",
-      "Next steps:",
-      `  1. Check what each environment runs: ${cli} plan`,
-      `  2. Connect your accounts: ${cli} setup (${cli} setup --list names what you need first: https://github.com/dannycalleri/turbo-vibe/blob/main/docs/bootstrap.md)`,
-      "  3. Commit these files and merge to main: every merge deploys to staging",
-      '  4. To go live, run "Deploy to production" in the Actions tab, type the build ID and approve it',
-      "",
-    ].join("\n"),
-  );
-  if (!io.prompts || !io.ask || !io.askSecret || !(await githubSignedIn(io))) {
+  const { prompts } = io;
+  if (!prompts || !io.ask || !io.askSecret) {
+    io.stdout(nextSteps({ setup: "no terminal" }));
     return 0;
   }
-  const now = await io.prompts.confirm("Set up your accounts now?");
+  if (!(await githubSignedIn(io))) {
+    io.stdout(nextSteps({ setup: "signed out" }));
+    return 0;
+  }
+  const now = await prompts.confirm("Set up your accounts now?");
   if (!now) {
-    io.stdout(`run ${cli} setup when you are ready\n`);
+    io.stdout(nextSteps({ setup: "declined" }));
     return 0;
   }
-  return setup(parsed.config, { env: defaultEnvironments(parsed.config) }, io);
+  const code = await setup(
+    parsed.config,
+    { env: defaultEnvironments(parsed.config) },
+    io,
+  );
+  if (code === 130) return code;
+  io.stdout(nextSteps({ setup: code === 0 ? "ready" : "failed" }));
+  return code;
+}
+
+type SetupOutcome =
+  | "ready"
+  | "failed"
+  | "declined"
+  | "signed out"
+  | "no terminal";
+
+function nextSteps({ setup }: { setup: SetupOutcome }): string {
+  const cli = `npx @turbo-vibe/cli@${cliRange}`;
+  const connect = `Connect your accounts: ${cli} setup (${cli} setup --list names what you need first: https://github.com/dannycalleri/turbo-vibe/blob/main/docs/bootstrap.md)`;
+  const first: Record<SetupOutcome, string[]> = {
+    ready: [],
+    failed: [
+      `Fix what setup reported above, then run ${cli} setup again: it keeps what it stored and checks again (a new zone stays pending until your registrar uses its nameservers)`,
+    ],
+    declined: [connect],
+    "signed out": [
+      `${connect}; it needs a signed-in GitHub CLI, so run gh auth login first`,
+    ],
+    "no terminal": [`${connect}, in a terminal`],
+  };
+  const steps = [
+    ...first[setup],
+    "Commit these files and push to main: every push deploys to staging",
+    'To go live, run "Deploy to production" in the Actions tab, type the build ID and approve it',
+  ];
+  return [
+    "",
+    "Next steps:",
+    ...steps.map((step, index) => `  ${index + 1}. ${step}`),
+    "",
+  ].join("\n");
 }
 
 const workingFolder = ".turbo-vibe/";
