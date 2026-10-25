@@ -26,7 +26,7 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
 
    Page: [create the bootstrap token](https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B%22key%22%3A%22account_api_tokens%22%2C%22type%22%3A%22edit%22%7D%5D&name=turbo-vibe%20bootstrap). Permissions: Account API Tokens: Edit, and nothing else; setup creates every other token from it.
 
-   `setup` asks for the token, uses it, and offers to delete it at the end. A later run that has to create a Cloudflare token asks for a bootstrap token again: a new environment, `--replace` of a Cloudflare secret, or a Cloudflare secret deleted from GitHub. Create a new one the same way.
+   `setup` asks for the token, uses it, and offers to delete it at the end. A later run that has to create or change a Cloudflare token asks for a bootstrap token again: a new environment, `--replace` of a Cloudflare secret, a Cloudflare secret deleted from GitHub, or a yes to "Add missing permissions to the Cloudflare CI tokens?". Create a new one the same way.
 6. `setup` reads the account from the bootstrap token. It asks which one only when the token sees more than one account.
 
 From the bootstrap token, `setup`:
