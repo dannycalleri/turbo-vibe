@@ -79,7 +79,7 @@ describe("configFor", () => {
   });
 
   it("marks every placeholder it fills in", () => {
-    const text = configFor(answers({ database: "supabase" }));
+    const text = configFor(answers({ database: "supabase", lockfile: "npm" }));
     for (const line of [
       "command: npm ci && npm run build",
       "output: dist",
@@ -87,6 +87,35 @@ describe("configFor", () => {
     ]) {
       expect(text.split("\n").find((row) => row.includes(line))).toContain("#");
     }
+  });
+
+  it.each([
+    ["npm", "npm ci && npm run build"],
+    [
+      "pnpm",
+      "corepack enable && pnpm install --frozen-lockfile && pnpm run build",
+    ],
+    ["yarn", "yarn install --frozen-lockfile && yarn build"],
+    ["bun", "npm install && npm run build   # a default: CI has no bun"],
+    [
+      undefined,
+      "npm install && npm run build   # a default: commit a lockfile",
+    ],
+  ] as const)(
+    "builds a static frontend for a %s lockfile",
+    (lockfile, command) => {
+      const text = configFor(answers({ ...(lockfile ? { lockfile } : {}) }));
+      expect(text).toContain(`      command: ${command}`);
+    },
+  );
+
+  it("installs a Next.js app with its lockfile's tool", () => {
+    const text = configFor(
+      answers({ frontend: "vercel-nextjs", lockfile: "pnpm" }),
+    );
+    expect(text).toContain(
+      "      command: corepack enable && pnpm install --frozen-lockfile\n",
+    );
   });
 
   it("takes a three-label domain as a subdomain, so a multi-part apex such as example.co.uk needs its hostnames edited", () => {
@@ -145,6 +174,31 @@ describe("turbo-vibe init", () => {
     expect(
       await readFile(join(cwd, ".github/workflows/production.yml"), "utf8"),
     ).toContain("workflow_dispatch");
+  });
+
+  it("reads the lockfile without a terminal too", async () => {
+    const { cwd } = await run(
+      [
+        "init",
+        "--name",
+        "shop",
+        "--domain",
+        "shop.example.com",
+        "--backend",
+        "none",
+        "--frontend",
+        "cloudflare-static",
+        "--database",
+        "none",
+        "--identity",
+        "none",
+        "--no-assistant",
+      ],
+      { "package.json": "{}", "yarn.lock": "" },
+    );
+    expect(await readFile(join(cwd, "turbo-vibe.yaml"), "utf8")).toContain(
+      "command: yarn install --frozen-lockfile && yarn build",
+    );
   });
 
   it("ignores its working folder in git, creating .gitignore when missing", async () => {

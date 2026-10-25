@@ -12,7 +12,12 @@ import {
 import { schemaUrl } from "./config/json-schema.js";
 import { parseConfig } from "./config/load.js";
 import { hostname, name } from "./config/schema.js";
-import { type Defaults, detectProject, readRepository } from "./detect.js";
+import {
+  type Defaults,
+  detectProject,
+  type Lockfile,
+  readRepository,
+} from "./detect.js";
 import type { Choice, Io } from "./io.js";
 import { defaultEnvironments, githubSignedIn, setup } from "./setup.js";
 import { cliRange, version, workflowRef } from "./version.js";
@@ -32,6 +37,32 @@ export interface Answers {
   database: (typeof choices.database)[number];
   identity: (typeof choices.identity)[number];
   assistant: readonly AssistantName[];
+  lockfile?: Lockfile;
+}
+
+function buildSteps(lockfile: Lockfile | undefined) {
+  if (lockfile === "pnpm")
+    return {
+      install: "corepack enable && pnpm install --frozen-lockfile",
+      build: "pnpm run build",
+      note: "a default: your build command",
+    };
+  if (lockfile === "yarn")
+    return {
+      install: "yarn install --frozen-lockfile",
+      build: "yarn build",
+      note: "a default: your build command",
+    };
+  return {
+    install: lockfile === "npm" ? "npm ci" : "npm install",
+    build: "npm run build",
+    note:
+      lockfile === "npm"
+        ? "a default: your build command"
+        : lockfile === "bun"
+          ? "a default: CI has no bun, so npm installs from package.json"
+          : "a default: commit a lockfile, then use npm ci",
+  };
 }
 
 function sibling(prefix: string, hostname: string, apex: boolean): string {
@@ -45,6 +76,7 @@ export function configFor(answers: Answers): string {
   const staging = sibling("staging", answers.domain, apex);
   const crossOrigin =
     answers.backend !== "none" && answers.frontend.startsWith("vercel-");
+  const steps = buildSteps(answers.lockfile);
   const lines = [
     `# yaml-language-server: $schema=${schemaUrl(cliRange)}`,
     "version: 1",
@@ -81,7 +113,7 @@ export function configFor(answers: Answers): string {
       "    kind: frontend",
       "    target: vercel-nextjs",
       "    build:",
-      "      command: npm ci",
+      `      command: ${steps.install}`,
     );
   } else if (answers.frontend !== "none") {
     lines.push(
@@ -92,7 +124,7 @@ export function configFor(answers: Answers): string {
         ? ["    serve_with: api"]
         : []),
       "    build:",
-      "      command: npm ci && npm run build   # a default: your build command",
+      `      command: ${steps.install} && ${steps.build}   # ${steps.note}`,
       "      output: dist   # a default: your build's output directory",
     );
   }
@@ -214,7 +246,7 @@ async function resolveAssistants(
 
 const cancelled = "cancelled; nothing was written";
 
-type Question = Exclude<keyof Answers, "assistant">;
+type Question = Exclude<keyof Answers, "assistant" | "lockfile">;
 type Target = Exclude<Question, "name" | "domain">;
 
 const textQuestions = {
@@ -297,7 +329,7 @@ async function askFor(
 }
 
 export async function init(
-  given: Partial<Record<Exclude<keyof Answers, "assistant">, string>>,
+  given: Partial<Record<Question, string>>,
   {
     force,
     onlyAssistant = false,
@@ -318,9 +350,10 @@ export async function init(
       return 1;
     }
   }
+  const repository = onlyAssistant ? undefined : await readRepository(io.cwd);
   const defaults =
-    io.prompts && asked.some((key) => !answers[key])
-      ? detectProject(await readRepository(io.cwd))
+    repository && io.prompts && asked.some((key) => !answers[key])
+      ? detectProject(repository)
       : {};
   for (const key of asked) {
     if (answers[key]) continue;
@@ -364,7 +397,11 @@ export async function init(
   }
   const files = onlyAssistant
     ? assistantFiles(assistant, version)
-    : filesFor({ ...(answers as Omit<Answers, "assistant">), assistant });
+    : filesFor({
+        ...(answers as Omit<Answers, "assistant" | "lockfile">),
+        assistant,
+        ...(repository?.lockfile ? { lockfile: repository.lockfile } : {}),
+      });
   const config = files["turbo-vibe.yaml"];
   const parsed = config === undefined ? undefined : parseConfig(config);
   if (parsed && !parsed.ok) {

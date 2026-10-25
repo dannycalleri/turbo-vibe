@@ -2,8 +2,20 @@ import { readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { Answers } from "./init.js";
 
+export type Lockfile = "npm" | "pnpm" | "yarn" | "bun";
+
+const lockfiles: [string, Lockfile][] = [
+  ["package-lock.json", "npm"],
+  ["npm-shrinkwrap.json", "npm"],
+  ["pnpm-lock.yaml", "pnpm"],
+  ["yarn.lock", "yarn"],
+  ["bun.lock", "bun"],
+  ["bun.lockb", "bun"],
+];
+
 export interface Repository {
   folder: string;
+  lockfile?: Lockfile;
   packageJson?: string;
   goMod?: string;
   dockerfile: boolean;
@@ -71,14 +83,18 @@ export async function readRepository(cwd: string): Promise<Repository> {
       () => true,
       () => false,
     );
-  const [packageJson, goMod, dockerfile, supabase] = await Promise.all([
-    text("package.json"),
-    text("go.mod"),
-    exists("Dockerfile"),
-    exists("supabase"),
-  ]);
+  const [packageJson, goMod, dockerfile, supabase, ...locks] =
+    await Promise.all([
+      text("package.json"),
+      text("go.mod"),
+      exists("Dockerfile"),
+      exists("supabase"),
+      ...lockfiles.map(([name]) => exists(name)),
+    ]);
+  const lockfile = lockfiles.find((_, index) => locks[index])?.[1];
   return {
     folder: basename(cwd),
+    ...(lockfile ? { lockfile } : {}),
     ...(packageJson === undefined ? {} : { packageJson }),
     ...(goMod === undefined ? {} : { goMod }),
     dockerfile,

@@ -1,5 +1,13 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { detectProject, projectName, type Repository } from "../src/detect.js";
+import {
+  detectProject,
+  projectName,
+  type Repository,
+  readRepository,
+} from "../src/detect.js";
 
 const repository = (overrides: Partial<Repository> = {}): Repository => ({
   folder: "shop",
@@ -83,5 +91,22 @@ describe("projectName", () => {
     expect(projectName("2048-game")).toBe("game");
     expect(projectName("123")).toBeUndefined();
     expect(projectName("a".repeat(70))).toHaveLength(63);
+  });
+});
+
+describe("readRepository", () => {
+  it.each([
+    [["package-lock.json"], "npm"],
+    [["npm-shrinkwrap.json"], "npm"],
+    [["pnpm-lock.yaml"], "pnpm"],
+    [["yarn.lock"], "yarn"],
+    [["bun.lock"], "bun"],
+    [["bun.lockb"], "bun"],
+    [["package-lock.json", "yarn.lock"], "npm"],
+    [[], undefined],
+  ])("reads %j as %s", async (files, lockfile) => {
+    const cwd = await mkdtemp(join(tmpdir(), "turbo-vibe-detect-"));
+    for (const file of files) await writeFile(join(cwd, file), "");
+    expect((await readRepository(cwd)).lockfile).toBe(lockfile);
   });
 });
