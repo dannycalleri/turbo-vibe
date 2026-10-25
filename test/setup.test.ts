@@ -49,6 +49,11 @@ function fakeGh({
   const branchRules = new Map<string, string[]>(Object.entries(rules));
   const stored: { env: string; name: string; value: string | undefined }[] = [];
   const capture = vi.fn<Capturer>(async (command, args, options) => {
+    const failed = (stdout: string, error: string) => ({
+      code: 1,
+      stdout,
+      ...(options.quiet ? { stderr: `gh: ${error}\n` } : {}),
+    });
     if (command !== "gh") return { code: 0, stdout: "{}" };
     if (!installed) throw new Error("spawn gh ENOENT");
     const [first, ...rest] = args;
@@ -71,7 +76,10 @@ function fakeGh({
     }
     if (first === "auth" && rest[0] === "token")
       return { code: 0, stdout: "gho_t0ken\n" };
-    if (first === "auth") return { code: signedIn ? 0 : 1, stdout: "" };
+    if (first === "auth")
+      return signedIn
+        ? { code: 0, stdout: "" }
+        : failed("", "You are not logged into any GitHub hosts.");
     if (first === "repo") return { code: 0, stdout: "acme/app\n" };
     if (rest[0] === "user")
       return userReadable
@@ -102,13 +110,16 @@ function fakeGh({
     if (!put) {
       const found = envs.get(name);
       if (found === "unreadable")
-        return { code: 1, stdout: '{"message":"Server Error"}' };
+        return failed('{"message":"Server Error"}', "Server Error (HTTP 500)");
       return found
         ? { code: 0, stdout: JSON.stringify(found) }
-        : { code: 1, stdout: '{"message":"Not Found"}' };
+        : failed('{"message":"Not Found"}', "Not Found (HTTP 404)");
     }
     if (args.some((arg) => arg.startsWith("reviewers")) && refuseReviewers)
-      return { code: 1, stdout: '{"message":"Validation Failed"}' };
+      return failed(
+        '{"message":"Validation Failed"}',
+        "Failed to create the environment protection rule. (HTTP 422)",
+      );
     envs.set(name, {});
     return { code: 0, stdout: "{}" };
   });
@@ -365,6 +376,14 @@ describe("setup", () => {
     const gh = fakeGh({ environments: { staging: {} } });
     const result = await setup([], gh);
     expect(result.code).toBe(0);
+    expect(result.stdout).toContain("github: environment production created");
+    expect(result.stderr).not.toContain("HTTP 404");
+    const secretSets = gh.capture.mock.calls.filter(
+      ([, args]) => args[0] === "secret" && args[1] === "set",
+    );
+    expect(secretSets.length).toBeGreaterThan(0);
+    for (const [, , options] of secretSets)
+      expect(options.quiet).toBeUndefined();
     const writes = gh
       .calls()
       .filter((call) => call.includes("-X PUT") || call.includes("-X POST"));
@@ -444,6 +463,7 @@ describe("setup", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("needs GitHub Enterprise for it");
     expect(result.stdout).toContain("typed build ID");
+    expect(result.stderr).not.toContain("HTTP 422");
     expect(gh.calls()).toContain(
       "api -X PUT repos/acme/app/environments/production -F deployment_branch_policy[protected_branches]=false -F deployment_branch_policy[custom_branch_policies]=true",
     );
@@ -483,6 +503,7 @@ describe("setup", () => {
     expect(result.stderr).toContain(
       "cannot read the GitHub environment production",
     );
+    expect(result.stderr).toContain("gh: Server Error (HTTP 500)\n");
     expect(gh.calls().some((call) => call.includes("-X PUT"))).toBe(false);
   });
 

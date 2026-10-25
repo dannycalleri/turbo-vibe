@@ -72,23 +72,36 @@ async function gh(
   args: readonly string[],
   io: Io,
   input?: string,
+  expected?: RegExp,
 ): Promise<{ code: number; stdout: string } | undefined> {
   try {
-    return await io.capture("gh", args, {
+    const result = await io.capture("gh", args, {
       cwd: io.cwd,
       env: io.env,
       ...(input === undefined ? {} : { input }),
+      ...(expected ? { quiet: true } : {}),
     });
+    if (result.code !== 0 && result.stderr && !expected?.test(result.stderr))
+      io.stderr(result.stderr);
+    return result;
   } catch {
     return undefined;
   }
 }
 
-export const githubSignedIn = async (io: Io) =>
-  (await gh(["auth", "status"], io))?.code === 0;
+const anyError = /[\s\S]/;
+const notFound = /HTTP 404/;
+const refusedByPlan = /HTTP 422/;
 
-async function ghRead<T>(args: readonly string[], io: Io): Promise<Read<T>> {
-  const result = await gh(args, io);
+export const githubSignedIn = async (io: Io) =>
+  (await gh(["auth", "status"], io, undefined, anyError))?.code === 0;
+
+async function ghRead<T>(
+  args: readonly string[],
+  io: Io,
+  expected?: RegExp,
+): Promise<Read<T>> {
+  const result = await gh(args, io, undefined, expected);
   if (result?.code === 0) {
     try {
       return { status: "found", value: JSON.parse(result.stdout) as T };
@@ -221,6 +234,8 @@ async function protect(
       await gh(
         ["api", "-X", "PUT", path, ...settings(existing, reviewers, mainOnly)],
         io,
+        undefined,
+        refusedByPlan,
       )
     )?.code === 0;
   if (reviewer) {
@@ -556,7 +571,7 @@ async function runSetup(
 
   for (const name of options.env) {
     const path = `repos/${repo}/environments/${name}`;
-    let found = await ghRead<GitHubEnvironment>(["api", path], io);
+    let found = await ghRead<GitHubEnvironment>(["api", path], io, notFound);
     if (found.status === "missing") {
       const created = await gh(["api", "-X", "PUT", path], io);
       if (created?.code !== 0) {

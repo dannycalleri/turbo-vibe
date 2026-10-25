@@ -20,21 +20,36 @@ export type Capturer = (
     cwd: string;
     env: Readonly<Record<string, string | undefined>>;
     input?: string;
+    quiet?: boolean;
   },
-) => Promise<{ code: number; stdout: string }>;
+) => Promise<{ code: number; stdout: string; stderr?: string }>;
 
-export const spawnCapturer: Capturer = (command, args, { cwd, env, input }) =>
+export const spawnCapturer: Capturer = (
+  command,
+  args,
+  { cwd, env, input, quiet },
+) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
       env,
-      stdio: [input === undefined ? "ignore" : "pipe", "pipe", "inherit"],
+      stdio: [
+        input === undefined ? "ignore" : "pipe",
+        "pipe",
+        quiet ? "pipe" : "inherit",
+      ],
     });
     if (input !== undefined) child.stdin?.end(input);
     let stdout = "";
+    let stderr = "";
     child.stdout?.setEncoding("utf8").on("data", (chunk: string) => {
       stdout += chunk;
     });
+    child.stderr?.setEncoding("utf8").on("data", (chunk: string) => {
+      stderr += chunk;
+    });
     child.on("error", reject);
-    child.on("close", (code) => resolve({ code: code ?? 1, stdout }));
+    child.on("close", (code) =>
+      resolve({ code: code ?? 1, stdout, ...(quiet ? { stderr } : {}) }),
+    );
   });
