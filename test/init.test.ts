@@ -5,8 +5,15 @@ import { parse } from "yaml";
 import { parseConfig } from "../src/config/load.js";
 import { type Answers, choices, configFor } from "../src/init.js";
 import { derivePlan } from "../src/plan.js";
+import { setup } from "../src/setup.js";
 import { cliRange, version, workflowRef } from "../src/version.js";
 import { fakePrompts, run } from "./harness.js";
+
+const setupCode = vi.hoisted(() => ({ value: 0 }));
+vi.mock("../src/setup.js", async (original) => ({
+  ...(await original<typeof import("../src/setup.js")>()),
+  setup: vi.fn(async () => setupCode.value),
+}));
 
 const answers = (overrides: Partial<Answers> = {}): Answers => ({
   name: "shop",
@@ -184,45 +191,85 @@ describe("turbo-vibe init", () => {
       };
     };
 
-    it("lists the next steps in order", async () => {
-      const { stdout } = await run(["init", ...flags]);
-      expect(stdout).toContain(
-        `Next steps:\n  1. Check what each environment runs: npx @turbo-vibe/cli@${cliRange} plan\n  2. Connect your accounts: npx @turbo-vibe/cli@${cliRange} setup`,
-      );
-      expect(stdout).toContain(
-        '  4. To go live, run "Deploy to production" in the Actions tab',
-      );
-    });
+    const cli = `npx @turbo-vibe/cli@${cliRange}`;
+    const steps = (stdout: string) => {
+      const list = stdout
+        .slice(stdout.indexOf("Next steps:"))
+        .trimEnd()
+        .split("\n");
+      expect(list.join("\n")).not.toContain(" plan");
+      return list;
+    };
+    const push =
+      "Commit these files and push to main: every push deploys to staging";
+    const live = 'To go live, run "Deploy to production" in the Actions tab';
+    const io = (
+      now: boolean | undefined,
+      signedIn = true,
+    ): Parameters<typeof run> => [
+      ["init", ...flags],
+      {},
+      {},
+      undefined,
+      undefined,
+      terminal(now, signedIn),
+    ];
 
-    it("runs setup when the person says yes", async () => {
-      const { code, stderr } = await run(
-        ["init", ...flags],
-        {},
-        {},
-        undefined,
-        undefined,
-        terminal(true),
-      );
-      expect(code).toBe(1);
-      expect(stderr).toBe(
-        "cannot tell which GitHub repository to set up; pass --repo owner/name\n",
-      );
-    });
-
-    it("prints the command when the person says no", async () => {
-      const { code, stdout, stderr } = await run(
-        ["init", ...flags],
-        {},
-        {},
-        undefined,
-        undefined,
-        terminal(false),
-      );
+    it("runs setup first, then lists only the push and the promotion", async () => {
+      setupCode.value = 0;
+      vi.mocked(setup).mockClear();
+      const { code, stdout } = await run(...io(true));
       expect(code).toBe(0);
-      expect(stdout).toContain(
-        `run npx @turbo-vibe/cli@${cliRange} setup when you are ready\n`,
+      expect(setup).toHaveBeenCalledWith(
+        expect.objectContaining({ project: "shop" }),
+        { env: ["staging", "production"] },
+        expect.objectContaining({ prompts: expect.anything() }),
       );
+      const list = steps(stdout);
+      expect(list).toHaveLength(3);
+      expect(list[1]).toBe(`  1. ${push}`);
+      expect(list[2]).toContain(`  2. ${live}`);
+    });
+
+    it("starts with fixing what setup reported when setup fails", async () => {
+      setupCode.value = 1;
+      const { code, stdout } = await run(...io(true));
+      expect(code).toBe(1);
+      expect(steps(stdout)[1]).toContain(
+        `  1. Fix what setup reported above, then run ${cli} setup again`,
+      );
+      expect(steps(stdout)[2]).toBe(`  2. ${push}`);
+    });
+
+    it("prints no steps when the person cancels setup", async () => {
+      setupCode.value = 130;
+      const { code, stdout } = await run(...io(true));
+      expect(code).toBe(130);
+      expect(stdout).not.toContain("Next steps:");
+    });
+
+    it("starts with setup when the person says no", async () => {
+      vi.mocked(setup).mockClear();
+      const { code, stdout, stderr } = await run(...io(false));
+      expect(code).toBe(0);
+      expect(steps(stdout)[1]).toBe(
+        `  1. Connect your accounts: ${cli} setup (${cli} setup --list names what you need first: https://github.com/dannycalleri/turbo-vibe/blob/main/docs/bootstrap.md)`,
+      );
+      expect(steps(stdout)[2]).toBe(`  2. ${push}`);
       expect(stderr).toBe("");
+      expect(setup).not.toHaveBeenCalled();
+    });
+
+    it("says why it did not offer setup", async () => {
+      vi.mocked(setup).mockClear();
+      const signedOut = await run(...io(true, false));
+      expect(steps(signedOut.stdout)[1]).toContain(
+        "it needs a signed-in GitHub CLI, so run gh auth login first",
+      );
+      const agent = await run(["init", ...flags]);
+      expect(steps(agent.stdout)[1]).toMatch(/setup .*, in a terminal$/);
+      expect(steps(agent.stdout)).toHaveLength(4);
+      expect(setup).not.toHaveBeenCalled();
     });
 
     it("does not offer setup without a signed-in GitHub CLI, or without a terminal", async () => {
