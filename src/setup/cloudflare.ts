@@ -162,11 +162,11 @@ async function permissionGroups(
   return ids;
 }
 
-async function deleteTokensNamed(
+async function tokensNamed(
   cloudflare: CloudflareApi,
   account: string,
   name: string,
-): Promise<void> {
+): Promise<string[]> {
   const matching: string[] = [];
   for (let page = 1; ; page++) {
     const listed = await cloudflare.call<{ id: string; name: string }[]>(
@@ -178,7 +178,15 @@ async function deleteTokensNamed(
       if (token.name === name) matching.push(token.id);
     if (tokens.length < 50) break;
   }
-  for (const id of matching)
+  return matching;
+}
+
+async function deleteTokensNamed(
+  cloudflare: CloudflareApi,
+  account: string,
+  name: string,
+): Promise<void> {
+  for (const id of await tokensNamed(cloudflare, account, name))
     await cloudflare.call("DELETE", `/accounts/${account}/tokens/${id}`);
 }
 
@@ -441,18 +449,36 @@ function ciPolicies(
   zoneId: string,
   groups: ReadonlyMap<string, string>,
 ): unknown[] {
-  const names = ciPermissions(config, environment);
+  return policiesFor(
+    ciPermissions(config, environment),
+    account,
+    zoneId,
+    groups,
+  );
+}
+
+function policiesFor(
+  names: readonly string[],
+  account: string,
+  zoneId: string,
+  groups: ReadonlyMap<string, string>,
+): unknown[] {
   const ids = (scoped: boolean) =>
     names
       .filter((name) => zoneScoped.has(name) === scoped)
       .map((name) => ({ id: groups.get(name) }));
   const zone = ids(true);
+  const onAccount = ids(false);
   return [
-    {
-      effect: "allow",
-      resources: { [`com.cloudflare.api.account.${account}`]: "*" },
-      permission_groups: ids(false),
-    },
+    ...(onAccount.length > 0
+      ? [
+          {
+            effect: "allow",
+            resources: { [`com.cloudflare.api.account.${account}`]: "*" },
+            permission_groups: onAccount,
+          },
+        ]
+      : []),
     ...(zone.length > 0
       ? [
           {
@@ -463,6 +489,101 @@ function ciPolicies(
         ]
       : []),
   ];
+}
+
+interface ReadToken {
+  name: string;
+  status?: string;
+  condition?: unknown;
+  expires_on?: string;
+  not_before?: string;
+  policies?: {
+    effect?: string;
+    resources?: Record<string, unknown>;
+    permission_groups?: { id?: string; name: string }[];
+  }[];
+}
+
+function zoneOf(token: ReadToken): string | undefined {
+  for (const { resources = {} } of token.policies ?? [])
+    for (const [key, nested] of Object.entries(resources)) {
+      const keys = [
+        key,
+        ...(typeof nested === "object" && nested ? Object.keys(nested) : []),
+      ];
+      for (const candidate of keys) {
+        const zone = candidate.match(
+          /^com\.cloudflare\.api\.account\.zone\.(.+)$/,
+        )?.[1];
+        if (zone && zone !== "*") return zone;
+      }
+    }
+  return undefined;
+}
+
+async function addMissingPermissions(
+  bootstrap: CloudflareApi,
+  config: Config,
+  account: string,
+  environment: string,
+  groups: ReadonlyMap<string, string>,
+  io: Io,
+  knownZone?: string,
+): Promise<boolean> {
+  const name = `turbo-vibe-${config.project}-${environment}`;
+  const replace = `run setup --replace CLOUDFLARE_API_TOKEN --env ${environment} to create it again`;
+  const [id] = await tokensNamed(bootstrap, account, name);
+  const read = id
+    ? await bootstrap.call<ReadToken>(
+        "GET",
+        `/accounts/${account}/tokens/${id}`,
+      )
+    : undefined;
+  const token = read?.body?.result;
+  const zone = token && (knownZone ?? zoneOf(token));
+  if (!id || !token || !zone) {
+    io.stdout(
+      `warn  cloudflare: cannot read the token ${name} or its zone; ${replace}\n`,
+    );
+    return true;
+  }
+  const missing = ciPermissions(config, environment).filter(
+    (permission) =>
+      !granted(token.policies ?? [], permission, { account, zone }),
+  );
+  if (missing.length === 0) {
+    io.stdout(`cloudflare: token ${name} has every permission it needs\n`);
+    return true;
+  }
+  const updated = await bootstrap.call(
+    "PUT",
+    `/accounts/${account}/tokens/${id}`,
+    {
+      name: token.name,
+      ...(token.status ? { status: token.status } : {}),
+      ...(token.condition ? { condition: token.condition } : {}),
+      ...(token.expires_on ? { expires_on: token.expires_on } : {}),
+      ...(token.not_before ? { not_before: token.not_before } : {}),
+      policies: [
+        ...(token.policies ?? []).map((policy) => ({
+          effect: policy.effect,
+          resources: policy.resources,
+          permission_groups: (policy.permission_groups ?? []).map((group) => ({
+            id: group.id,
+          })),
+        })),
+        ...policiesFor(missing, account, zone, groups),
+      ],
+    },
+  );
+  if (!updated.body?.success) {
+    io.stderr(
+      `cannot update the Cloudflare token ${name} (HTTP ${updated.status}); ${replace}\n`,
+    );
+    return false;
+  }
+  io.stdout(`cloudflare: token ${name} now has ${missing.join(", ")}\n`);
+  return true;
 }
 
 async function environmentTokens(
@@ -499,7 +620,18 @@ async function environmentTokens(
     );
     if (!ci) return undefined;
     provided.values.CLOUDFLARE_API_TOKEN = ci.value;
-  }
+  } else if (
+    !(await addMissingPermissions(
+      bootstrap,
+      config,
+      account,
+      environment,
+      groups,
+      io,
+      zoneId,
+    ))
+  )
+    return undefined;
   if (
     !present.has("AWS_ACCESS_KEY_ID") ||
     !present.has("AWS_SECRET_ACCESS_KEY") ||
@@ -702,5 +834,38 @@ export async function setupCloudflare(
     provided,
     offerToDeleteBootstrap: () =>
       offerToDelete(bootstrap, account, bootstrapToken, io),
+  };
+}
+
+export async function updateCiTokens(
+  config: Config,
+  environments: readonly string[],
+  askSecret: (question: string) => Promise<string>,
+  io: Io,
+): Promise<{ offerToDeleteBootstrap: () => Promise<void> } | undefined> {
+  const accepted = await askBootstrapToken(askSecret, io);
+  if (!accepted) return undefined;
+  const { bootstrap, account, token } = accepted;
+  const groups = await permissionGroups(
+    bootstrap,
+    account,
+    environments.flatMap((environment) => ciPermissions(config, environment)),
+    io,
+  );
+  if (!groups) return undefined;
+  for (const environment of environments)
+    if (
+      !(await addMissingPermissions(
+        bootstrap,
+        config,
+        account,
+        environment,
+        groups,
+        io,
+      ))
+    )
+      return undefined;
+  return {
+    offerToDeleteBootstrap: () => offerToDelete(bootstrap, account, token, io),
   };
 }

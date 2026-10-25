@@ -548,7 +548,7 @@ describe("against recorded fakes", () => {
         check: "cloudflare",
         severity: "fail",
         message: "CLOUDFLARE_API_TOKEN lacks DNS Write on turbovibe.ai",
-        fix: "edit the token in Cloudflare → My Profile → API Tokens and add DNS Write for zone turbovibe.ai",
+        fix: 'run setup and answer y to "Add missing permissions to the Cloudflare CI tokens?", which updates the token in place; or edit the token in Cloudflare → My Profile → API Tokens and add DNS Write for zone turbovibe.ai',
       },
     ]);
   });
@@ -619,7 +619,7 @@ describe("against recorded fakes", () => {
     expect(findings).toContainEqual(
       expect.objectContaining({
         severity: "fail",
-        fix: "edit the token in Cloudflare → Manage Account → Account API Tokens and add DNS Write for zone turbovibe.ai",
+        fix: 'run setup and answer y to "Add missing permissions to the Cloudflare CI tokens?", which updates the token in place; or edit the token in Cloudflare → Manage Account → Account API Tokens and add DNS Write for zone turbovibe.ai',
       }),
     );
   });

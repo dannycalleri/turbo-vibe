@@ -146,6 +146,8 @@ interface FakeCloudflare {
   billingReadable?: boolean;
   groups?: string[];
   existingTokens?: string[];
+  existingPermissions?: string[];
+  existingAccountPermissions?: string[];
 }
 
 const groupNames = [
@@ -174,14 +176,41 @@ function fakeCloudflare({
   billingReadable = true,
   groups = groupNames,
   existingTokens = [],
+  existingPermissions,
+  existingAccountPermissions = [],
 }: FakeCloudflare = {}) {
-  const tokens = new Map<string, { id: string; name: string; value: string }>([
+  type Token = { id: string; name: string; value: string; policies?: unknown };
+  const zonePolicies = (names: readonly string[]) => [
+    {
+      effect: "allow",
+      resources: { "com.cloudflare.api.account.acc123": "*" },
+      permission_groups: [
+        ...names.filter((name) => !zoneScoped.has(name)),
+        ...existingAccountPermissions,
+      ].map((name) => ({ id: `id-${name}`, name })),
+    },
+    {
+      effect: "allow",
+      resources: { "com.cloudflare.api.account.zone.zone-old": "*" },
+      permission_groups: names
+        .filter((name) => zoneScoped.has(name))
+        .map((name) => ({ id: `id-${name}`, name })),
+    },
+  ];
+  const tokens = new Map<string, Token>([
     ["boot", { id: "boot", name: "bootstrap", value: "BOOTSTRAP" }],
     ...existingTokens.map(
       (name, index) =>
         [
           `old${index}`,
-          { id: `old${index}`, name, value: `old-${index}` },
+          {
+            id: `old${index}`,
+            name,
+            value: `old-${index}`,
+            ...(existingPermissions
+              ? { policies: zonePolicies(existingPermissions) }
+              : {}),
+          },
         ] as const,
     ),
   ]);
@@ -253,6 +282,26 @@ function fakeCloudflare({
       const id = `t${issued}`;
       tokens.set(id, { id, name: body.name, value: `value-${id}` });
       return json({ id, value: `value-${id}` });
+    }
+    const stored = tokens.get(path.split("/").pop() ?? "");
+    if (path.startsWith(`${accounts}/tokens/`) && stored && method === "GET")
+      return json({
+        name: stored.name,
+        status: "active",
+        condition: { request_ip: { in: ["192.0.2.0/24"] } },
+        policies: stored.policies ?? [],
+      });
+    if (path.startsWith(`${accounts}/tokens/`) && stored && method === "PUT") {
+      stored.policies = (
+        body.policies as { permission_groups: { id: string }[] }[]
+      ).map((policy) => ({
+        ...policy,
+        permission_groups: policy.permission_groups.map(({ id }) => ({
+          id,
+          name: id.replace(/^id-(account-)?/, ""),
+        })),
+      }));
+      return json({ id: stored.id, name: stored.name });
     }
     if (path.startsWith(`${accounts}/tokens/`) && method === "DELETE") {
       tokens.delete(path.split("/").pop() ?? "");
@@ -890,6 +939,190 @@ describe("setup", () => {
     expect(result.stdout).toContain(
       "FAIL  vendors: SUPABASE_ACCESS_TOKEN is not set",
     );
+  });
+});
+
+describe("adding missing permissions to kept CI tokens", () => {
+  const keptSecrets = () =>
+    fakeGh({
+      secrets: {
+        staging: cloudflareKept,
+        production: [...cloudflareKept, "TURBO_VIBE_BUILDS_BUCKET"],
+      },
+    });
+  const update = (
+    answer: string,
+    cloudflare: ReturnType<typeof fakeCloudflare>,
+  ) => {
+    const asked: string[] = [];
+    const secrets: string[] = [];
+    const gh = keptSecrets();
+    return {
+      asked,
+      gh,
+      result: setupWith(project, cloudflare.fetch, gh, {
+        ask: async (question) => {
+          asked.push(question);
+          return question.startsWith("Add missing permissions") ? answer : "";
+        },
+        askSecret: async (question) => {
+          secrets.push(question);
+          return askSecret(question);
+        },
+      }),
+      secrets,
+    };
+  };
+  const existingTokens = [
+    "turbo-vibe-acme-staging",
+    "turbo-vibe-acme-production",
+  ];
+  const parsed = parseConfig(project);
+  if (!parsed.ok) throw new Error("fixture does not parse");
+  const full = (environment: string) => [
+    ...requiredPermissions({ config: parsed.config, environment }),
+    "Account API Tokens Read",
+    "Billing Read",
+  ];
+
+  it("adds Access on the zone to a token created before it, keeping the token and its secret", async () => {
+    const cloudflare = fakeCloudflare({
+      existingTokens,
+      existingPermissions: full("staging").filter(
+        (name) => name !== "Access: Apps and Policies Write",
+      ),
+    });
+    const { asked, gh, result } = update("y", cloudflare);
+    const { code, stdout } = await result;
+    expect(code).toBe(0);
+    expect(stdout).toContain(
+      "cloudflare: token turbo-vibe-acme-staging now has Access: Apps and Policies Write",
+    );
+    const put = cloudflare.requests.find(
+      (request) =>
+        request.method === "PUT" && request.path.endsWith("/tokens/old0"),
+    );
+    expect(JSON.stringify(put?.body)).toContain(
+      '"com.cloudflare.api.account.zone.zone-old":"*"',
+    );
+    expect(cloudflare.created("turbo-vibe-acme-staging")).toBeUndefined();
+    expect(
+      gh.stored.filter((secret) => secret.name === "CLOUDFLARE_API_TOKEN"),
+    ).toEqual([]);
+    expect(
+      asked.some((question) =>
+        question.startsWith("Delete the Cloudflare bootstrap token"),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps the Access permissions a turbo-vibe 1.0 token holds on the account, and its IP restriction", async () => {
+    const cloudflare = fakeCloudflare({
+      existingTokens,
+      existingPermissions: full("staging").filter(
+        (name) => name !== "Access: Apps and Policies Write",
+      ),
+      existingAccountPermissions: [
+        "Access: Apps and Policies Write",
+        "Access: Service Tokens Write",
+      ],
+    });
+    expect((await update("y", cloudflare).result).code).toBe(0);
+    const put = cloudflare.requests.find(
+      (request) =>
+        request.method === "PUT" && request.path.endsWith("/tokens/old0"),
+    );
+    expect(put).toBeDefined();
+    const policies =
+      (
+        put?.body as {
+          policies: {
+            resources: Record<string, string>;
+            permission_groups: { id: string }[];
+          }[];
+        }
+      )?.policies ?? [];
+    const onAccount = policies
+      .filter(
+        (policy) => "com.cloudflare.api.account.acc123" in policy.resources,
+      )
+      .flatMap((policy) => policy.permission_groups.map((group) => group.id));
+    expect(put?.body).toMatchObject({
+      condition: { request_ip: { in: ["192.0.2.0/24"] } },
+    });
+    expect(onAccount).toEqual(
+      expect.arrayContaining([
+        "id-Access: Apps and Policies Write",
+        "id-Access: Service Tokens Write",
+        "id-Workers Scripts Write",
+      ]),
+    );
+  });
+
+  it("adds the permission while setup creates other Cloudflare secrets, on the zone it knows", async () => {
+    const gh = fakeGh({
+      secrets: {
+        staging: cloudflareKept,
+        production: [...cloudflareKept, "TURBO_VIBE_BUILDS_BUCKET"].filter(
+          (name) => name !== "CLOUDFLARE_ZONE_ID",
+        ),
+      },
+    });
+    const cloudflare = fakeCloudflare({
+      existingTokens,
+      zones: [
+        {
+          id: "zone-acme",
+          name: "acme.example.com",
+          status: "active",
+        },
+      ],
+      existingPermissions: full("staging").filter(
+        (name) => name !== "Access: Apps and Policies Write",
+      ),
+    });
+    const { code, stdout } = await setupWith(project, cloudflare.fetch, gh);
+    expect(code).toBe(0);
+    expect(stdout).toMatch(
+      /cloudflare: token turbo-vibe-acme-production now has .*Access: Apps and Policies Write/,
+    );
+    const put = cloudflare.requests.find(
+      (request) =>
+        request.method === "PUT" && request.path.endsWith("/tokens/old1"),
+    );
+    expect(JSON.stringify(put?.body)).toContain(
+      '"com.cloudflare.api.account.zone.zone-acme":"*"',
+    );
+    expect(JSON.stringify(put?.body)).toContain(
+      '"com.cloudflare.api.account.zone.zone-old":"*"',
+    );
+    expect(
+      gh.stored.filter((secret) => secret.name === "CLOUDFLARE_API_TOKEN"),
+    ).toEqual([]);
+  });
+
+  it("changes no token that has every permission", async () => {
+    const cloudflare = fakeCloudflare({
+      existingTokens,
+      existingPermissions: full("production"),
+    });
+    const { stdout } = await update("y", cloudflare).result;
+    expect(stdout).toContain(
+      "cloudflare: token turbo-vibe-acme-production has every permission it needs",
+    );
+    expect(
+      cloudflare.requests.some((request) => request.method === "PUT"),
+    ).toBe(false);
+  });
+
+  it("asks for no bootstrap token when the person says no", async () => {
+    const cloudflare = fakeCloudflare({ existingTokens });
+    const { secrets, result } = update("", cloudflare);
+    expect((await result).code).toBe(0);
+    expect(secrets.some((question) => question.includes("bootstrap"))).toBe(
+      false,
+    );
+    expect(cloudflare.requests).toEqual([]);
   });
 });
 
