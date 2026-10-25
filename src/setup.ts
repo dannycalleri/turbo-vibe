@@ -1,4 +1,5 @@
 import { checksFor, formatFindings, runChecks } from "./check.js";
+import { updatePermissionsQuestion } from "./checks/cloudflare.js";
 import type { Finding } from "./checks/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
 import { environmentSecrets } from "./deploy.js";
@@ -13,6 +14,7 @@ import {
   cloudflareSecrets,
   type Provided,
   setupCloudflare,
+  updateCiTokens,
 } from "./setup/cloudflare.js";
 import {
   cloudflareStep,
@@ -93,6 +95,17 @@ async function gh(
 const anyError = /[\s\S]/;
 const notFound = /HTTP 404/;
 const refusedByPlan = /HTTP 422/;
+
+async function wantsTokenUpdate(io: Io): Promise<boolean> {
+  const answer = (
+    (await io.ask?.(
+      `${updatePermissionsQuestion} It asks for a bootstrap token [y/N]`,
+    )) ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  return answer === "y" || answer === "yes";
+}
 
 export const githubSignedIn = async (io: Io) =>
   (await gh(["auth", "status"], io, undefined, anyError))?.code === 0;
@@ -608,7 +621,14 @@ async function runSetup(
     });
   let provided = new Map<string, Provided>();
   let afterStoring = async () => {};
-  const guided = stepsToAsk(needed, lacking);
+  const cloudflareKept =
+    needed.includes("CLOUDFLARE_ZONE_ID") && !lacking(cloudflareSecrets);
+  const updating = cloudflareKept && (await wantsTokenUpdate(io));
+  const guided = stepsToAsk(
+    needed,
+    (names) =>
+      lacking(names) || (updating && names === cloudflareStep.produces),
+  );
   const show = (step: VendorStep) =>
     showStep(step, guided.indexOf(step) + 1, guided.length, config, io);
   if (needed.includes("CLOUDFLARE_ZONE_ID") && lacking(cloudflareSecrets)) {
@@ -617,6 +637,16 @@ async function runSetup(
     if (!created) return 1;
     provided = created.provided;
     afterStoring = created.offerToDeleteBootstrap;
+  } else if (updating) {
+    await show(cloudflareStep);
+    const updated = await updateCiTokens(
+      config,
+      [...present.keys()],
+      askSecret,
+      io,
+    );
+    if (!updated) return 1;
+    afterStoring = updated.offerToDeleteBootstrap;
   }
   const shared: Record<string, string> = {};
   if (lacking(["SUPABASE_ACCESS_TOKEN", "SUPABASE_ORGANIZATION"])) {

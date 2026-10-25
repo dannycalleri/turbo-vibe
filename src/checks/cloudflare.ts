@@ -37,6 +37,9 @@ interface Policy {
 
 export const zeroTrustPage = "https://one.dash.cloudflare.com/";
 
+export const updatePermissionsQuestion =
+  "Add missing permissions to the Cloudflare CI tokens?";
+
 const accessPermission = "Access: Apps and Policies Write";
 
 export function hasPrivateEnvironment(config: Config): boolean {
@@ -273,7 +276,7 @@ export const cloudflare: Check = async (context) => {
           : fail(
               "cloudflare",
               `CLOUDFLARE_API_TOKEN lacks ${permission}${zoneScoped.has(permission) ? ` on ${zoneName ?? config.domain}` : ""}`,
-              `edit the token in Cloudflare → ${tokenPage} and add ${permission}${zoneScoped.has(permission) ? ` for zone ${zoneName ?? config.domain}` : " for this account"}`,
+              `run setup and answer y to "${updatePermissionsQuestion}", which updates the token in place; or edit the token in Cloudflare → ${tokenPage} and add ${permission}${zoneScoped.has(permission) ? ` for zone ${zoneName ?? config.domain}` : " for this account"}`,
             ),
       );
     }
