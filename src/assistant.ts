@@ -128,7 +128,7 @@ ${tokenGuide()}
 
 ## Production is promoted by a person
 
-Do not run \`promote\`, \`apply --env production\` or \`migrate --env production\`, and do not start the "Deploy to production" workflow. Prepare the change and open a pull request. After it merges, staging deploys and its run summary names the build ID; tell the person to run "Deploy to production" with that ID as \`confirm-build\`.
+Do not run \`promote\`, \`apply --env production\` or \`migrate --env production\`, and do not start the "Deploy to production" workflow. Prepare the change and open a pull request. After it merges, staging deploys. Tell the person to approve the Staging run's **production** job (Review deployments) when the \`production\` environment has a required reviewer; otherwise, to run "Deploy to production" with the build ID that the run summary names as \`confirm-build\`.
 
 ## What the code must keep doing
 
@@ -295,7 +295,7 @@ Report what passed, what you could not run, and why.
 1. Delete this guide's own files (\`.claude/skills/turbo-vibe-adopt/\`, \`.cursor/rules/turbo-vibe-adopt.mdc\`) without committing them: the guidance \`init\` wrote replaces them.
 2. Open the pull request. Its description lists the mapping and the person's answers from step 2, every behaviour change from steps 3 and 4 (port, routes, start-up steps, local development), what may stop working in the way the project ships today, and the results of step 6. On this pull request the Staging workflow only runs each service's tests and the dry run, without secrets; nothing deploys until \`main\`.
 3. Run \`${cli(version)} setup --list\` and walk the person through the accounts, plans and steps it prints, and through each token with its steps under "Creating each token" below. Then tell them to run \`${cli(version)} setup\` in their own terminal: it asks for each token without echoing it and stores every secret in GitHub. Never run it yourself.
-4. After the merge, staging deploys. Its run summary names the build ID; the person promotes it with the **Deploy to production** workflow, never you. Once production serves the app, the person can retire the old deploy configuration.
+4. After the merge, staging deploys. The person promotes it, never you: by approving the Staging run's **production** job, or, without a required reviewer, with the **Deploy to production** workflow and the build ID from the run summary. Once production serves the app, the person can retire the old deploy configuration.
 
 ${tokenGuide()}
 `;

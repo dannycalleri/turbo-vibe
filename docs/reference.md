@@ -51,10 +51,12 @@ A staging `deploy` builds every service once and records what it shipped in stag
 
 ## Deploy to production
 
-The reusable `promote.yml` workflow is the "Deploy to production" button: call it from a `workflow_dispatch` workflow, the way `.github/workflows/production.yml` does for the kit's examples. Its job runs in the GitHub environment `production`. Two safeguards stand before any production change:
+Production is promoted in one of two ways. Both run the reusable `promote.yml` in the GitHub environment `production`.
 
-- **Typed confirmation.** The run asks for `confirm-build`, the ID of the build to promote; each passing Staging run prints it in its summary. If it is not the build promotion would choose, the run stops before changing anything and its summary names the right one.
-- **Required reviewers.** Give the `production` environment required reviewers once (Settings → Environments), and every run waits for an approval before any production secret is used. GitHub offers them on public repositories, and on private ones only with GitHub Enterprise; elsewhere, the typed confirmation is the safeguard.
+- **Approve the Staging run.** The Staging workflow that `init` writes has a `production` job. It runs on a push to `main` after staging passes, when the repository variable `TURBO_VIBE_PROMOTE_FROM_STAGING` is `true`. The job waits for a reviewer of the `production` environment: GitHub shows **Review deployments** on the run, in the notification and in the mobile app. The approval promotes that run's own build, so nobody types a build ID. `setup` sets the variable when it adds you as a required reviewer. Before it uses any secret, the job checks that `production` has a required reviewer, and stops when it has none, so the variable alone never deploys without an approval. When a newer build has passed staging, the approval of an older run stops before any change, and its summary names the newer build.
+- **Deploy to production.** A `workflow_dispatch` workflow that calls `promote.yml`, the way `.github/workflows/production.yml` does for the kit's examples. The run asks for `confirm-build`, the ID of the build to promote; each passing Staging run prints it in its summary. If it is not the build promotion would choose, the run stops before changing anything and its summary names the right one. This is the way where GitHub offers no required reviewers: on public repositories it offers them, and on private ones only with GitHub Enterprise.
+
+A project set up before the Staging workflow had a `production` job adds the job from the [adoption guide](adoption.md#3-add-the-two-workflows), and, when `production` already has a reviewer, sets the variable once: `gh variable set TURBO_VIBE_PROMOTE_FROM_STAGING --body true`. To promote only with **Deploy to production**, delete the variable.
 
 It then:
 

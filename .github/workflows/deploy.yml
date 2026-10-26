@@ -196,4 +196,11 @@ jobs:
           VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
       - name: Name the build to promote
-        run: echo "Build \`$BUILD_ID\` passed staging. To promote it, run **Deploy to production** with confirm-build \`$BUILD_ID\`." >> "$GITHUB_STEP_SUMMARY"
+        env:
+          PROMOTE_FROM_STAGING: ${{ vars.TURBO_VIBE_PROMOTE_FROM_STAGING }}
+        run: |
+          if [ "$PROMOTE_FROM_STAGING" = "true" ]; then
+            echo "Build \`$BUILD_ID\` passed staging. To promote it, approve this run's **production** job." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Build \`$BUILD_ID\` passed staging. To promote it, run **Deploy to production** with confirm-build \`$BUILD_ID\`." >> "$GITHUB_STEP_SUMMARY"
+          fi
