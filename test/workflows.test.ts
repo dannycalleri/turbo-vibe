@@ -569,7 +569,7 @@ describe("confirm-build", () => {
     );
     expect(choose.env.CONFIRM_BUILD).toBe("${{ inputs.confirm-build }}");
     const named = steps.find((step: { run?: string }) =>
-      step.run?.includes("GITHUB_STEP_SUMMARY"),
+      step.run?.includes("--choose) || exit 0"),
     );
     expect(named.if).toBe("failure() && steps.choose.outcome == 'failure'");
   });
@@ -588,6 +588,41 @@ describe("confirm-build", () => {
     }[]) {
       expect(job.with?.["confirm-build"]).toBe("${{ inputs.confirm-build }}");
     }
+  });
+});
+
+describe("require-reviewer", () => {
+  it("first checks, without a secret, that production has a required reviewer", async () => {
+    const promote = await workflow("promote.yml");
+    expect(promote.on.workflow_call.inputs["require-reviewer"]).toMatchObject({
+      type: "boolean",
+      default: false,
+    });
+    const { steps } = promote.jobs.production;
+    const [check] = steps;
+    expect(check.if).toBe("inputs.require-reviewer");
+    expect(check.env).toEqual({ GH_TOKEN: "${{ github.token }}" });
+    expect(check.run).toContain(
+      'gh api "repos/$GITHUB_REPOSITORY/environments/production"',
+    );
+    expect(check.run).toContain('index("required_reviewers") != null');
+    expect(check.run).toContain(
+      "delete the repository variable TURBO_VIBE_PROMOTE_FROM_STAGING",
+    );
+    expect(JSON.stringify(check)).not.toContain("secrets.");
+  });
+
+  it("names the newer build to approve when a reviewer approved an old run", async () => {
+    const { steps } = (await workflow("promote.yml")).jobs.production;
+    const named = steps.find((step: { run?: string }) =>
+      step.run?.includes("--choose) || exit 0"),
+    );
+    expect(named.env.REQUIRE_REVIEWER).toBe("${{ inputs.require-reviewer }}");
+    expect(named.env.CONFIRM_BUILD).toBe("${{ inputs.confirm-build }}");
+    expect(named.run).toContain('if [ "$build_id" = "$(echo "$CONFIRM_BUILD"');
+    expect(named.run).toContain(
+      "Approve the production job of that build's Staging run.",
+    );
   });
 });
 
