@@ -128,7 +128,7 @@ ${tokenGuide()}
 
 ## Production is promoted by a person
 
-Do not run \`promote\`, \`apply --env production\` or \`migrate --env production\`, and do not start the "Deploy to production" workflow. Prepare the change and open a pull request. After it merges, staging deploys. Tell the person to approve the Staging run's **production** job (Review deployments) when the \`production\` environment has a required reviewer; otherwise, to run "Deploy to production" with the build ID that the run summary names as \`confirm-build\`.
+Do not run \`promote\`, \`ship\`, \`apply --env production\` or \`migrate --env production\`, and do not start the "Deploy to production" workflow. Prepare the change and open a pull request. After it merges, staging deploys. Tell the person to approve the Staging run's **production** job (Review deployments) when the \`production\` environment has a required reviewer; otherwise, to run "Deploy to production" with the build ID that the run summary names as \`confirm-build\`. \`turbo-vibe ship\` in their own terminal does the same: it lists the builds that passed staging and starts the workflow with the one they choose, also for a rollback. Suggest it; do not run it.
 
 ## What the code must keep doing
 
