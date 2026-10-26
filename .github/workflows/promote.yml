@@ -16,7 +16,7 @@ on:
         type: boolean
         default: false
       confirm-build:
-        description: The ID of the build to promote. The run stops if it is not the latest staging build that passed.
+        description: The ID of the build to promote, which must have passed staging. An older build than the newest is a rollback. With require-reviewer, only the newest is promoted.
         type: string
         required: true
       require-reviewer:
@@ -114,7 +114,7 @@ jobs:
       - name: Choose the latest staging build that passed
         id: choose
         run: |
-          build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose --confirm "$CONFIRM_BUILD")
+          build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose --confirm "$CONFIRM_BUILD" ${NEWEST:+--newest})
           echo "build-id=$build_id" >> "$GITHUB_OUTPUT"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -131,6 +131,7 @@ jobs:
           VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
           CONFIRM_BUILD: ${{ inputs.confirm-build }}
+          NEWEST: ${{ inputs.require-reviewer && 'yes' || '' }}
       - name: Name the build to confirm
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -151,12 +152,15 @@ jobs:
         if: failure() && steps.choose.outcome == 'failure'
         run: |
           build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose) || exit 0
-          if [ "$build_id" = "$(echo "$CONFIRM_BUILD" | tr -d '[:space:]')" ]; then
+          confirmed=$(echo "$CONFIRM_BUILD" | tr -d '[:space:]')
+          if [ "$build_id" = "$confirmed" ]; then
             echo "Build \`$build_id\` could not be chosen; see the log of the step that chooses it. Production is unchanged." >> "$GITHUB_STEP_SUMMARY"
           elif [ "$REQUIRE_REVIEWER" = "true" ]; then
             echo "A newer build, \`$build_id\`, passed staging, so this run's build is not promoted. Approve the production job of that build's Staging run, or run **Deploy to production** with confirm-build set to \`$build_id\`." >> "$GITHUB_STEP_SUMMARY"
-          else
+          elif [ -z "$confirmed" ]; then
             echo "The build ready to promote is \`$build_id\`. Run **Deploy to production** again with confirm-build set to \`$build_id\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Build \`$confirmed\` cannot be promoted; see the log of the step that chooses it. The newest build that passed staging is \`$build_id\`. Production is unchanged." >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -1353,7 +1353,7 @@ describe("promote", () => {
     },
   );
 
-  it("refuses a confirmation that is not the build it would promote, and names that build", async () => {
+  it("refuses a confirmation that is not a full commit SHA", async () => {
     const calls = runner();
     const r2 = fakeR2(seeded(record({})));
     const { code, stdout, stderr } = await run(
@@ -1366,9 +1366,132 @@ describe("promote", () => {
     expect(code).toBe(1);
     expect(stdout).toBe("");
     expect(stderr).toBe(
-      'the build to promote is abc1230000000000000000000000000000000000, not "abc12"; production is unchanged. Confirm with abc1230000000000000000000000000000000000 to promote it\n',
+      '"abc12" is not a full commit SHA; production is unchanged\n',
     );
     expect(calls).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "  "])(
+    "refuses a blank confirmation %j and names the newest build",
+    async (blank) => {
+      const { code, stdout, stderr } = await run(
+        ["promote", "--env", "production", "--choose", "--confirm", blank],
+        { "turbo-vibe.yaml": project },
+        production,
+        runner(),
+        fakeR2(seeded(record({}))).fetch(),
+      );
+      expect(code).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toBe(
+        'the build to promote is abc1230000000000000000000000000000000000, not ""; production is unchanged. Confirm with abc1230000000000000000000000000000000000 to promote it\n',
+      );
+    },
+  );
+
+  describe("a confirmed build older than the newest that passed", () => {
+    const older = "01d0000000000000000000000000000000000000";
+    const records = () =>
+      fakeR2(
+        seeded(
+          record({}),
+          record({ buildId: older, createdAt: "2026-10-01T10:00:00.000Z" }),
+          record({
+            buildId: "fa11ed0000000000000000000000000000000000",
+            createdAt: "2026-10-05T10:00:00.000Z",
+            smoke: "failed",
+          }),
+        ),
+      );
+    const choose = (confirm: string, ...extra: string[]) =>
+      run(
+        [
+          "promote",
+          "--env",
+          "production",
+          "--choose",
+          "--confirm",
+          confirm,
+          ...extra,
+        ],
+        { "turbo-vibe.yaml": project },
+        production,
+        runner(),
+        records().fetch(),
+      );
+
+    it("is described as a rollback, from GitHub's staging deployments, without the build records", async () => {
+      const capture = vi.fn(async () => ({
+        code: 0,
+        stdout: JSON.stringify({
+          data: {
+            repository: {
+              deployments: {
+                nodes: [
+                  {
+                    commitOid: "abc1230000000000000000000000000000000000",
+                    latestStatus: {
+                      state: "SUCCESS",
+                      createdAt: "2026-10-08T10:05:00Z",
+                    },
+                    commit: { messageHeadline: "feat: newest" },
+                  },
+                  {
+                    commitOid: older,
+                    latestStatus: {
+                      state: "SUCCESS",
+                      createdAt: "2026-10-01T10:05:00Z",
+                    },
+                    commit: { messageHeadline: "fix: older" },
+                  },
+                ],
+              },
+            },
+          },
+        }),
+      }));
+      const fetch = vi.fn<typeof globalThis.fetch>();
+      const { code, stdout } = await run(
+        ["promote", "--env", "production", "--describe", "--build-id", older],
+        { "turbo-vibe.yaml": project },
+        { GITHUB_REPOSITORY: "acme/app" },
+        runner(),
+        fetch,
+        { capture },
+      );
+      expect(code).toBe(0);
+      expect(stdout).toBe(
+        `Promoting \`${older}\` (fix: older), which passed staging at 2026-10-01T10:05:00Z. This is a rollback: the newest build is \`abc1230000000000000000000000000000000000\` (feat: newest), which passed staging at 2026-10-08T10:05:00Z.\n`,
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("is chosen, as a rollback", async () => {
+      const { code, stdout } = await choose(older);
+      expect(code).toBe(0);
+      expect(stdout).toBe(`${older}\n`);
+    });
+
+    it("is refused with --newest, which names the newest build", async () => {
+      const { code, stderr } = await choose(older, "--newest");
+      expect(code).toBe(1);
+      expect(stderr).toBe(
+        `the build to promote is abc1230000000000000000000000000000000000, not "${older}"; production is unchanged. Confirm with abc1230000000000000000000000000000000000 to promote it\n`,
+      );
+    });
+
+    it("is refused when it failed its smoke test or has no record", async () => {
+      const failed = await choose("fa11ed0000000000000000000000000000000000");
+      expect(failed.code).toBe(1);
+      expect(failed.stderr).toBe(
+        "build fa11ed0000000000000000000000000000000000 has not passed its smoke test (failed); production is unchanged\n",
+      );
+      const unknown = await choose("dead000000000000000000000000000000000000");
+      expect(unknown.code).toBe(1);
+      expect(unknown.stderr).toBe(
+        "build dead000000000000000000000000000000000000 has no record; production is unchanged\n",
+      );
+    });
   });
 
   it("accepts the confirmed build", async () => {
