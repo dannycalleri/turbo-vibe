@@ -1,6 +1,5 @@
 export const defaultBackendPort = 8080;
 export const backendPrefix = "/api/";
-export const healthPath = "/api/health";
 export const buildIdVariable = "TURBO_VIBE_BUILD_ID";
 export const legacyBuildArg = "BUILD_ID";
 

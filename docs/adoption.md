@@ -6,28 +6,18 @@ A static site, or an app whose server already meets the backend contract, needs 
 
 **With a coding assistant:** run `npx @turbo-vibe/cli@1 adopt` at the repository root. It writes guidance for the assistants the repository already uses, or for those you name with `--assistant claude`, `cursor` or `claude,cursor`, then ask the assistant to make the project deployable with turbo-vibe. It follows the steps below, checks the result locally, and stops before anything that needs your accounts. The rest of this guide is the same work by hand.
 
-## 1. Make the backend report its build
+## 1. Check the backend
 
-The smoke test after every deploy asks the backend which build it is running.
+turbo-vibe adapts to most servers. Check four things:
 
 - Listen on `0.0.0.0`, on the port in the Dockerfile's `EXPOSE`. Without `EXPOSE`, set `container.port` in `turbo-vibe.yaml`; without either, the port is 8080. The kit also sets `PORT`.
-- Answer `GET /api/health` with JSON containing `build_id`, without touching the database: the pull request's dry run starts the image with no `DATABASE_URL`, and staging checks it while a paused database wakes:
-
-  ```json
-  { "build_id": "4f2c9e1…" }
-  ```
-
-- Take the value from the build argument the kit passes to `docker build`. Put this in the Dockerfile's **final** stage:
-
-  ```dockerfile
-  ARG BUILD_ID
-  ENV BUILD_ID=$BUILD_ID
-  ```
-
 - Serve every backend route under `/api/`. Only `/api/*` reaches the backend, with or without a frontend; every other path is the frontend's, or answers nothing.
-- Exit on `SIGTERM`. Every deploy after the first replaces the running container: Cloudflare sends `SIGTERM` and waits up to 15 minutes before killing one that ignores it, and the deploy waits for that. A process running as the container's PID 1 ignores `SIGTERM` unless it handles it: Go servers exit by default, but Python and Node need a handler (or an init such as `tini` as the entrypoint). The test-and-build job checks this on every pull request, with the health route: its dry run starts the image, and fails unless `/api/health` reports the build ID and `docker stop` stops it without killing it.
+- Exit on `SIGTERM`. Every deploy after the first replaces the running container: Cloudflare sends `SIGTERM` and waits up to 15 minutes before killing one that ignores it, and the deploy waits for that. A process running as the container's PID 1 ignores `SIGTERM` unless it handles it: Go servers exit by default, but Python and Node need a handler (or an init such as `tini` as the entrypoint).
+- Start without the database. The pull request's dry run starts the image with no `DATABASE_URL`.
 
-Check: once `turbo-vibe.yaml` exists (step 2), `npx @turbo-vibe/cli@1 deploy --env staging --build-id local --dry-run` builds the image, starts it, and fails unless `/api/health` reports `local` and the container stops on `SIGTERM`. By hand: `docker build --build-arg BUILD_ID=local -t app . && docker run -p 3000:3000 app` with your port in place of 3000, then `curl localhost:3000/api/health` → JSON whose `build_id` is `local`. `docker stop` should return at once, not after its 10-second timeout.
+The backend needs no health route and no Dockerfile lines for turbo-vibe. After every deploy, the kit checks that the server answers `/` below HTTP 500, so a 404 passes. If the app has a readiness route that answers without the database, such as `/healthz`, set `container.health` to it in step 2; then only HTTP 2xx passes. The container receives the build ID as `TURBO_VIBE_BUILD_ID`, if the app wants to show it.
+
+Check: once `turbo-vibe.yaml` exists (step 2), `npx @turbo-vibe/cli@1 deploy --env staging --build-id local --dry-run` builds the image, starts it, and fails unless the server answers on its port and the container stops on `SIGTERM`. By hand: `docker build -t app . && docker run -p 3000:3000 -e PORT=3000 app` with your port in place of 3000, then `curl -i localhost:3000/` → any status below 500. `docker stop` should return at once, not after its 10-second timeout.
 
 ## 2. Add `turbo-vibe.yaml`
 
@@ -180,9 +170,9 @@ Do this once per project. The [bootstrap checklist](bootstrap.md) walks through 
 ## 5. Merge, then promote
 
 1. Merge a change to `main`. The **Staging** run applies infrastructure, migrates, builds and pushes the image, deploys, and smoke-tests.
-   Check: the staging hostname serves the app, and `/api/health` on the **same hostname** reports the merged commit's SHA.
+   Check: the staging hostname serves the app, and `/_turbo-vibe/health` on the **same hostname** reports the merged commit's SHA as `build_id`.
 2. Copy the build ID from the Staging run's summary, run **Deploy to production** from the Actions tab with it as **confirm-build**, and approve it if the `production` environment has reviewers.
-   Check: production's `/api/health` reports the same SHA as staging. Nothing was rebuilt; the run's log has no `docker build`.
+   Check: production's `/_turbo-vibe/health` reports the same SHA as staging. Nothing was rebuilt; the run's log has no `docker build`.
 
 If staging's smoke test fails, the run fails and names both build IDs. That build can never be promoted.
 

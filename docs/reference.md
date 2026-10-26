@@ -34,7 +34,7 @@ The details behind the [README](../README.md): what each command does, how a rel
 
 **`apply`** writes the environment's OpenTofu root, saves a plan, prints its summary, and applies that plan. It refuses a plan that deletes or replaces a resource outside a preview unless given `--allow-deletions` (the reusable workflows' `allow-deletions` input).
 
-**`deploy --dry-run`** builds everything and validates the Worker without credentials. It starts each backend image, and fails unless the container answers `/api/health` with the build ID and stops on `SIGTERM`. `deploy --env production` is refused, so production only ever runs promoted builds.
+**`deploy --dry-run`** builds everything and validates the Worker without credentials. It starts each backend image, and fails unless the container answers its health probe (`/` below HTTP 500, or HTTP 2xx from `container.health`) on its port and stops on `SIGTERM`. `deploy --env production` is refused, so production only ever runs promoted builds.
 
 **`promote --choose`** prints the build it would promote and changes nothing. `promote --build-id <id>` promotes exactly that build, and refuses it unless it passed on staging. `promote --confirm <id>` refuses unless `<id>` is the build it would choose.
 
@@ -79,7 +79,7 @@ npx @turbo-vibe/cli@1 preview remove --branch "$BRANCH"
 - **Removal:** `preview remove` deletes the preview's container application and destroys the preview's own state. It refuses to destroy anything that is not a preview.
 - **Promotion:** preview builds are never recorded, so they cannot be promoted.
 
-The reusable `preview.yml` workflow runs this for you on `pull_request` events: `opened`, `synchronize` and `reopened` deploy, `closed` removes. It runs in the `preview` GitHub environment, which `setup` creates with its own state bucket and tokens, so pull request code never receives the `staging` or `production` GitHub environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. The bootstrap checklist's [What one account leaves shared](bootstrap.md#8-what-one-account-leaves-shared) lists every such limit. It posts the preview's URLs (or the reason there is none) as a comment on the pull request: a page at its root, and a backend with no page on its hostname at `/api/health`, which reports the build it runs. A pull request from a fork gets no preview, because its run receives no secrets, and the run says so. `.github/workflows/previews.yml` previews the kit's Python and Vercel examples.
+The reusable `preview.yml` workflow runs this for you on `pull_request` events: `opened`, `synchronize` and `reopened` deploy, `closed` removes. It runs in the `preview` GitHub environment, which `setup` creates with its own state bucket and tokens, so pull request code never receives the `staging` or `production` GitHub environments' secrets. Some tokens still reach further than the preview: the Supabase and Vercel tokens cover the whole account or team, the WorkOS key is the one of WorkOS's staging environment, and within one Cloudflare account the preview's token can still change production's Workers and DNS records. The bootstrap checklist's [What one account leaves shared](bootstrap.md#8-what-one-account-leaves-shared) lists every such limit. It posts the preview's URLs (or the reason there is none) as a comment on the pull request: a page at its root, and a backend with no page on its hostname at `/_turbo-vibe/health`, which reports the build it runs. A pull request from a fork gets no preview, because its run receives no secrets, and the run says so. `.github/workflows/previews.yml` previews the kit's Python and Vercel examples.
 
 ## HTTPS only
 
@@ -99,7 +99,7 @@ An environment with `access.emails` is private. Its hostnames answer only the li
 2. Cloudflare Access asks for an email address, and sends a one-time code to a listed address.
 3. After the person enters the code, the page loads. The session lasts 24 hours.
 
-`apply` creates one Access application on the project's zone for all of the environment's Cloudflare hostnames, with a policy for the people. A second application lets everyone through on the two paths the smoke test reads, `/_turbo-vibe/build-id` and `/api/health`. Thus on a private environment those two paths are public, and every other path asks for the one-time code. The smoke test needs no Access credential. A preview uses the `access` of staging.
+`apply` creates one Access application on the project's zone for all of the environment's Cloudflare hostnames, with a policy for the people. A second application lets everyone through on the two paths the smoke test reads, `/_turbo-vibe/build-id` and `/_turbo-vibe/health`. Thus on a private environment those two paths are public, and every other path asks for the one-time code. The smoke test needs no Access credential. A preview uses the `access` of staging.
 
 Access needs Zero Trust on the account. Enable it once:
 
@@ -146,16 +146,15 @@ With `serve_with`, the backend's Worker serves the frontend with the frontend's 
 
 ## What a backend must do
 
-A `cloudflare-container` backend listens on its port, which `plan` prints with where it came from: `container.port` when the config sets it, else the TCP port of the last `EXPOSE` that has one in the Dockerfile's final stage, or in the stage it builds on, else 8080. The kit also gives the port as `PORT`. The backend reads its database, if the project has one, from `DATABASE_URL`, and answers `GET /api/health` with JSON containing `build_id`. The kit passes the build ID to `docker build` as the build argument `BUILD_ID`; the Dockerfile's final stage turns it into the environment variable the app reports:
+A `cloudflare-container` backend listens on its port, which `plan` prints with where it came from: `container.port` when the config sets it, else the TCP port of the last `EXPOSE` that has one in the Dockerfile's final stage, or in the stage it builds on, else 8080. The kit also gives the port as `PORT`. The backend reads its database, if the project has one, from `DATABASE_URL`. It needs no health route and no Dockerfile lines for the kit.
 
-```dockerfile
-ARG BUILD_ID
-ENV BUILD_ID=$BUILD_ID
-```
+After every deploy, `smoke` reads `/_turbo-vibe/health`, which the backend's Worker answers itself. The Worker asks the container for `/`, and reports the build ID it was deployed with when the container answers below HTTP 500: a 404 proves that the server listens. To check a readiness route instead, set `container.health` to its path; then only HTTP 2xx passes. The route must answer without the database, because the pull request's dry run starts the image without one.
 
-The ID lives in the image, so `smoke` proves which image is serving, and a promoted image reports the same ID in every environment. `smoke` fails unless it matches the build just deployed. It retries for about a minute. For a container backend it retries for up to five while the backend answers HTTP 503, as it does during the first start of a new container application, or still reports the previous build, as it can for a minute or two after a deploy. A frontend's build command receives `BUILD_ID` too; the kit adds `/_turbo-vibe/build-id` to its output so `smoke` can check the page as well.
+`deploy` follows Cloudflare's rollout until every instance runs the new image, so the Worker's build ID proves which image is serving, and a promoted image reports the same ID in every environment. `smoke` fails unless it matches the build just deployed. It retries for about a minute. For a container backend it retries for up to five while the Worker answers HTTP 503, as it does during the first start of a new container application, or still reports the previous build, as it can for a minute or two after a deploy. A failure shows the reason the Worker gives. A frontend's build command receives `BUILD_ID` too; the kit adds `/_turbo-vibe/build-id` to its output so `smoke` can check the page as well.
 
-The backend must also exit on `SIGTERM`: Cloudflare waits up to 15 minutes for a container that ignores it, and every rollout waits with it. `deploy --dry-run` starts the image and fails unless `/api/health` reports the build ID it was given and `docker stop` stops it without killing it. The [adoption guide](adoption.md#1-make-the-backend-report-its-build) has the checks to run locally.
+The container receives the build ID as `TURBO_VIBE_BUILD_ID` at run time, and the build gets it as a build argument of the same name, for a Dockerfile that wants it. The kit also passes the build argument `BUILD_ID`, so a Dockerfile written for turbo-vibe 1.0 keeps working.
+
+The backend must also exit on `SIGTERM`: Cloudflare waits up to 15 minutes for a container that ignores it, and every rollout waits with it. `deploy --dry-run` starts the image and fails unless the container answers the same probe on its port and `docker stop` stops it without killing it. The [adoption guide](adoption.md#1-check-the-backend) has the checks to run locally.
 
 ## Sessions on their own container
 
@@ -171,7 +170,7 @@ WebSocket upgrades are forwarded with `fetch`, so a connection stays on the inst
 
 Each build gets its own instances: the Worker names them after the session and the build, such as `room-7@4f2c9e1a0b3d`. A deploy therefore switches every new request to the new build at once, and an open connection finishes on the instance it reached. The old build's instances stop after `sleep_after` without requests. A session moves to a new instance on each deploy, so keep state that must outlive a deploy in the database.
 
-Sessions and `default` share `max_instances`, and so do the old build's instances until they stop: once that many are running, a request for any other name fails, the smoke test's `/api/health` included. Size it for the sessions you expect at once, plus one for `default`, plus room for the previous build's instances during a deploy. `examples/python-api` routes by `?session=`.
+Sessions and `default` share `max_instances`, and so do the old build's instances until they stop: once that many are running, a request for any other name fails, the smoke test's `/_turbo-vibe/health` included. Size it for the sessions you expect at once, plus one for `default`, plus room for the previous build's instances during a deploy. `examples/python-api` routes by `?session=`.
 
 ## Databases
 
@@ -287,7 +286,7 @@ A backend, or a Next.js app's server code, lists the names of the secrets it rea
 
 - **Where values live.** `setup` asks for each one in each GitHub environment, without echoing it: a test key for `staging` and `preview`, the live key for `production`. A second run keeps them; `setup --replace STRIPE_SECRET_KEY` asks again. `setup --list` names each one per environment, and `check` and `setup`'s final checks name a missing one.
 - **How they arrive.** `deploy`, `promote` and `preview deploy` give each value to the service that declares it: a container backend gets it in its environment, through the same temporary `0600` file as `DATABASE_URL`; a `vercel-nextjs` app gets it as a sensitive environment variable of that environment's Vercel project, set through Vercel's API (see [Next.js on Vercel](#nextjs-on-vercel-beta)). No value enters the repository, the OpenTofu state, a build record, a command line or the output, and no build sees one. The reusable workflows hand the environment's secrets to the steps that call the CLI as one variable, `TURBO_VIBE_SECRETS`, because a reusable workflow cannot name a project's own secrets; the CLI reads only the declared names.
-- **Before any change.** `apply`, `deploy`, `promote` and `preview deploy` stop, naming the secret and the GitHub environment, when a declared secret has no value. A pull request's dry run needs none, so a backend must start and answer `/api/health` without them.
+- **Before any change.** `apply`, `deploy`, `promote` and `preview deploy` stop, naming the secret and the GitHub environment, when a declared secret has no value. A pull request's dry run needs none, so a backend must start and answer its health probe without them.
 - **Names the kit already uses.** The secrets share each GitHub environment with the kit's credentials, so validation refuses `AWS_ACCESS_KEY_ID`, `DATABASE_URL`, `PORT` and the other names the kit sets or keeps. Rename the variable in the application, such as `APP_AWS_ACCESS_KEY_ID`.
 
 ## Public values in a frontend build
@@ -358,6 +357,6 @@ Moving between vendors is a different question. The kit sets up each host the sa
 |---|---|
 | A static frontend | Possible between `cloudflare-static` and `vercel-static` (beta), with work. On Vercel the page and the API have different origins, so: change `target` and remove `serve_with`; set `api_hostname` where `api.<hostname>` would be two levels below the zone; make the backend accept only `ALLOWED_ORIGINS`; and have the page read its API URL from `/_turbo-vibe/config.json`. See [Static frontends on Vercel](#static-frontends-on-vercel-beta). Moving back means adding `serve_with` again. |
 | A Next.js frontend | Not through the kit: `vercel-nextjs` (beta) is its only target. |
-| A backend container | Not through the kit yet: `cloudflare-container` is its only target. The image is built from your own Dockerfile and runs on any container host, given `BUILD_ID` as a build argument and, at runtime, `PORT`, `DATABASE_URL` and the sign-in and origin settings. If it sets `container.instance_from`, the new host must route those requests to the same instance itself. |
+| A backend container | Not through the kit yet: `cloudflare-container` is its only target. The image is built from your own Dockerfile and runs on any container host, given, at runtime, `PORT`, `TURBO_VIBE_BUILD_ID`, `DATABASE_URL` and the sign-in and origin settings. If it sets `container.instance_from`, the new host must route those requests to the same instance itself. |
 | Database data | No. Moving a Supabase database's data to another provider is your own migration. |
 | Signed-in users | No. Users and their sessions stay in WorkOS. |

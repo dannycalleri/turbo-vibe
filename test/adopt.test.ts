@@ -9,11 +9,7 @@ import {
   parseAssistants,
 } from "../src/assistant.js";
 import { reservedNames } from "../src/config/load.js";
-import {
-  defaultBackendPort,
-  healthPath,
-  legacyBuildArg,
-} from "../src/contract.js";
+import { defaultBackendPort } from "../src/contract.js";
 import { choices } from "../src/init.js";
 import { vendorSteps } from "../src/setup/steps.js";
 import { cliRange, version } from "../src/version.js";
@@ -201,12 +197,12 @@ describe("the adoption guidance", () => {
   });
 
   it("states the backend contract the deploy checks", () => {
-    expect(guidance).toContain(`GET ${healthPath}`);
+    expect(guidance).toContain("answers `/` below HTTP 500");
     expect(guidance).toContain(
       `in the Dockerfile's final stage, or in the stage it builds on, else to ${defaultBackendPort}`,
     );
-    expect(guidance).toContain(`ARG ${legacyBuildArg}`);
-    expect(guidance).toContain(`ENV ${legacyBuildArg}=$${legacyBuildArg}`);
+    expect(guidance).toContain("set `container.health` to its path");
+    expect(guidance).not.toContain("ARG BUILD_ID");
   });
 
   it("runs the CLI at a version npm resolves for this release, as the ongoing guidance does", () => {
