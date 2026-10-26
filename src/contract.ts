@@ -1,5 +1,11 @@
 export const defaultBackendPort = 8080;
 export const backendPrefix = "/api/";
+
+export function backendPaths(backend: {
+  paths?: readonly string[] | undefined;
+}): readonly string[] {
+  return backend.paths ?? [backendPrefix];
+}
 export const buildIdVariable = "TURBO_VIBE_BUILD_ID";
 export const legacyBuildArg = "BUILD_ID";
 

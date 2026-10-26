@@ -12,6 +12,7 @@ import {
   type TargetCatalog,
 } from "../adapters/index.js";
 import {
+  backendPaths,
   serviceVariables,
   stateSecrets,
   supabaseOrganization,
@@ -200,16 +201,19 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
 
   const servedAt = new Map<string, string>();
   for (const [name, service] of Object.entries(config.services)) {
-    const path = pathFor(service.kind);
+    const path = pathFor(service);
     if (!path) continue;
-    const other = servedAt.get(path);
+    const other = servedAt.get(service.kind);
     if (other) {
       problems.push({
         path: ["services", name],
-        message: `services \`${other}\` and \`${name}\` would both be served at ${path}`,
+        message:
+          service.kind === "backend"
+            ? `services \`${other}\` and \`${name}\` are both backends; a project has at most one`
+            : `services \`${other}\` and \`${name}\` would both be served at ${path}`,
       });
     } else {
-      servedAt.set(path, name);
+      servedAt.set(service.kind, name);
     }
   }
 
@@ -418,6 +422,31 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
       problems.push({
         path,
         message: `service \`${name}\` (${service.target}) cannot be served with \`${service.serve_with}\` (${host.target})`,
+      });
+    }
+  }
+  const backend = Object.entries(config.services).find(
+    ([, service]) => service.kind === "backend",
+  );
+  if (backend?.[1].kind === "backend") {
+    const [name, service] = backend;
+    const paths = backendPaths(service);
+    const sharing = Object.entries(config.services).find(
+      ([, other]) =>
+        other.kind === "frontend" && !catalog[other.target]?.crossOrigin,
+    );
+    if (paths.includes("/") && sharing) {
+      problems.push({
+        path: ["services", name, "paths"],
+        message: `service \`${name}\` takes every path with /, so frontend \`${sharing[0]}\` on the same hostname would receive no request`,
+      });
+    }
+    for (const [identity, other] of Object.entries(config.services)) {
+      if (other.kind !== "identity") continue;
+      if (paths.some((path) => other.callback_path.startsWith(path))) continue;
+      problems.push({
+        path: ["services", identity, "callback_path"],
+        message: `service \`${identity}\` has callback_path ${other.callback_path}, which backend \`${name}\` does not answer; put it under ${paths.join(" or ")}`,
       });
     }
   }

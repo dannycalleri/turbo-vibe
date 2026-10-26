@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Config } from "../config/schema.js";
-import { backendPrefix, buildIdVariable, legacyBuildArg } from "../contract.js";
+import { backendPaths, buildIdVariable, legacyBuildArg } from "../contract.js";
 
 type Backend = Extract<Config["services"][string], { kind: "backend" }>;
 
@@ -160,7 +160,12 @@ export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
       not_found_handling:
         spec.notFound === "404-page" ? "404-page" : "single-page-application",
       ...(spec.backend
-        ? { run_worker_first: [`${backendPrefix}*`, kitHealthPath] }
+        ? {
+            run_worker_first: [
+              ...backendPaths(spec.backend).map((path) => `${path}*`),
+              kitHealthPath,
+            ],
+          }
         : {}),
     };
   }

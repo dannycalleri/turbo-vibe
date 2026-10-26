@@ -133,6 +133,23 @@ describe("wranglerConfig", () => {
   });
 });
 
+describe("run_worker_first", () => {
+  it("sends each of the backend's paths and the health path to the Worker before the frontend's files", () => {
+    expect(
+      wranglerConfig({
+        name: "w",
+        buildId: "b",
+        configDir: "/repo",
+        backend: { ...backend, paths: ["/api/", "/auth/"] },
+        port: 8080,
+        assets: "/repo/dist",
+      }).assets,
+    ).toMatchObject({
+      run_worker_first: ["/api/*", "/auth/*", "/_turbo-vibe/health"],
+    });
+  });
+});
+
 describe("workerEntry", () => {
   const buildId = "abc1230000000000000000000000000000000000";
 

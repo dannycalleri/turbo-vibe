@@ -177,12 +177,13 @@ services:
     ]);
   });
 
-  it("rejects two backends that would share /api/", () => {
+  it("rejects a second backend", () => {
     const source = `${valid}  worker:\n    kind: backend\n    target: cloudflare-container\n    build: { dockerfile: worker/Dockerfile }\n`;
     expect(problems(source)).toEqual([
       {
         line: 14,
-        message: "services `api` and `worker` would both be served at /api/",
+        message:
+          "services `api` and `worker` are both backends; a project has at most one",
       },
     ]);
   });
@@ -371,16 +372,62 @@ services:
     ]);
   });
 
-  it("keeps the sign-in callback under /api/, where the backend answers", () => {
+  it("keeps the sign-in callback under a path the backend answers", () => {
+    const auth = (callback: string) =>
+      `  auth:\n    kind: identity\n    target: workos\n${callback}`;
     expect(
-      problems(
-        `${valid}  auth:\n    kind: identity\n    target: workos\n    callback_path: /callback\n`,
-      ),
+      problems(`${valid}${auth("    callback_path: /callback\n")}`),
     ).toEqual([
       {
         line: 17,
         message:
-          "`services.auth.callback_path` must be a path under /api/, where the backend answers",
+          "service `auth` has callback_path /callback, which backend `api` does not answer; put it under /api/",
+      },
+    ]);
+    const v1 = valid.replace(
+      "    target: cloudflare-container\n",
+      "    target: cloudflare-container\n    paths: [/v1/, /auth/]\n",
+    );
+    expect(problems(`${v1}${auth("")}`)).toEqual([
+      {
+        line: 15,
+        message:
+          "service `auth` has callback_path /api/auth/callback, which backend `api` does not answer; put it under /v1/ or /auth/",
+      },
+    ]);
+    expect(
+      parseConfig(`${v1}${auth("    callback_path: /auth/callback\n")}`).ok,
+    ).toBe(true);
+  });
+
+  it.each([
+    ["api", "`services.api.paths.0` must start and end with /, such as /api/"],
+    ["/api", "`services.api.paths.0` must start and end with /, such as /api/"],
+    ["/api/, /api/", "`services.api.paths` must not list a path twice"],
+  ])("refuses the backend paths %s", (path, message) => {
+    expect(
+      problems(
+        valid.replace(
+          "    target: cloudflare-container\n",
+          `    target: cloudflare-container\n    paths: [${path}]\n`,
+        ),
+      ),
+    ).toEqual([{ line: 8, message }]);
+  });
+
+  it("refuses / for a backend that shares its hostname with a frontend", () => {
+    expect(
+      problems(
+        valid.replace(
+          "    target: cloudflare-container\n",
+          "    target: cloudflare-container\n    paths: [/]\n",
+        ),
+      ),
+    ).toEqual([
+      {
+        line: 8,
+        message:
+          "service `api` takes every path with /, so frontend `web` on the same hostname would receive no request",
       },
     ]);
   });

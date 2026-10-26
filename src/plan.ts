@@ -2,9 +2,10 @@ import {
   type Config,
   type EnvironmentName,
   environmentNames,
+  type Service,
   type ServiceKind,
 } from "./config/schema.js";
-import { backendPrefix } from "./contract.js";
+import { backendPaths } from "./contract.js";
 import { hostOf, layout } from "./origins.js";
 import type { BackendPort } from "./port.js";
 
@@ -14,6 +15,7 @@ export interface PlannedService {
   target: string;
   url?: string;
   servedWith?: string;
+  paths?: readonly string[];
   port?: BackendPort;
   secrets?: string[];
   publicValues?: string[];
@@ -26,9 +28,9 @@ export interface EnvironmentPlan {
   services: PlannedService[];
 }
 
-export function pathFor(kind: ServiceKind): string | undefined {
-  if (kind === "backend") return backendPrefix;
-  if (kind === "frontend") return "/";
+export function pathFor(service: Service): string | undefined {
+  if (service.kind === "backend") return backendPaths(service)[0];
+  if (service.kind === "frontend") return "/";
   return undefined;
 }
 
@@ -45,8 +47,10 @@ export function derivePlan(
           kind: service.kind,
           target: service.target,
         };
-        const path = pathFor(service.kind);
+        const path = pathFor(service);
         if (path) planned.url = `https://${hostOf(hosts, service)}${path}`;
+        if (service.kind === "backend" && backendPaths(service).length > 1)
+          planned.paths = backendPaths(service);
         const port = ports[name];
         if (port) planned.port = port;
         if (service.kind === "frontend" && service.serve_with) {
@@ -82,6 +86,7 @@ export function formatPlan(plan: EnvironmentPlan[]): string {
           `  ${service.name}  ${service.kind}  ${service.target}  ${service.url ?? ""}${via}`.trimEnd();
         return [
           row,
+          ...(service.paths ? [`    paths: ${service.paths.join(", ")}`] : []),
           ...(service.port
             ? [`    port: ${service.port.port} (${service.port.source})`]
             : []),
