@@ -14,6 +14,7 @@ services:
     container:
       instance_type: lite
       sleep_after: 5m
+      health: /api/health
   web:
     kind: frontend
     target: cloudflare-static
