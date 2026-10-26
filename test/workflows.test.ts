@@ -610,6 +610,25 @@ describe("init's Staging workflow", () => {
   });
 });
 
+describe("the staging run's summary", () => {
+  it("points at the run's production job only when the project promotes from staging", async () => {
+    const { steps } = (await workflow("deploy.yml")).jobs.staging;
+    const named = steps.find(
+      (step: { name?: string }) => step.name === "Name the build to promote",
+    );
+    expect(named.env).toEqual({
+      PROMOTE_FROM_STAGING: "${{ vars.TURBO_VIBE_PROMOTE_FROM_STAGING }}",
+    });
+    expect(named.run).toContain(
+      'if [ "$PROMOTE_FROM_STAGING" = "true" ]; then',
+    );
+    expect(named.run).toContain("approve this run's **production** job.");
+    expect(named.run).toContain(
+      "run **Deploy to production** with confirm-build",
+    );
+  });
+});
+
 describe("require-reviewer", () => {
   it("first checks, without a secret, that production has a required reviewer", async () => {
     const promote = await workflow("promote.yml");

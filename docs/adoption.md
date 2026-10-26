@@ -101,7 +101,18 @@ jobs:
     with:
       allow-deletions: ${{ inputs.allow-deletions == true }}
     secrets: inherit
+  production:
+    needs: deploy
+    if: vars.TURBO_VIBE_PROMOTE_FROM_STAGING == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: dannycalleri/turbo-vibe/.github/workflows/promote.yml@v1
+    with:
+      confirm-build: ${{ github.sha }}
+      require-reviewer: true
+      allow-deletions: ${{ inputs.allow-deletions == true }}
+    secrets: inherit
 ```
+
+The `production` job promotes the run's own build after a reviewer of the `production` environment approves it. It runs only when the repository variable `TURBO_VIBE_PROMOTE_FROM_STAGING` is `true`, which `setup` sets when it adds you as a required reviewer. A repository that already had a reviewer sets it once: `gh variable set TURBO_VIBE_PROMOTE_FROM_STAGING --body true`.
 
 `.github/workflows/production.yml`:
 
@@ -171,7 +182,7 @@ Do this once per project. The [bootstrap checklist](bootstrap.md) walks through 
 
 1. Merge a change to `main`. The **Staging** run applies infrastructure, migrates, builds and pushes the image, deploys, and smoke-tests.
    Check: the staging hostname serves the app, and `/_turbo-vibe/health` on the **same hostname** reports the merged commit's SHA as `build_id`.
-2. Copy the build ID from the Staging run's summary, run **Deploy to production** from the Actions tab with it as **confirm-build**, and approve it if the `production` environment has reviewers.
+2. Open the Staging run, select **Review deployments** on its **production** job, and approve it. Without a required reviewer, copy the build ID from the Staging run's summary and run **Deploy to production** from the Actions tab with it as **confirm-build** instead.
    Check: production's `/_turbo-vibe/health` reports the same SHA as staging. Nothing was rebuilt; the run's log has no `docker build`.
 
 If staging's smoke test fails, the run fails and names both build IDs. That build can never be promoted.

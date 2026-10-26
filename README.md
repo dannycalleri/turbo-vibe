@@ -31,7 +31,7 @@ npx @turbo-vibe/cli@1 init    # 1. Describe it and connect your accounts: defaul
 git push origin main          # 2. Merge: every merge deploys to staging and is smoke-tested
 ```
 
-`init` writes `turbo-vibe.yaml` and two workflows, then offers to run `setup` (it needs a signed-in GitHub CLI), which checks each token as you paste it and stores it in GitHub. Run `npx @turbo-vibe/cli@1 setup` yourself if `init` didn't run it, and again when you add a secret, replace a token or add an environment. To go live, run **Deploy to production** from the Actions tab, type the build ID and approve.
+`init` writes `turbo-vibe.yaml` and two workflows, then offers to run `setup` (it needs a signed-in GitHub CLI), which checks each token as you paste it and stores it in GitHub. Run `npx @turbo-vibe/cli@1 setup` yourself if `init` didn't run it, and again when you add a secret, replace a token or add an environment. To go live, approve the **production** job of a passing Staging run. Where GitHub offers no required reviewers (a private repository without GitHub Enterprise), run **Deploy to production** from the Actions tab and type the build ID instead.
 
 **Does your server need changes to fit?** `init` is enough for a static site, or for an app that already meets the [backend contract](docs/reference.md#what-a-backend-must-do). When the backend must change (a Dockerfile, a server that ignores `SIGTERM`), run `npx @turbo-vibe/cli@1 adopt` and ask your coding agent to make the project deployable. It adapts the backend, runs `init` with flags and opens a pull request; `setup` stays with you. The [adoption guide](docs/adoption.md) covers the same path by hand.
 
@@ -54,7 +54,7 @@ flowchart LR
 2. **Prepare staging.** Staging's infrastructure is applied and its database migrated before any new code goes live.
 3. **Build once.** The backend becomes a container image and the frontend its build output. Both go to staging, and the image digest and the files are recorded in your bucket.
 4. **Smoke test.** Staging must answer with the build that was just deployed, or the release stops here.
-5. **Go / no-go.** A person runs **Deploy to production** and types the build ID. With a required reviewer, they approve it too.
+5. **Go / no-go.** A reviewer approves the Staging run's **production** job. Without a required reviewer, a person runs **Deploy to production** and types the build ID.
 6. **Promote.** Production is applied and migrated, then receives the same artifacts unchanged and gets the same smoke test.
 
 ## What you get
