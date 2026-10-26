@@ -1,3 +1,4 @@
+import { readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { missingVariables, readOutputs } from "./apply.js";
@@ -15,6 +16,7 @@ import {
 } from "./database.js";
 import type { Project } from "./deploy.js";
 import type { Io } from "./io.js";
+import type { SqlSession } from "./sql.js";
 
 const require = createRequire(import.meta.url);
 const supabaseBin = join(
@@ -22,6 +24,26 @@ const supabaseBin = join(
   "dist",
   "supabase.js",
 );
+
+async function appliedVersions(session: SqlSession): Promise<string[]> {
+  const [table] = await session.query(
+    "select to_regclass('supabase_migrations.schema_migrations') is not null as present",
+  );
+  if (!table?.present) return [];
+  const rows = await session.query(
+    "select version from supabase_migrations.schema_migrations",
+  );
+  return rows.map((row) => String(row.version));
+}
+
+async function localVersions(workdir: string): Promise<Set<string>> {
+  const files = await readdir(join(workdir, "supabase", "migrations")).catch(
+    () => [] as string[],
+  );
+  return new Set(
+    files.flatMap((file) => /^(\d+)_.*\.sql$/.exec(file)?.[1] ?? []),
+  );
+}
 
 export async function migrateDatabase(
   endpoint: Endpoint,
@@ -60,6 +82,28 @@ export async function migrateDatabase(
     return 1;
   } finally {
     await admin.end();
+  }
+  const migrator = io.sql(
+    connectionUrl(endpoint, migratorRole, connection.migrator_password),
+  );
+  let applied: string[];
+  try {
+    applied = await appliedVersions(migrator);
+  } catch (error) {
+    io.stderr(
+      `cannot read the applied migrations: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    return 1;
+  } finally {
+    await migrator.end();
+  }
+  const local = await localVersions(workdir);
+  const missing = applied.filter((version) => !local.has(version)).sort();
+  if (missing.length > 0) {
+    io.stderr(
+      `the database has ${missing.length > 1 ? "migrations" : "migration"} ${missing.join(", ")}, which this commit lacks: a rollback cannot cross a migration, so promote a newer build that fixes forward. Nothing was migrated\n`,
+    );
+    return 1;
   }
   return io.run(
     process.execPath,

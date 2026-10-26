@@ -180,6 +180,32 @@ describe("migrate against Postgres", () => {
     expect(await migrateAsAdmin(dir)).toBe(0);
   });
 
+  it("refuses a folder that lacks a migration the database has, and names it", async () => {
+    const ahead = await workdir({
+      "20261008000000_greeting.sql":
+        "create table greeting (message text not null);\n",
+      "20261012000000_farewell.sql": "create table farewell (id int);\n",
+    });
+    expect(await migrateAsAdmin(ahead)).toBe(0);
+    const behind = await workdir({
+      "20261008000000_greeting.sql":
+        "create table greeting (message text not null);\n",
+    });
+    const messages: string[] = [];
+    expect(
+      await migrateDatabase(
+        endpoint,
+        { ...passwords, postgres_password: admin.password },
+        behind,
+        { ...io, stderr: (text) => messages.push(text) },
+        admin.role,
+      ),
+    ).toBe(1);
+    expect(messages.join("")).toContain(
+      "the database has migration 20261012000000, which this commit lacks",
+    );
+  });
+
   it("fails on a broken migration and leaves the schema as it was", async () => {
     const dir = await workdir({
       "20261008000000_greeting.sql":
