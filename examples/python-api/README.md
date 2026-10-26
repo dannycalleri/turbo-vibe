@@ -20,11 +20,12 @@ You need the GitHub repository, accounts and tokens from the [bootstrap checklis
    npx @turbo-vibe/cli@1 init --name my-api --domain app.example.com --backend cloudflare-container --frontend none --database none --identity none --assistant claude
    ```
 
-   Then set the backend's test command and its instance routing in `turbo-vibe.yaml`:
+   Then set the backend's paths, test command and instance routing in `turbo-vibe.yaml`. With `paths: [/]`, every path on the hostname reaches the API:
 
    ```yaml
    services:
      api:
+       paths: [/]
        build:
          dockerfile: Dockerfile
          test: docker run --rm -v "$PWD":/src -w /src python:3.13-slim python -m unittest -v

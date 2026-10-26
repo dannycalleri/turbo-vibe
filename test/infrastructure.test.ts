@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { adapterFor } from "../src/adapters/index.js";
-import { parseConfig } from "../src/config/load.js";
+import { loadConfigFile, parseConfig } from "../src/config/load.js";
 import type { Config } from "../src/config/schema.js";
 import {
   branchedDatabases,
@@ -83,6 +83,19 @@ describe("composeInfrastructure", () => {
       composeInfrastructure(withPaths("[/]"), "staging").cloudflare?.workers,
     ).toEqual({
       "acme-api-staging": { routes: ["staging.acme.example.com/*"] },
+    });
+  });
+
+  it("gives the Python example's API its whole hostname", async () => {
+    const loaded = await loadConfigFile("examples/python-api/turbo-vibe.yaml");
+    if (!loaded.ok) throw new Error(JSON.stringify(loaded.problems));
+    expect(composeInfrastructure(loaded.config, "staging").cloudflare).toEqual({
+      workers: {
+        "tv-python-api-staging": {
+          routes: ["staging-python-example.turbovibe.ai/*"],
+        },
+      },
+      hostnames: ["staging-python-example.turbovibe.ai"],
     });
   });
 
