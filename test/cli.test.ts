@@ -281,7 +281,11 @@ describe("turbo-vibe apply", () => {
       capture: planning([worker, ["delete"]]),
       fetch: vi.fn(),
       sleep: async () => {},
-      sql: () => ({ execute: async () => {}, end: async () => {} }),
+      sql: () => ({
+        execute: async () => {},
+        query: async () => [],
+        end: async () => {},
+      }),
       stdout: () => {},
       stderr: () => {},
     });
@@ -482,7 +486,7 @@ services:
       Response.json({ status: value }),
     );
 
-  function sqlRecorder() {
+  function sqlRecorder(applied: string[] = []) {
     const sessions: { url: string; statements: string[]; ended: boolean }[] =
       [];
     const sql = (url: string) => {
@@ -492,6 +496,12 @@ services:
         execute: async (statement: string) => {
           session.statements.push(statement);
         },
+        query: async (statement: string) => {
+          session.statements.push(statement);
+          return statement.includes("to_regclass")
+            ? [{ present: applied.length > 0 }]
+            : applied.map((version) => ({ version }));
+        },
         end: async () => {
           session.ended = true;
         },
@@ -499,6 +509,31 @@ services:
     };
     return { sessions, sql };
   }
+
+  it("refuses a rollback across a migration: the database has a version the commit lacks", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { sql } = sqlRecorder(["20261008000000", "20261010000000"]);
+    const { code, stderr } = await run(
+      ["migrate", "--env", "staging"],
+      {
+        "turbo-vibe.yaml": withDb,
+        "backend/supabase/migrations/20261008000000_greeting.sql":
+          "select 1;\n",
+      },
+      env,
+      runner,
+      status("ACTIVE_HEALTHY"),
+      { capture: async () => ({ code: 0, stdout: outputs }), sql },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "the database has migration 20261010000000, which this commit lacks: a rollback cannot cross a migration, so promote a newer build that fixes forward. Nothing was migrated\n" +
+        "migrations for db failed with exit code 1; nothing was deployed\n",
+    );
+    expect(runner.mock.calls.some(([, args]) => args.includes("push"))).toBe(
+      false,
+    );
+  });
 
   it("does nothing for a project without a database", async () => {
     const runner = vi.fn<Runner>(async () => 0);
@@ -544,7 +579,11 @@ services:
       },
     );
 
-    expect(sessions).toHaveLength(1);
+    expect(sessions).toHaveLength(2);
+    expect(sessions[1]?.url).toBe(
+      "postgresql://turbo_vibe_migrator.abcdefghij:migpw@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require",
+    );
+    expect(sessions[1]?.ended).toBe(true);
     expect(sessions[0]?.url).toBe(
       "postgresql://postgres.abcdefghij:pgpw@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require",
     );
@@ -647,6 +686,7 @@ services:
           execute: async () => {
             throw new Error('no privileges were granted for "postgres"');
           },
+          query: async () => [],
           end: async () => {},
         }),
       },

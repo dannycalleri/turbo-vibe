@@ -29,7 +29,11 @@ export async function run(
     fetch,
     sleep: async () => {},
     capture: vi.fn(async () => ({ code: 0, stdout: "{}" })),
-    sql: () => ({ execute: async () => {}, end: async () => {} }),
+    sql: () => ({
+      execute: async () => {},
+      query: async () => [],
+      end: async () => {},
+    }),
     ...overrides,
     stdout: (text) => {
       stdout += text;

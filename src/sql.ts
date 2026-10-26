@@ -2,6 +2,7 @@ import postgres from "postgres";
 
 export interface SqlSession {
   execute(statement: string): Promise<void>;
+  query(statement: string): Promise<Record<string, unknown>[]>;
   end(): Promise<void>;
 }
 
@@ -18,6 +19,9 @@ export function postgresSession(url: string): SqlSession {
       warnings.length = 0;
       await sql.unsafe(statement);
       if (warnings.length > 0) throw new Error(warnings.join("; "));
+    },
+    async query(statement) {
+      return [...(await sql.unsafe(statement))];
     },
     end: () => sql.end(),
   };
