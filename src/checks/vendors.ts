@@ -1,3 +1,4 @@
+import { promoteFromStaging } from "../contract.js";
 import { environmentSecrets } from "../deploy.js";
 import { appPublic, buildSecrets } from "../secrets.js";
 import type { Check, CheckContext, Finding } from "./types.js";
@@ -279,14 +280,27 @@ export const github: Check = async (context) => {
     const reviewed = (settings.body?.protection_rules ?? []).some(
       (rule) => rule.type === "required_reviewers",
     );
+    const variable = reviewed
+      ? undefined
+      : await getJson<{ value?: string }>(
+          context,
+          `https://api.github.com/repos/${repository}/actions/variables/${promoteFromStaging}`,
+          io.env.GITHUB_TOKEN,
+        );
     findings.push(
       reviewed
         ? ok("github", "production requires a reviewer's approval")
-        : warn(
-            "github",
-            "production has no required reviewers, so the typed build-ID confirmation is the only safeguard before promotion",
-            "add required reviewers in Settings → Environments → production; GitHub offers them on public repositories, and on private ones only with GitHub Enterprise",
-          ),
+        : variable?.body?.value === "true"
+          ? fail(
+              "github",
+              `${promoteFromStaging} is true but production has no required reviewer, so every Staging run's production job stops before deploying`,
+              `add a reviewer in Settings → Environments → production, or delete the repository variable ${promoteFromStaging}`,
+            )
+          : warn(
+              "github",
+              "production has no required reviewers, so the typed build-ID confirmation is the only safeguard before promotion",
+              "add required reviewers in Settings → Environments → production; GitHub offers them on public repositories, and on private ones only with GitHub Enterprise",
+            ),
     );
   }
   const secrets = await getJson<{ secrets?: { name: string }[] }>(

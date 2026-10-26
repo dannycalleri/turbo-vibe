@@ -1,5 +1,6 @@
 import { hasPrivateEnvironment, zeroTrustPage } from "../checks/cloudflare.js";
 import type { Config } from "../config/schema.js";
+import { promoteFromStaging } from "../contract.js";
 import { environmentSecrets } from "../deploy.js";
 import { appPublic, appSecrets, buildSecrets } from "../secrets.js";
 import { kindOf } from "../setup.js";
@@ -153,6 +154,10 @@ export function setupSteps(
           ),
         ]
       : []),
+    "",
+    "How production is approved",
+    `  - When setup adds you as a required reviewer on production, it also sets the repository variable ${promoteFromStaging}: each Staging run on main then waits for your approval to promote its build. With a reviewer already in place, set it yourself: gh variable set ${promoteFromStaging} --body true`,
+    '  - Where GitHub offers no reviewers (a private repository without GitHub Enterprise), run "Deploy to production" in the Actions tab and type the build ID',
     "",
     "What one Cloudflare account leaves shared",
     ...limits.map((line) => `  - ${line}`),

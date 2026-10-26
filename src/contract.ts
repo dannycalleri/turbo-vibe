@@ -8,6 +8,7 @@ export function backendPaths(backend: {
 }
 export const buildIdVariable = "TURBO_VIBE_BUILD_ID";
 export const legacyBuildArg = "BUILD_ID";
+export const promoteFromStaging = "TURBO_VIBE_PROMOTE_FROM_STAGING";
 
 export const stateSecrets = [
   "TURBO_VIBE_STATE_BUCKET",
