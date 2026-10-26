@@ -142,11 +142,13 @@ On a site with one file per page, `spa` answers `200` with the home page for `/.
 
 With `404-page`, Cloudflare serves the `404.html` of the nearest folder on the path, and the root `404.html` when no folder has one. Without a root `404.html`, Cloudflare answers with an empty `404`. So `deploy` and `promote` stop before `wrangler deploy` when the root of the build output has no `404.html`, and name the output folder. A `deploy --dry-run` runs the same check.
 
-With `serve_with`, the backend's Worker serves the frontend with the frontend's `not_found`, and `/api/` still reaches the backend. The field applies only to `cloudflare-static`.
+With `serve_with`, the backend's Worker serves the frontend with the frontend's `not_found`, and the backend's `paths` still reach the backend. The field applies only to `cloudflare-static`.
 
 ## What a backend must do
 
 A `cloudflare-container` backend listens on its port, which `plan` prints with where it came from: `container.port` when the config sets it, else the TCP port of the last `EXPOSE` that has one in the Dockerfile's final stage, or in the stage it builds on, else 8080. The kit also gives the port as `PORT`. The backend reads its database, if the project has one, from `DATABASE_URL`. It needs no health route and no Dockerfile lines for the kit.
+
+The backend receives the requests whose path starts with one of its `paths`, `/api/` by default. Set them to the prefixes the app already uses, such as `[/v1/, /auth/]`, instead of moving its routes. A backend that no frontend shares a hostname with can take `[/]`. The kit forwards each path as the browser sent it. Changing `paths` on a deployed project replaces its routes: run the Staging workflow once with `allow-deletions`, and pass `allow-deletions` to the next **Deploy to production**.
 
 After every deploy, `smoke` reads `/_turbo-vibe/health`, which the backend's Worker answers itself. The Worker asks the container for `/`, and reports the build ID it was deployed with when the container answers below HTTP 500: a 404 proves that the server listens. To check a readiness route instead, set `container.health` to its path; then only HTTP 2xx passes. When the route's JSON carries a `build_id`, as one written for turbo-vibe 1.0 does, the Worker also compares it with its own, and answers HTTP 503 while the container still reports another build. An app error answers HTTP 502, so `smoke` gives up after about a minute. The route must answer without the database, because the pull request's dry run starts the image without one.
 
@@ -197,7 +199,7 @@ A `workos` identity service registers each environment's callback as a WorkOS re
   auth:
     kind: identity
     target: workos
-    callback_path: /api/auth/callback   # the default; must be under /api/
+    callback_path: /api/auth/callback   # the default; must be under one of the backend's paths
 ```
 
 `apply` first lists the environment's redirect URIs through the WorkOS API. A callback already registered by hand counts as registered and is left alone; URIs the kit did not create are never removed.

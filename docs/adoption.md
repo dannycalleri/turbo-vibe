@@ -11,7 +11,7 @@ A static site, or an app whose server already meets the backend contract, needs 
 turbo-vibe adapts to most servers. Check four things:
 
 - Listen on `0.0.0.0`, on the port in the Dockerfile's `EXPOSE`. Without `EXPOSE`, set `container.port` in `turbo-vibe.yaml`; without either, the port is 8080. The kit also sets `PORT`.
-- Serve every backend route under `/api/`. Only `/api/*` reaches the backend, with or without a frontend; every other path is the frontend's, or answers nothing.
+- Know the backend's path prefixes. By default only `/api/*` reaches the backend. When its routes are elsewhere, set `paths` in `turbo-vibe.yaml` to the prefixes it uses, such as `[/v1/, /auth/]`, or `[/]` when no frontend shares its hostname. Every other path is the frontend's, or answers nothing.
 - Exit on `SIGTERM`. Every deploy after the first replaces the running container: Cloudflare sends `SIGTERM` and waits up to 15 minutes before killing one that ignores it, and the deploy waits for that. A process running as the container's PID 1 ignores `SIGTERM` unless it handles it: Go servers exit by default, but Python and Node need a handler (or an init such as `tini` as the entrypoint).
 - Start without the database. The pull request's dry run starts the image with no `DATABASE_URL`.
 

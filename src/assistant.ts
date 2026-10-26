@@ -77,7 +77,7 @@ const adoptDescription =
 const cli = (version: string) =>
   `npx @turbo-vibe/cli@${references(version).cliRange}`;
 
-const contract = `- A backend needs no health route and no Dockerfile lines for turbo-vibe. After every deploy, the kit's Worker checks that the container answers \`container.health\` with HTTP 2xx when the config sets it, else \`/\` below HTTP 500. The container receives the build ID as \`${buildIdVariable}\`. It listens on its port: \`container.port\` when the config sets it, else the \`EXPOSE\` in the Dockerfile's final stage, else ${defaultBackendPort}. turbo-vibe also gives the port as \`PORT\`.`;
+const contract = `- A backend needs no health route and no Dockerfile lines for turbo-vibe. After every deploy, the kit's Worker checks that the container answers \`container.health\` with HTTP 2xx when the config sets it, else \`/\` below HTTP 500. The container receives the build ID as \`${buildIdVariable}\`. Only the backend's \`paths\` reach it, \`${backendPrefix}\` by default. It listens on its port: \`container.port\` when the config sets it, else the \`EXPOSE\` in the Dockerfile's final stage, else ${defaultBackendPort}. turbo-vibe also gives the port as \`PORT\`.`;
 
 const tokenSteps = () =>
   vendorSteps
@@ -139,7 +139,7 @@ ${contract}
 const targetRuns: Record<string, string> = {
   "cloudflare-container":
     "an HTTP server in any language, built from a Dockerfile and run as a container",
-  "cloudflare-static": `a static site or single-page app: a build command that writes HTML, JS and CSS to a folder. With a backend it is served from the backend's Worker: the page at \`/\`, the API at \`${backendPrefix}\`. By default unknown paths get \`index.html\` with \`200\`, so a single-page app's client-side routing works; a site with one file per page (Astro, Hugo, Docusaurus) sets \`not_found: 404-page\` and ships a root \`404.html\`, so unknown paths get \`404\`.`,
+  "cloudflare-static": `a static site or single-page app: a build command that writes HTML, JS and CSS to a folder. With a backend it is served from the backend's Worker: the page at \`/\`, the API at the backend's \`paths\` (\`${backendPrefix}\` by default). By default unknown paths get \`index.html\` with \`200\`, so a single-page app's client-side routing works; a site with one file per page (Astro, Hugo, Docusaurus) sets \`not_found: 404-page\` and ships a root \`404.html\`, so unknown paths get \`404\`.`,
   "vercel-static":
     "the same kind of static build, hosted on Vercel; the backend then moves to its own API hostname, and the page reads the API's URL at run time",
   "vercel-nextjs":
@@ -147,7 +147,7 @@ const targetRuns: Record<string, string> = {
   supabase:
     "a PostgreSQL database: one Supabase project per environment, changed only by SQL migration files",
   workos:
-    "sign-in with WorkOS AuthKit; the backend handles the login callback under `/api/`",
+    "sign-in with WorkOS AuthKit; the backend handles the login callback at `callback_path`, under one of its `paths` (`/api/auth/callback` by default)",
 };
 
 const initFlags: Record<string, string> = {
@@ -234,7 +234,7 @@ Then ask the person, in one message, everything this guide needs them to decide,
 - the production hostname: \`domain\` in \`turbo-vibe.yaml\`, and whether it serves something today. If it does, the person removes the old DNS record just before the first **Deploy to production**, which is the cutover, or chooses a new hostname: Cloudflare refuses the new record next to an old CNAME, and next to an old A or AAAA record both would answer and traffic would move as soon as production's infrastructure is applied, before the app is promoted. Its zone (the registered domain, such as \`example.com\`) must be on Cloudflare; if it is not yet, \`setup\` adds it, and the person then moves the zone's nameservers to Cloudflare, which moves DNS for the whole zone, email and other sites included. Tell them the staging hostname \`init\` will derive: one level below the zone, such as \`staging-shop.example.com\` for \`shop.example.com\`, because Cloudflare's free certificate covers only that level;
 - each part with no target: stop, or proceed without it;
 - each of the application's own values, with its field from the table above, so they know what \`setup\` will ask for;
-- each change from steps 3 and 4 they would notice: the port, routes moving under \`${backendPrefix}\`, pages or routes that stop being served, an open CORS policy tightened, start-up steps removed, new dependencies or a lockfile;
+- each change from steps 3 and 4 they would notice: the port, the backend's \`paths\`, pages or routes that stop being served, an open CORS policy tightened, start-up steps removed, new dependencies or a lockfile;
 - the database's region, near the app's users.
 
 ## 3. Make the backend meet the contract
@@ -245,7 +245,7 @@ Skip this step for a project with no backend. Each change below can break the wa
 
    A secret only the build needs (step 2's \`build.secrets\`) arrives as a BuildKit secret: read it with \`RUN --mount=type=secret,id=<NAME> <NAME>="$(cat /run/secrets/<NAME>)" <command>\`, and never put it in an \`ARG\`, an \`ENV\` or a copied file. Use the exec form for the start command (\`CMD ["node", "server.js"]\`), not the shell form, so the server receives signals itself. The exec form does not expand \`$PORT\`: read it in the server's code or its config file (gunicorn's \`gunicorn.conf.py\`), or use \`CMD ["sh", "-c", "exec <server> --port $PORT"]\`.
 2. **Port.** Keep the port the server uses. turbo-vibe sends requests to \`container.port\` when step 5's config sets it, else to the TCP port of the last \`EXPOSE\` that has one in the Dockerfile's final stage, or in the stage it builds on, else to ${defaultBackendPort}, and gives the same port as \`PORT\`. When the Dockerfile has \`EXPOSE\` with the right port, change nothing. Otherwise add that \`EXPOSE\`, or set \`container.port\`. The server must listen on \`0.0.0.0\`, not only on \`127.0.0.1\`.
-3. **Routes under \`${backendPrefix}\`.** Only \`${backendPrefix}*\` reaches the backend, whatever else the project has; every other path is answered by the frontend, or not at all. Mount the router under \`${backendPrefix}\` if the routes are elsewhere, and update the frontend's calls if it has one. Server-rendered pages outside \`${backendPrefix}\` stop being reachable: drop them, move them under \`${backendPrefix}\`, or turn them into a \`cloudflare-static\` frontend, as the person chose. With the frontend on the same host, the API no longer needs cross-origin access, so an open CORS policy can be tightened: remove it, or allow only the local dev server's origin.
+3. **Paths.** Keep the routes where they are. Only the backend's \`paths\` reach it, \`${backendPrefix}\` by default; every other path is answered by the frontend, or not at all. List the prefixes the app's routes use in \`paths\` (step 5), such as \`[/v1/, /auth/]\`. A backend that no frontend shares a hostname with can take \`[/]\`. On a project already deployed with turbo-vibe, a change of \`paths\` replaces routes: tell the person to run the Staging workflow once with \`allow-deletions\`, and to pass it to the next "Deploy to production". Change routes only for server-rendered pages beside a \`cloudflare-static\` frontend, which needs \`/\`: drop them, move them under one of the paths, or turn them into the frontend, as the person chose. The sign-in \`callback_path\` must sit under one of the paths. With the frontend on the same host, the API no longer needs cross-origin access, so an open CORS policy can be tightened: remove it, or allow only the local dev server's origin.
 4. **Health.** Change nothing: after every deploy, turbo-vibe checks that the server answers \`/\` below HTTP 500, and a 404 passes. Only when the app already has a readiness route that answers HTTP 2xx without the database (the pull request's dry run starts the image without one), set \`container.health\` to its path in step 5.
 5. **Stop on \`SIGTERM\`.** Each deploy replaces the container by sending \`SIGTERM\`, and waits up to 15 minutes for one that ignores it. Go servers and gunicorn exit by default. Node, and Python servers that run as process 1 without such a manager, need a handler that closes the server and exits, or an init such as \`tini\` as the entrypoint.
 6. **Database.** Read the connection string from \`DATABASE_URL\`. It points at the database's session pooler and includes \`sslmode=require\`, so a driver that reads the URL needs no TLS or prepared-statement options. The pooler closes idle connections: handle a pool's connection errors so they do not crash the process (node-postgres: \`pool.on("error", …)\`). Migrations run before each deploy as a role that owns the schema, and the running app connects as one that can read and write rows but cannot change the schema; it gets those rights, sequences included, on everything the migrations create, so write no \`GRANT\`s. Remove any migration or table creation at start-up. Schema changes become SQL files in \`supabase/migrations/\`, named \`<YYYYMMDDHHMMSS>_<name>.sql\` and applied in name order. Copy SQL migrations the project already has (\`prisma/migrations/*/migration.sql\`, Drizzle's output folder, Rails or Django can print theirs) into that folder in their original order, renaming each with an increasing timestamp. Without any, write the SQL that creates the current schema as the first file, or have the tool print it (\`alembic upgrade head --sql\`; for Prisma, \`prisma migrate diff\` from empty to the schema with \`--script\`, whose flag names differ between versions, so check \`--help\`). Keep the tool's own runner out of the deploy. For local development, say how to apply the files, such as \`supabase db reset\` or \`psql\` over each file in order.
@@ -253,7 +253,7 @@ Skip this step for a project with no backend. Each change below can break the wa
 
 ## 4. Point the frontend at the API
 
-- **Served with the backend (\`cloudflare-static\`):** call the API with relative URLs (\`/api/…\`). Remove any hard-coded API host, and keep local development working with the dev server's proxy from \`/api\` to the backend's local port (Vite's \`server.proxy\`).
+- **Served with the backend (\`cloudflare-static\`):** call the API with relative URLs under the backend's \`paths\` (\`${backendPrefix}…\` by default). Remove any hard-coded API host, and keep local development working with the dev server's proxy from each of those paths to the backend's local port (Vite's \`server.proxy\`).
 - **On Vercel (\`vercel-static\`):** read the API's URL at run time from \`/_turbo-vibe/config.json\` (\`{ "apiUrl": "https://…" }\`), which each environment gets next to the built files, so one build serves staging and production. The backend must accept only the origins in \`ALLOWED_ORIGINS\`, with credentials.
 - **Next.js (\`vercel-nextjs\`):** read the API's URL from \`TURBO_VIBE_API_URL\` on the server.
 
@@ -272,6 +272,7 @@ ${cli(version)} init --name <project> --domain <production hostname> --backend <
 Then edit \`turbo-vibe.yaml\` (each field is described at https://github.com/dannycalleri/turbo-vibe/blob/main/docs/file-format.md). Paths and commands are relative to the folder that holds it:
 
 - \`build.dockerfile\`, \`build.context\` when the Dockerfile builds from another folder, and \`build.test\`;
+- \`paths\`, when step 3 listed prefixes other than \`${backendPrefix}\`;
 - \`container.port\`, when step 3 chose it over an \`EXPOSE\`, and \`container.health\`, when step 3 chose a readiness route;
 - the frontend's \`build.command\`, \`build.output\` and \`build.test\`, replacing the defaults \`init\` marks;
 - the \`secrets\`, \`public\` and \`build.secrets\` lists from step 2;

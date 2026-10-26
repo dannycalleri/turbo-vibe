@@ -47,12 +47,13 @@ Paths are relative to the config file, and commands run in its directory unless 
 
 `cloudflare-static` runs on Workers Static Assets, which Cloudflare recommends instead of Pages for new projects. With `serve_with`, the page and the API share one Worker and one origin, so the page calls the API without CORS and the sign-in cookie reaches it.
 
-A backend is served under `/api/` and a frontend under `/`.
+A backend is served under its `paths`, `/api/` by default, and a frontend under `/`.
 
 ### `kind: backend`
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
+| `paths` | list of paths that start and end with `/` | `[/api/]` | The path prefixes that reach the backend, such as `[/api/, /auth/]`. `[/]` gives the backend its whole hostname, so no frontend may share that hostname. The kit forwards each path as the browser sent it. A change on a deployed project replaces routes, so `apply` needs `--allow-deletions` once in each environment. |
 | `secrets` | list of names | none | The application's own secrets, such as `[STRIPE_SECRET_KEY]`. Names only: each value lives in the GitHub environment it belongs to, and reaches the running container as an environment variable of that name. See the reference's [Your application's own secrets](reference.md#your-applications-own-secrets). |
 | `build.dockerfile` | path | required | The Dockerfile, relative to the config file. |
 | `build.context` | path | the Dockerfile's directory | The Docker build context. |
@@ -93,7 +94,7 @@ A backend is served under `/api/` and a frontend under `/`.
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `callback_path` | path under `/api/` | `/api/auth/callback` | Where the backend receives the sign-in callback; registered per environment. |
+| `callback_path` | path under one of the backend's `paths` | `/api/auth/callback` | Where the backend receives the sign-in callback; registered per environment. |
 
 ## Rules only the CLI checks
 
@@ -101,7 +102,8 @@ These need more than one field, or the list of adapters, so the JSON Schema cann
 
 - **Targets match kinds.** A service's target must exist and run that kind of service.
 - **One of each, for databases and sign-in.** A project has at most one `database` and one `identity` service.
-- **No two services at one path.** Two backends, or two frontends, would both be served at `/api/` or `/`.
+- **No two services at one path.** A project has at most one backend, and two frontends would both be served at `/`.
+- **`paths`.** A backend with `/` in its `paths` takes the whole hostname, so no frontend may share it. A sign-in `callback_path` must start with one of the backend's `paths`.
 - **`serve_with`** names a backend service, and only `cloudflare-static` takes it.
 - **`not_found`** applies only to `cloudflare-static`.
 - **`build.output` and `build.root`.** `cloudflare-static` and `vercel-static` need `build.output`; `vercel-nextjs` builds its own output, so it takes `build.root` and refuses `build.output`; the other frontend targets refuse `build.root`.
