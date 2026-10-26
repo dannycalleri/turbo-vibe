@@ -111,6 +111,17 @@ services:
     );
   });
 
+  it("shows a backend's port and where it came from", () => {
+    const text = formatPlan(
+      derivePlan(config(backendOnly), {
+        api: { port: 3000, source: "EXPOSE in Dockerfile" },
+      }),
+    );
+    expect(text).toContain(
+      "  api  backend  cloudflare-container  https://staging.acme.example.com/api/\n    port: 3000 (EXPOSE in Dockerfile)",
+    );
+  });
+
   it("lists each environment with its services", () => {
     expect(formatPlan(derivePlan(config(backendOnly)))).toBe(
       [

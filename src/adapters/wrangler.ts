@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Config } from "../config/schema.js";
-import { backendPort, backendPrefix, buildIdVariable } from "../contract.js";
+import { backendPrefix, buildIdVariable } from "../contract.js";
 
 type Backend = Extract<Config["services"][string], { kind: "backend" }>;
 
@@ -40,6 +40,7 @@ export function routingModule(backend: Backend, buildId: string): string {
 
 export function workerEntry(
   backend: Backend,
+  port: number,
   secretNames: readonly string[] = [],
 ): string {
   const sleepAfter = backend.container?.sleep_after ?? "5m";
@@ -50,12 +51,12 @@ export function workerEntry(
 import { instanceName } from "./routing.js";
 
 export class Backend extends Container {
-  defaultPort = ${backendPort};
+  defaultPort = ${port};
   sleepAfter = ${JSON.stringify(sleepAfter)};
 
   constructor(ctx, env) {
     super(ctx, env);
-    this.envVars = { PORT: "${backendPort}"${forwarded} };
+    this.envVars = { PORT: "${port}"${forwarded} };
   }
 }
 
@@ -67,16 +68,15 @@ export default {
 `;
 }
 
-export interface WorkerSpec {
+export type WorkerSpec = {
   name: string;
   image?: string;
   secretNames?: readonly string[];
   buildId: string;
   configDir: string;
-  backend?: Backend;
   assets?: string;
   notFound?: "spa" | "404-page";
-}
+} & ({ backend?: undefined } | { backend: Backend; port: number });
 
 export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
   const config: Record<string, unknown> = {
@@ -132,7 +132,7 @@ export async function writeWorker(
   if (spec.backend) {
     await writeFile(
       join(dir, "worker.js"),
-      workerEntry(spec.backend, spec.secretNames),
+      workerEntry(spec.backend, spec.port, spec.secretNames),
     );
     await writeFile(
       join(dir, "routing.js"),

@@ -224,6 +224,22 @@ services:
     ]);
   });
 
+  it.each([0, 70000, 3000.5])("rejects container port %s", (port) => {
+    const source = valid.replace(
+      '    build: { dockerfile: Dockerfile, test: "make check" }\n',
+      `    build: { dockerfile: Dockerfile, test: "make check" }\n    container: { port: ${port} }\n`,
+    );
+    expect(problems(source)).toEqual([
+      {
+        line: 9,
+        message: expect.stringMatching(/^`services\.api\.container\.port` /),
+      },
+    ]);
+    expect(parseConfig(source.replace(`port: ${port}`, "port: 3000")).ok).toBe(
+      true,
+    );
+  });
+
   it("requires a database's Supabase region", () => {
     const source = `${valid}  db:\n    kind: database\n    target: supabase\n`;
     expect(problems(source)).toEqual([

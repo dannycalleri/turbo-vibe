@@ -446,11 +446,12 @@ services:
       fetch: typeof globalThis.fetch = answering(
         JSON.stringify({ build_id: buildId, status: "ok" }),
       ),
+      files: Record<string, string> = {},
     ) {
       const calls = runner();
       const result = await run(
         ["deploy", "--env", "staging", "--build-id", buildId, "--dry-run"],
-        { "turbo-vibe.yaml": project },
+        { "turbo-vibe.yaml": project, ...files },
         {},
         calls,
         fetch,
@@ -528,7 +529,7 @@ services:
         );
         expect(code).toBe(1);
         expect(stderr).toContain(
-          `api: ${problem}. The smoke test after every deploy asks GET /api/health on port 8080`,
+          `api: ${problem}. The smoke test after every deploy asks GET /api/health on port 8080 (the default, also given as PORT; set container.port to change it)`,
         );
         expect(stderr).toContain("ARG BUILD_ID and ENV BUILD_ID=$BUILD_ID");
         expect(capture).not.toHaveBeenCalledWith(
@@ -547,6 +548,29 @@ services:
       },
     );
 
+    it("runs and probes the container on the port its Dockerfile exposes", async () => {
+      const capture = container("true", "0");
+      const { code } = await dryRun(capture, undefined, {
+        Dockerfile: "FROM node\nEXPOSE 3000\n",
+      });
+      expect(code).toBe(0);
+      expect(capture).toHaveBeenCalledWith(
+        "docker",
+        expect.arrayContaining([
+          "--env",
+          "PORT=3000",
+          "--publish",
+          "127.0.0.1::3000",
+        ]),
+        expect.anything(),
+      );
+      expect(capture).toHaveBeenCalledWith(
+        "docker",
+        ["port", "c0ffee", "3000/tcp"],
+        expect.anything(),
+      );
+    });
+
     it("stops without probing when the container published no port", async () => {
       const base = container("true", "0");
       const capture = vi.fn(async (command: string, args: readonly string[]) =>
@@ -556,7 +580,7 @@ services:
       const { code, stderr } = await dryRun(capture, fetch);
       expect(code).toBe(1);
       expect(stderr).toContain(
-        "api: the container published no port for 8080, so its health route is not reachable",
+        "api: the container published no port for 8080 (the default), so its health route is not reachable",
       );
       expect(fetch).not.toHaveBeenCalled();
       expect(capture).toHaveBeenCalledWith(
@@ -1438,6 +1462,7 @@ describe("runtime secrets", () => {
     config: string,
     extraEnv: Record<string, string>,
     outputs = {},
+    files: Record<string, string> = {},
   ) {
     const uploaded: unknown[] = [];
     const modes: number[] = [];
@@ -1458,7 +1483,7 @@ describe("runtime secrets", () => {
         "--build-id",
         "abc1230000000000000000000000000000000000",
       ],
-      { "turbo-vibe.yaml": config },
+      { "turbo-vibe.yaml": config, ...files },
       { ...env, ...extraEnv },
       calls,
       fakeR2().fetch(),
@@ -1518,6 +1543,22 @@ describe("runtime secrets", () => {
       "export function instanceName(request)",
     );
     expect(stdout + stderr).not.toContain("runpw");
+  });
+
+  it("writes a Worker that sends requests to the port the Dockerfile exposes", async () => {
+    const { code, cwd } = await deployCapturingSecrets(
+      project,
+      {},
+      {},
+      { Dockerfile: "FROM node\nEXPOSE 3000\n" },
+    );
+    expect(code).toBe(0);
+    const entry = await readFile(
+      join(cwd, ".turbo-vibe/wrangler/staging/acme-api-staging/worker.js"),
+      "utf8",
+    );
+    expect(entry).toContain("defaultPort = 3000;");
+    expect(entry).toContain('PORT: "3000"');
   });
 
   it("gives the backend the WorkOS client ID, key and callback, and the frontend build none of them", async () => {

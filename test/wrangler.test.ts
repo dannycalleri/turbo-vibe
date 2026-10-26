@@ -22,6 +22,7 @@ describe("wranglerConfig", () => {
       buildId: "abc",
       configDir: "/repo",
       backend,
+      port: 8080,
       assets: "/repo/web/dist",
     });
     expect(config).toMatchObject({
@@ -57,6 +58,7 @@ describe("wranglerConfig", () => {
         build: { dockerfile: "api/Dockerfile", context: "." },
         container: { instance_type: "standard-1" },
       },
+      port: 8080,
     });
     expect(config).toMatchObject({
       containers: [
@@ -115,6 +117,7 @@ describe("wranglerConfig", () => {
         buildId: "abc",
         configDir: "/repo",
         backend,
+        port: 8080,
         assets: "/repo/web/dist",
         notFound: "404-page",
       }).assets,
@@ -128,7 +131,7 @@ describe("wranglerConfig", () => {
 
 describe("workerEntry", () => {
   it("forwards every request, WebSocket upgrades included, with fetch", () => {
-    const entry = workerEntry(backend);
+    const entry = workerEntry(backend, 8080);
     expect(entry).toContain(
       "getContainer(env.BACKEND, instanceName(request)).fetch(request)",
     );
@@ -136,16 +139,24 @@ describe("workerEntry", () => {
   });
 
   it("passes the named secrets from the Worker to the container", () => {
-    expect(workerEntry(backend, ["DATABASE_URL"])).toContain(
+    expect(workerEntry(backend, 8080, ["DATABASE_URL"])).toContain(
       'this.envVars = { PORT: "8080", DATABASE_URL: env.DATABASE_URL };',
     );
-    expect(workerEntry(backend)).toContain('this.envVars = { PORT: "8080" };');
+    expect(workerEntry(backend, 8080)).toContain(
+      'this.envVars = { PORT: "8080" };',
+    );
+  });
+
+  it("sends requests to the backend's port and gives it as PORT", () => {
+    const entry = workerEntry(backend, 3000);
+    expect(entry).toContain("defaultPort = 3000;");
+    expect(entry).toContain('this.envVars = { PORT: "3000" };');
   });
 
   it("sleeps after the configured idle time, five minutes by default", () => {
-    expect(workerEntry(backend)).toContain('sleepAfter = "5m"');
+    expect(workerEntry(backend, 8080)).toContain('sleepAfter = "5m"');
     expect(
-      workerEntry({ ...backend, container: { sleep_after: "30s" } }),
+      workerEntry({ ...backend, container: { sleep_after: "30s" } }, 8080),
     ).toContain('sleepAfter = "30s"');
   });
 });
@@ -218,6 +229,7 @@ describe("instance limits", () => {
       buildId: "b",
       configDir: "/repo",
       backend: { ...backend, container },
+      port: 8080,
     }).containers as {
       max_instances: number;
     }[];

@@ -25,6 +25,7 @@ import {
 import type { Io } from "./io.js";
 import { migrate } from "./migrate.js";
 import { derivePlan, formatPlan } from "./plan.js";
+import { backendPorts } from "./port.js";
 import { deployPreview, removePreview } from "./preview.js";
 import { setupSteps } from "./setup/list.js";
 import { defaultEnvironments, setup } from "./setup.js";
@@ -92,7 +93,8 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
       if (options.env) {
         exitCode = await plan(project.config, options.env, io);
       } else {
-        io.stdout(`${formatPlan(derivePlan(project.config))}\n`);
+        const ports = await backendPorts(project.config, project.configDir);
+        io.stdout(`${formatPlan(derivePlan(project.config, ports))}\n`);
       }
     });
 
