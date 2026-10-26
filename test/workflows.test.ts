@@ -556,18 +556,25 @@ describe("allow-deletions", () => {
 });
 
 describe("confirm-build", () => {
-  it("is required, and the choice refuses any other build", async () => {
+  it("is optional: empty promotes the newest build only where production has a reviewer", async () => {
     const promote = await workflow("promote.yml");
     expect(promote.on.workflow_call.inputs["confirm-build"]).toMatchObject({
       type: "string",
-      required: true,
+      default: "",
     });
+    expect(promote.on.workflow_call.inputs["confirm-build"]).not.toHaveProperty(
+      "required",
+    );
     const { steps } = promote.jobs.production;
     const choose = steps.find((step: { id?: string }) => step.id === "choose");
+    expect(choose.run).toContain(
+      'if [ -z "$confirmed" ] && [ "$REVIEWED" = "true" ]; then\n  build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose)\n',
+    );
     expect(choose.run).toContain(
       'promote --env production --choose --confirm "$CONFIRM_BUILD"',
     );
     expect(choose.env.CONFIRM_BUILD).toBe("${{ inputs.confirm-build }}");
+    expect(choose.env.REVIEWED).toBe("${{ steps.reviewer.outputs.reviewed }}");
     const named = steps.find((step: { run?: string }) =>
       step.run?.includes("--choose) || exit 0"),
     );
@@ -577,17 +584,35 @@ describe("confirm-build", () => {
   it.each([
     ["init's production caller", async () => parse(productionWorkflow)],
     ["the kit's production workflow", () => workflow("production.yml")],
-  ])("%s asks for it and passes it on", async (_, load) => {
+  ])("%s offers it, empty by default, and passes it on", async (_, load) => {
     const caller = await load();
     expect(caller.on.workflow_dispatch.inputs["confirm-build"]).toMatchObject({
       type: "string",
-      required: true,
+      default: "",
     });
     for (const job of Object.values(caller.jobs) as {
       with?: Record<string, unknown>;
     }[]) {
       expect(job.with?.["confirm-build"]).toBe("${{ inputs.confirm-build }}");
     }
+  });
+});
+
+describe("the summary before the approval", () => {
+  it("comes from a job with no secret and no environment, which the production job waits for", async () => {
+    const promote = await workflow("promote.yml");
+    const { describe: shown, production } = promote.jobs;
+    expect(production.needs).toBe("describe");
+    expect(shown.environment).toBeUndefined();
+    expect(JSON.stringify(shown)).not.toContain("secrets.");
+    const step = shown.steps.at(-1);
+    expect(step.env).toEqual({
+      GH_TOKEN: "${{ github.token }}",
+      CONFIRM_BUILD: "${{ inputs.confirm-build }}",
+    });
+    expect(step.run).toContain(
+      'promote --env production --describe ${confirmed:+--build-id "$confirmed"} >> "$GITHUB_STEP_SUMMARY"',
+    );
   });
 });
 
@@ -639,8 +664,17 @@ describe("require-reviewer", () => {
     });
     const { steps } = promote.jobs.production;
     const [check] = steps;
-    expect(check.if).toBe("inputs.require-reviewer");
-    expect(check.env).toEqual({ GH_TOKEN: "${{ github.token }}" });
+    expect(check.id).toBe("reviewer");
+    expect(check.env).toEqual({
+      GH_TOKEN: "${{ github.token }}",
+      REQUIRE_REVIEWER: "${{ inputs.require-reviewer }}",
+    });
+    expect(check.run).toContain(
+      'echo "reviewed=$reviewed" >> "$GITHUB_OUTPUT"',
+    );
+    expect(check.run).toContain(
+      'if [ "$REQUIRE_REVIEWER" = "true" ] && [ "$reviewed" != "true" ]; then',
+    );
     expect(check.run).toContain(
       'gh api "repos/$GITHUB_REPOSITORY/environments/production"',
     );
@@ -665,6 +699,10 @@ describe("require-reviewer", () => {
     );
     expect(named.env.REQUIRE_REVIEWER).toBe("${{ inputs.require-reviewer }}");
     expect(named.env.CONFIRM_BUILD).toBe("${{ inputs.confirm-build }}");
+    expect(named.env.REVIEWED).toBe("${{ steps.reviewer.outputs.reviewed }}");
+    expect(named.run).toContain(
+      'elif [ -z "$confirmed" ] && [ "$REVIEWED" = "unknown" ]; then',
+    );
     expect(named.run).toContain(
       "confirmed=$(echo \"$CONFIRM_BUILD\" | tr -d '[:space:]')",
     );

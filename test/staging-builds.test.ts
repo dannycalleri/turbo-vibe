@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Io } from "../src/io.js";
 import type { Capturer } from "../src/run.js";
 import {
+  commitOf,
   describePromotion,
   type StagingBuild,
   stagingBuilds,
@@ -94,6 +95,34 @@ describe("stagingBuilds", () => {
   });
 });
 
+describe("commitOf", () => {
+  it("reads the commit's subject and date from the contents API", async () => {
+    const { io: fake, capture } = io({
+      code: 0,
+      stdout: JSON.stringify({
+        subject: "fix: older",
+        committedAt: "2026-10-01T09:00:00Z",
+      }),
+    });
+    expect(await commitOf(fake, sha("a"))).toEqual({
+      subject: "fix: older",
+      committedAt: "2026-10-01T09:00:00Z",
+    });
+    expect(capture).toHaveBeenCalledWith(
+      "gh",
+      expect.arrayContaining([`repos/acme/app/commits/${sha("a")}`]),
+      expect.anything(),
+    );
+  });
+
+  it("asks nothing for an ID that is not a full SHA, and gives up when gh fails", async () => {
+    const { io: fake, capture } = io({ code: 1, stdout: "" });
+    expect(await commitOf(fake, "main")).toBeUndefined();
+    expect(capture).not.toHaveBeenCalled();
+    expect(await commitOf(fake, sha("a"))).toBeUndefined();
+  });
+});
+
 describe("describePromotion", () => {
   const builds: StagingBuild[] = [
     { sha: sha("b"), subject: "change b", passedAt: "2026-10-26T12:00:00Z" },
@@ -102,7 +131,7 @@ describe("describePromotion", () => {
 
   it("names the newest build without an ID", () => {
     expect(describePromotion(builds)).toBe(
-      `Promoting the newest build: \`${sha("b")}\` (change b), which passed staging at 2026-10-26T12:00:00Z.`,
+      `The newest build is \`${sha("b")}\` (change b), which passed staging at 2026-10-26T12:00:00Z. A run without a build ID promotes it where production has a required reviewer, and otherwise stops and asks for its ID.`,
     );
   });
 
@@ -119,6 +148,14 @@ describe("describePromotion", () => {
     );
     expect(describePromotion([])).toContain(
       "GitHub lists no staging deployment that passed",
+    );
+    expect(
+      describePromotion({ error: "HTTP 403" }, sha("a"), {
+        subject: "fix: older",
+        committedAt: "2026-10-01T09:00:00Z",
+      }),
+    ).toBe(
+      `Promoting \`${sha("a")}\` (fix: older), committed at 2026-10-01T09:00:00Z. GitHub did not list the staging deployments (HTTP 403), so this summary cannot say whether a newer build passed. The production job checks the build records.`,
     );
     expect(describePromotion({ error: "HTTP 403" })).toBe(
       "Cannot list the staging deployments (HTTP 403). The production job checks the build records.",
