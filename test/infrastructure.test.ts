@@ -47,7 +47,12 @@ describe("composeInfrastructure", () => {
     expect(composeInfrastructure(config(api), "staging")).toEqual({
       cloudflare: {
         workers: {
-          "acme-api-staging": { routes: ["staging.acme.example.com/api/*"] },
+          "acme-api-staging": {
+            routes: [
+              "staging.acme.example.com/api/*",
+              "staging.acme.example.com/_turbo-vibe/health",
+            ],
+          },
         },
         hostnames: ["staging.acme.example.com"],
       },
@@ -72,7 +77,12 @@ describe("composeInfrastructure", () => {
     expect(composeInfrastructure(config(api + web()), "staging")).toEqual({
       cloudflare: {
         workers: {
-          "acme-api-staging": { routes: ["staging.acme.example.com/api/*"] },
+          "acme-api-staging": {
+            routes: [
+              "staging.acme.example.com/api/*",
+              "staging.acme.example.com/_turbo-vibe/health",
+            ],
+          },
           "acme-web-staging": { routes: ["staging.acme.example.com/*"] },
         },
         hostnames: ["staging.acme.example.com"],
@@ -249,7 +259,12 @@ describe("a Vercel frontend with a Cloudflare backend", () => {
   it("serves the backend from its API hostname and the frontend from the environment's hostname", () => {
     expect(rootModule(split, "staging", {}).module.cloudflare).toMatchObject({
       workers: {
-        "acme-api-staging": { routes: ["api.staging.acme.example.com/api/*"] },
+        "acme-api-staging": {
+          routes: [
+            "api.staging.acme.example.com/api/*",
+            "api.staging.acme.example.com/_turbo-vibe/health",
+          ],
+        },
       },
       hostnames: ["api.staging.acme.example.com"],
       cnames: { "staging.acme.example.com": "cname.vercel-dns.com" },
@@ -296,7 +311,12 @@ describe("production", () => {
     );
     expect(root.module.cloudflare).toMatchObject({
       workers: {
-        "acme-api-production": { routes: ["acme.example.com/api/*"] },
+        "acme-api-production": {
+          routes: [
+            "acme.example.com/api/*",
+            "acme.example.com/_turbo-vibe/health",
+          ],
+        },
       },
       hostnames: ["acme.example.com"],
     });

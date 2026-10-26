@@ -170,6 +170,10 @@
                     "minimum": 1,
                     "maximum": 9007199254740991
                   },
+                  "health": {
+                    "type": "string",
+                    "pattern": "^\\/(?!\\/)[^\\s?#]*$"
+                  },
                   "port": {
                     "type": "integer",
                     "minimum": 1,

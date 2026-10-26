@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Config } from "../config/schema.js";
-import { backendPrefix, buildIdVariable } from "../contract.js";
+import { backendPrefix, buildIdVariable, legacyBuildArg } from "../contract.js";
 
 type Backend = Extract<Config["services"][string], { kind: "backend" }>;
 
@@ -19,6 +19,7 @@ const containersModule = fileURLToPath(
 
 export const compatibilityDate = "2026-10-01";
 export const buildIdPath = "/_turbo-vibe/build-id";
+export const kitHealthPath = "/_turbo-vibe/health";
 export const runtimeConfigPath = "/_turbo-vibe/config.json";
 
 // With several instances, Cloudflare's rollout can leave a long-lived instance on the old image for minutes after it reports completion; an instance named after the build starts on the new image, so the switch is immediate.
@@ -38,16 +39,37 @@ export function routingModule(backend: Backend, buildId: string): string {
 `;
 }
 
+export const healthModule = `export async function health(container, url, path, strict, buildId) {
+  let status;
+  try {
+    const response = await container.fetch(new Request(new URL(path, url)));
+    await response.body?.cancel();
+    status = response.status;
+  } catch (error) {
+    return Response.json({ error: \`\${path}: \${error}\` }, { status: 503 });
+  }
+  if (strict ? status >= 200 && status < 300 : status < 500)
+    return Response.json({ build_id: buildId });
+  return Response.json(
+    { error: \`\${path} answered HTTP \${status}\` },
+    { status: 503 },
+  );
+}
+`;
+
 export function workerEntry(
   backend: Backend,
   port: number,
+  buildId: string,
   secretNames: readonly string[] = [],
 ): string {
   const sleepAfter = backend.container?.sleep_after ?? "5m";
+  const probe = backend.container?.health;
   const forwarded = secretNames
     .map((name) => `, ${name}: env.${name}`)
     .join("");
   return `import { Container, getContainer } from ${JSON.stringify(containersModule)};
+import { health } from "./health.js";
 import { instanceName } from "./routing.js";
 
 export class Backend extends Container {
@@ -56,12 +78,16 @@ export class Backend extends Container {
 
   constructor(ctx, env) {
     super(ctx, env);
-    this.envVars = { PORT: "${port}"${forwarded} };
+    this.envVars = { PORT: "${port}", ${buildIdVariable}: ${JSON.stringify(buildId)}${forwarded} };
   }
 }
 
 export default {
   fetch(request, env) {
+    if (new URL(request.url).pathname === ${JSON.stringify(kitHealthPath)}) {
+      const plain = new Request(new URL("/", request.url));
+      return health(getContainer(env.BACKEND, instanceName(plain)), request.url, ${JSON.stringify(probe ?? "/")}, ${probe !== undefined}, ${JSON.stringify(buildId)});
+    }
     return getContainer(env.BACKEND, instanceName(request)).fetch(request);
   },
 };
@@ -96,7 +122,10 @@ export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
           image_build_context: spec.backend.build.context
             ? resolve(spec.configDir, spec.backend.build.context)
             : dirname(dockerfile),
-          image_vars: { [buildIdVariable]: spec.buildId },
+          image_vars: {
+            [buildIdVariable]: spec.buildId,
+            [legacyBuildArg]: spec.buildId,
+          },
         };
     Object.assign(config, {
       main: "worker.js",
@@ -118,7 +147,9 @@ export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
       directory: spec.assets,
       not_found_handling:
         spec.notFound === "404-page" ? "404-page" : "single-page-application",
-      ...(spec.backend ? { run_worker_first: [`${backendPrefix}*`] } : {}),
+      ...(spec.backend
+        ? { run_worker_first: [`${backendPrefix}*`, kitHealthPath] }
+        : {}),
     };
   }
   return config;
@@ -132,8 +163,9 @@ export async function writeWorker(
   if (spec.backend) {
     await writeFile(
       join(dir, "worker.js"),
-      workerEntry(spec.backend, spec.port, spec.secretNames),
+      workerEntry(spec.backend, spec.port, spec.buildId, spec.secretNames),
     );
+    await writeFile(join(dir, "health.js"), healthModule);
     await writeFile(
       join(dir, "routing.js"),
       routingModule(spec.backend, spec.buildId),

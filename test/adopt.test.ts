@@ -10,9 +10,9 @@ import {
 } from "../src/assistant.js";
 import { reservedNames } from "../src/config/load.js";
 import {
-  buildIdVariable,
   defaultBackendPort,
   healthPath,
+  legacyBuildArg,
 } from "../src/contract.js";
 import { choices } from "../src/init.js";
 import { vendorSteps } from "../src/setup/steps.js";
@@ -205,8 +205,8 @@ describe("the adoption guidance", () => {
     expect(guidance).toContain(
       `in the Dockerfile's final stage, or in the stage it builds on, else to ${defaultBackendPort}`,
     );
-    expect(guidance).toContain(`ARG ${buildIdVariable}`);
-    expect(guidance).toContain(`ENV ${buildIdVariable}=$${buildIdVariable}`);
+    expect(guidance).toContain(`ARG ${legacyBuildArg}`);
+    expect(guidance).toContain(`ENV ${legacyBuildArg}=$${legacyBuildArg}`);
   });
 
   it("runs the CLI at a version npm resolves for this release, as the ongoing guidance does", () => {
