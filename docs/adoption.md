@@ -122,9 +122,9 @@ on:
   workflow_dispatch:
     inputs:
       confirm-build:
-        description: The ID of the build to promote, as the last Staging run reports it
+        description: "Empty: the newest build that passed staging, where production has a required reviewer. An older build's ID: a rollback"
         type: string
-        required: true
+        default: ""
       allow-deletions:
         description: Let apply delete or replace resources
         type: boolean
@@ -182,7 +182,7 @@ Do this once per project. The [bootstrap checklist](bootstrap.md) walks through 
 
 1. Merge a change to `main`. The **Staging** run applies infrastructure, migrates, builds and pushes the image, deploys, and smoke-tests.
    Check: the staging hostname serves the app, and `/_turbo-vibe/health` on the **same hostname** reports the merged commit's SHA as `build_id`.
-2. Open the Staging run, select **Review deployments** on its **production** job, and approve it. Without a required reviewer, copy the build ID from the Staging run's summary and run **Deploy to production** from the Actions tab with it as **confirm-build** instead.
+2. Open the Staging run, select **Review deployments** on its **production** job, and approve it. Without a required reviewer, copy the build ID from the Staging run's summary and run **Deploy to production** from the Actions tab with it as **confirm-build** instead. To roll back, run **Deploy to production** with the ID of an older build that passed staging; the reference's [Deploy to production](reference.md#deploy-to-production) says what a rollback cannot cross.
    Check: production's `/_turbo-vibe/health` reports the same SHA as staging. Nothing was rebuilt; the run's log has no `docker build`.
 
 If staging's smoke test fails, the run fails and names both build IDs. That build can never be promoted.

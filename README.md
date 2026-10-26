@@ -54,7 +54,7 @@ flowchart LR
 2. **Prepare staging.** Staging's infrastructure is applied and its database migrated before any new code goes live.
 3. **Build once.** The backend becomes a container image and the frontend its build output. Both go to staging, and the image digest and the files are recorded in your bucket.
 4. **Smoke test.** Staging must answer with the build that was just deployed, or the release stops here.
-5. **Go / no-go.** A reviewer approves the Staging run's **production** job. Without a required reviewer, a person runs **Deploy to production** and types the build ID.
+5. **Go / no-go.** A reviewer approves the Staging run's **production** job. Without a required reviewer, a person runs **Deploy to production** and types the build ID. The same button rolls back to an older build that passed.
 6. **Promote.** Production is applied and migrated, then receives the same artifacts unchanged and gets the same smoke test.
 
 ## What you get
