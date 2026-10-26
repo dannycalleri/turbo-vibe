@@ -229,6 +229,27 @@ jobs:
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           tofu_wrapper: false
+      - name: Check that a rollback crosses no migration
+        run: |
+          if turbo-vibe migrate --help | grep -q -- '--check'; then
+            turbo-vibe --config "$CONFIG" migrate --env production --check
+          else
+            echo "This commit's CLI cannot check migrations before apply; migrate still refuses a crossed migration after apply."
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          TURBO_VIBE_STATE_BUCKET: ${{ secrets.TURBO_VIBE_STATE_BUCKET }}
+          TURBO_VIBE_BUILDS_BUCKET: ${{ secrets.TURBO_VIBE_BUILDS_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_ORGANIZATION: ${{ secrets.SUPABASE_ORGANIZATION }}
+          WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
       - run: turbo-vibe --config "$CONFIG" apply --env production ${ALLOW_DELETIONS:+--allow-deletions}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

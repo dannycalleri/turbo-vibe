@@ -87,7 +87,21 @@ describe("the production workflow", () => {
           (step: { if?: string }) => !step.if?.includes("failure()"),
         ),
       ),
-    ).toEqual(["promote", "apply", "migrate", "promote", "smoke"]);
+    ).toEqual(["promote", "migrate", "apply", "migrate", "promote", "smoke"]);
+    const check = steps.findIndex((step: { run?: string }) =>
+      step.run?.includes("migrate --env production --check"),
+    );
+    expect(steps[check].run).toContain(
+      "if turbo-vibe migrate --help | grep -q -- '--check'; then",
+    );
+    expect(check).toBeGreaterThan(
+      steps.findIndex((step: { with?: { ref?: string } }) => step.with?.ref),
+    );
+    expect(check).toBeLessThan(
+      steps.findIndex((step: { run?: string }) =>
+        step.run?.includes(" apply --env "),
+      ),
+    );
     const checkout = steps.findIndex(
       (step: { with?: { ref?: string } }) => step.with?.ref,
     );
