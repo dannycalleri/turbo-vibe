@@ -45,6 +45,31 @@ async function localVersions(workdir: string): Promise<Set<string>> {
   );
 }
 
+const crossedMessage = (missing: readonly string[]) =>
+  `the database has ${missing.length > 1 ? "migrations" : "migration"} ${missing.join(", ")}, which this commit lacks: a rollback cannot cross a migration, so promote a newer build that fixes forward`;
+
+async function crossedMigrations(
+  endpoint: Endpoint,
+  connection: Pick<Connection, "migrator_password">,
+  workdir: string,
+  io: Io,
+): Promise<string[] | string | undefined> {
+  const migrator = io.sql(
+    connectionUrl(endpoint, migratorRole, connection.migrator_password),
+  );
+  let applied: string[];
+  try {
+    applied = await appliedVersions(migrator);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  } finally {
+    await migrator.end();
+  }
+  const local = await localVersions(workdir);
+  const missing = applied.filter((version) => !local.has(version)).sort();
+  return missing.length > 0 ? missing : undefined;
+}
+
 export async function migrateDatabase(
   endpoint: Endpoint,
   connection: Pick<
@@ -83,25 +108,12 @@ export async function migrateDatabase(
   } finally {
     await admin.end();
   }
-  const migrator = io.sql(
-    connectionUrl(endpoint, migratorRole, connection.migrator_password),
-  );
-  let applied: string[];
-  try {
-    applied = await appliedVersions(migrator);
-  } catch (error) {
+  const crossed = await crossedMigrations(endpoint, connection, workdir, io);
+  if (crossed !== undefined) {
     io.stderr(
-      `cannot read the applied migrations: ${error instanceof Error ? error.message : String(error)}\n`,
-    );
-    return 1;
-  } finally {
-    await migrator.end();
-  }
-  const local = await localVersions(workdir);
-  const missing = applied.filter((version) => !local.has(version)).sort();
-  if (missing.length > 0) {
-    io.stderr(
-      `the database has ${missing.length > 1 ? "migrations" : "migration"} ${missing.join(", ")}, which this commit lacks: a rollback cannot cross a migration, so promote a newer build that fixes forward. Nothing was migrated\n`,
+      typeof crossed === "string"
+        ? `cannot read the applied migrations: ${crossed}\n`
+        : `${crossedMessage(crossed)}. Nothing was migrated\n`,
     );
     return 1;
   }
@@ -125,6 +137,7 @@ export async function migrate(
   { config, configDir }: Project,
   environment: EnvironmentName,
   io: Io,
+  { check = false }: { check?: boolean } = {},
 ): Promise<number> {
   const databases = Object.entries(config.services).filter(
     ([, service]) => service.kind === "database",
@@ -149,6 +162,12 @@ export async function migrate(
       | Connection
       | undefined;
     if (!connection) {
+      if (check) {
+        io.stdout(
+          `database ${name} does not exist in ${environment} yet; no migration to check\n`,
+        );
+        continue;
+      }
       io.stderr(
         `no connection for database ${name} in ${environment}; run apply first\n`,
       );
@@ -177,7 +196,7 @@ export async function migrate(
       return 1;
     }
 
-    io.stdout(`migrate ${name} (${environment})\n`);
+    if (!check) io.stdout(`migrate ${name} (${environment})\n`);
     const workdir = resolve(
       configDir,
       service.kind === "database" ? (service.workdir ?? ".") : ".",
@@ -188,6 +207,24 @@ export async function migrate(
         `Supabase project ${connection.project_ref} reports no pooler\n`,
       );
       return 1;
+    }
+    if (check) {
+      const crossed = await crossedMigrations(
+        endpoint,
+        connection,
+        workdir,
+        io,
+      );
+      if (Array.isArray(crossed)) {
+        io.stderr(`${crossedMessage(crossed)}. ${environment} is unchanged\n`);
+        return 1;
+      }
+      io.stdout(
+        crossed === undefined
+          ? `database ${name}: this commit has every migration ${environment} has applied\n`
+          : `warn  database ${name}: cannot read the applied migrations (${crossed}); migrate checks again after apply\n`,
+      );
+      continue;
     }
     const code = await migrateDatabase(endpoint, connection, workdir, io);
     if (code !== 0) {

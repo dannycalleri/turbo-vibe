@@ -271,9 +271,16 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     .command("migrate")
     .description("create the database roles and apply pending migrations")
     .addOption(environmentOption())
-    .action(async (options: { env: EnvironmentName }) => {
+    .option(
+      "--check",
+      "only check that this commit has every migration the database has applied, and change nothing",
+    )
+    .action(async (options: { env: EnvironmentName; check?: boolean }) => {
       const project = await loadProject();
-      if (project) exitCode = await migrate(project, options.env, io);
+      if (project)
+        exitCode = await migrate(project, options.env, io, {
+          check: options.check ?? false,
+        });
     });
 
   program

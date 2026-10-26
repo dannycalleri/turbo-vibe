@@ -535,6 +535,95 @@ services:
     );
   });
 
+  describe("--check", () => {
+    const check = (
+      applied: string[],
+      outputsJson = outputs,
+      files: Record<string, string> = {},
+    ) => {
+      const runner = vi.fn<Runner>(async () => 0);
+      const recorder = sqlRecorder(applied);
+      return run(
+        ["migrate", "--env", "production", "--check"],
+        { "turbo-vibe.yaml": withDb, ...files },
+        env,
+        runner,
+        status("ACTIVE_HEALTHY"),
+        {
+          capture: async () => ({ code: 0, stdout: outputsJson }),
+          sql: recorder.sql,
+        },
+      ).then((result) => ({ ...result, runner, ...recorder }));
+    };
+
+    it("refuses a commit that lacks a migration the database has, and changes nothing", async () => {
+      const { code, stderr, runner, sessions } = await check([
+        "20261010000000",
+      ]);
+      expect(code).toBe(1);
+      expect(stderr).toBe(
+        "the database has migration 20261010000000, which this commit lacks: a rollback cannot cross a migration, so promote a newer build that fixes forward. production is unchanged\n",
+      );
+      expect(sessions.map((session) => session.url)).toEqual([
+        expect.stringMatching(/^postgresql:\/\/turbo_vibe_migrator\./),
+      ]);
+      expect(sessions[0]?.statements.join("\n")).not.toMatch(/ROLE/);
+      expect(runner.mock.calls.some(([, args]) => args.includes("push"))).toBe(
+        false,
+      );
+    });
+
+    it("passes a commit that has every applied migration", async () => {
+      const { code, stdout } = await check(["20261008000000"], outputs, {
+        "backend/supabase/migrations/20261008000000_greeting.sql":
+          "select 1;\n",
+      });
+      expect(code).toBe(0);
+      expect(stdout).toContain(
+        "database db: this commit has every migration production has applied\n",
+      );
+    });
+
+    it("warns and passes when it cannot read the migrations, since migrate checks again after apply", async () => {
+      const runner = vi.fn<Runner>(async () => 0);
+      const { code, stdout } = await run(
+        ["migrate", "--env", "production", "--check"],
+        { "turbo-vibe.yaml": withDb },
+        env,
+        runner,
+        status("ACTIVE_HEALTHY"),
+        {
+          capture: async () => ({ code: 0, stdout: outputs }),
+          sql: () => ({
+            execute: async () => {},
+            query: async () => {
+              throw new Error(
+                'password authentication failed for user "turbo_vibe_migrator"',
+              );
+            },
+            end: async () => {},
+          }),
+        },
+      );
+      expect(code).toBe(0);
+      expect(stdout).toContain(
+        'warn  database db: cannot read the applied migrations (password authentication failed for user "turbo_vibe_migrator"); migrate checks again after apply\n',
+      );
+      expect(runner.mock.calls.some(([, args]) => args.includes("push"))).toBe(
+        false,
+      );
+    });
+
+    it("passes a production whose database does not exist yet", async () => {
+      const { code, stdout, sessions } = await check([], "{}");
+      expect(code).toBe(0);
+      expect(stdout).toContain(
+        "database db does not exist in production yet; no migration to check\n",
+      );
+      expect(sessions).toEqual([]);
+    });
+  });
+
   it("does nothing for a project without a database", async () => {
     const runner = vi.fn<Runner>(async () => 0);
     const { code, stdout } = await run(
