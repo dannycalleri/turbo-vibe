@@ -29,6 +29,7 @@ import { backendPorts } from "./port.js";
 import { deployPreview, removePreview } from "./preview.js";
 import { setupSteps } from "./setup/list.js";
 import { defaultEnvironments, setup } from "./setup.js";
+import { ship } from "./ship.js";
 import { major, version } from "./version.js";
 
 export type { Io } from "./io.js";
@@ -317,6 +318,29 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
         }
       },
     );
+
+  program
+    .command("ship")
+    .description(
+      "choose a build that passed staging and start the Deploy to production workflow with it; a person approves the run",
+    )
+    .option("--build-id <id>", "the build to ship, instead of choosing one")
+    .option(
+      "--workflow <file>",
+      "the production workflow to start",
+      "production.yml",
+    )
+    .action(async (options: { buildId?: string; workflow: string }) => {
+      const project = await loadProject();
+      if (project)
+        exitCode = await ship(
+          {
+            workflow: options.workflow,
+            ...(options.buildId ? { buildId: options.buildId } : {}),
+          },
+          io,
+        );
+    });
 
   program
     .command("promote")
