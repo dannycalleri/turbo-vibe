@@ -322,7 +322,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
   program
     .command("ship")
     .description(
-      "choose a build that passed staging and start the Deploy to production workflow with it; a person approves the run",
+      "choose a build that passed staging and start the Deploy to production workflow with it; the run waits for a required reviewer where production has one",
     )
     .option("--build-id <id>", "the build to ship, instead of choosing one")
     .option(

@@ -129,6 +129,7 @@ The reusable workflows run these for you. Each one also runs from a terminal, va
 | `migrate --env <env>` | Applies pending database migrations. |
 | `test`, `deploy`, `smoke` | Tests, builds and ships each service, then checks it serves the build. |
 | `promote --env production` | Ships the latest staging build that passed, without rebuilding it. |
+| `ship` | Lets you choose a build that passed staging, and starts **Deploy to production** with it. |
 | `preview deploy`, `preview remove` | A pull request's own environment. |
 
 [Commands in detail](docs/reference.md#commands-in-detail) · [Build once, promote the same build](docs/reference.md#build-once-promote-the-same-build) · [Deploy to production](docs/reference.md#deploy-to-production) · [Previews](docs/reference.md#previews) · [What a backend must do](docs/reference.md#what-a-backend-must-do) · [Your application's own secrets](docs/reference.md#your-applications-own-secrets) · [Credentials](docs/reference.md#credentials)
