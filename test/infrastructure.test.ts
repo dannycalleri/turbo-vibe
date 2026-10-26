@@ -366,7 +366,7 @@ describe("access", () => {
       name: "acme-staging",
       domains: ["staging.acme.example.com"],
       emails: ["ada@example.com"],
-      public_paths: ["/_turbo-vibe/build-id", "/api/health"],
+      public_paths: ["/_turbo-vibe/build-id", "/_turbo-vibe/health"],
     });
     expect(root.output).toHaveProperty("access_client_id");
   });

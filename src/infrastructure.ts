@@ -7,13 +7,13 @@ import type {
   VercelInputs,
   WorkosInputs,
 } from "./adapters/types.js";
-import { buildIdPath } from "./adapters/wrangler.js";
+import { buildIdPath, kitHealthPath } from "./adapters/wrangler.js";
 import {
   type Config,
   type EnvironmentName,
   isPreview,
 } from "./config/schema.js";
-import { healthPath, stateSecrets, supabaseOrganization } from "./contract.js";
+import { stateSecrets, supabaseOrganization } from "./contract.js";
 import { accessFor, analyticsFor, hostOf, layout } from "./origins.js";
 
 const cloudflareModule = fileURLToPath(
@@ -211,7 +211,7 @@ export function rootModule(
         name: `${config.project}-${environment}`,
         domains: infrastructure.cloudflare.hostnames,
         emails: access.emails,
-        public_paths: [buildIdPath, healthPath],
+        public_paths: [buildIdPath, kitHealthPath],
         ...(accessOnAccount ? { on_account: true } : {}),
       };
       root.output = {

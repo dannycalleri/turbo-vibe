@@ -1,11 +1,6 @@
 import { rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import {
-  backendPrefix,
-  buildIdVariable,
-  healthPath,
-  legacyBuildArg,
-} from "../contract.js";
+import { backendPrefix, buildIdVariable, legacyBuildArg } from "../contract.js";
 import { type BackendPort, backendPort } from "../port.js";
 import { checkBuildId } from "../smoke.js";
 import { hasNotFoundPage, recordedOrBuilt, staticBuild } from "./assets.js";
@@ -90,11 +85,36 @@ async function buildAndPush(
 // A new container application's first start, or the switch from the previous build's instances, can take minutes: six seconds apart, these wait five.
 export const containerSwitchAttempts = 50;
 
-const healthBuildId = async (response: Response) => {
+const field = (name: string) => async (response: Response) => {
   const body: unknown = await response.json().catch(() => undefined);
-  const buildId = (body as { build_id?: unknown } | undefined)?.build_id;
-  return typeof buildId === "string" ? buildId : undefined;
+  const value = (body as Record<string, unknown> | undefined)?.[name];
+  return typeof value === "string" ? value : undefined;
 };
+
+const passes = (status: number, strict: boolean) =>
+  strict ? status >= 200 && status < 300 : status < 500;
+
+async function probeContainer(
+  url: string,
+  strict: boolean,
+  { fetch, sleep }: DeployContext["io"],
+): Promise<string | undefined> {
+  let problem = `${url} not checked`;
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      await response.body?.cancel();
+      if (passes(response.status, strict)) return undefined;
+      problem = `${url} answered HTTP ${response.status}`;
+    } catch (error) {
+      problem = `${url} unreachable: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    if (attempt < 10) await sleep(1_000);
+  }
+  return problem;
+}
 
 // A deploy replaces running instances with SIGTERM, and Cloudflare waits 15 minutes before killing one that ignores it.
 async function meetsContract(
@@ -154,23 +174,24 @@ async function meetsContract(
       );
       return 1;
     }
-    const health = await checkBuildId(
-      {
-        url: `http://127.0.0.1:${port}${healthPath}`,
-        read: healthBuildId,
-      },
-      context.buildId,
+    const path = backend.container?.health ?? "/";
+    const strict = backend.container?.health !== undefined;
+    const problem = await probeContainer(
+      `http://127.0.0.1:${port}${path}`,
+      strict,
       io,
-      { attempts: 10, delayMs: 1_000 },
     );
-    if (!health.ok) {
+    if (problem) {
+      const wanted = strict
+        ? `HTTP 2xx from ${path} (container.health)`
+        : "any answer below HTTP 500 from /";
       io.stderr(
-        `${context.name}: ${health.message}. The smoke test after every deploy asks GET ${healthPath} on port ${listening} (${source}, also given as PORT; set container.port to change it) for JSON whose build_id is the ${legacyBuildArg} build argument, so listen on 0.0.0.0, serve that route, and put ARG ${legacyBuildArg} and ENV ${legacyBuildArg}=$${legacyBuildArg} in the Dockerfile's final stage\n`,
+        `${context.name}: ${problem}. After every deploy, the smoke test needs ${wanted} on port ${listening} (${source}, also given as PORT; set container.port to change it), so listen on 0.0.0.0 on that port\n`,
       );
       return 1;
     }
     io.stdout(
-      `${context.name}: the container answers ${healthPath} with build ${context.buildId}\n`,
+      `${context.name}: the container answers ${path} on port ${listening}\n`,
     );
     await io.capture("docker", ["stop", "--timeout", "10", id], options);
     const exited = await io.capture(
@@ -340,8 +361,9 @@ export const cloudflareContainer: Adapter = {
   smoke(context) {
     return checkBuildId(
       {
-        url: `https://${context.hostname}${healthPath}`,
-        read: healthBuildId,
+        url: `https://${context.hostname}${kitHealthPath}`,
+        read: field("build_id"),
+        reason: field("error"),
         ...(context.headers ? { headers: context.headers } : {}),
       },
       context.buildId,

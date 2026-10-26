@@ -25,6 +25,19 @@ describe("judge", () => {
     });
   });
 
+  it("names the reason a service gives with its error status", () => {
+    expect(
+      judge(url, "abc", {
+        status: 503,
+        buildId: undefined,
+        reason: "/ answered HTTP 500",
+      }),
+    ).toEqual({
+      ok: false,
+      message: `${url} answered HTTP 503: / answered HTTP 500`,
+    });
+  });
+
   it("fails on an HTTP error status", () => {
     expect(judge(url, "abc", { status: 502, buildId: undefined })).toEqual({
       ok: false,

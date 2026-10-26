@@ -1,5 +1,5 @@
 export type Observation =
-  | { status: number; buildId: string | undefined }
+  | { status: number; buildId: string | undefined; reason?: string }
   | { error: string };
 
 export interface SmokeResult {
@@ -16,7 +16,11 @@ export function judge(
     return { ok: false, message: `${url} unreachable: ${observed.error}` };
   }
   if (observed.status < 200 || observed.status > 299) {
-    return { ok: false, message: `${url} answered HTTP ${observed.status}` };
+    const reason = observed.reason ? `: ${observed.reason}` : "";
+    return {
+      ok: false,
+      message: `${url} answered HTTP ${observed.status}${reason}`,
+    };
   }
   if (observed.buildId !== expected) {
     return {
@@ -31,6 +35,7 @@ export interface Probe {
   url: string;
   headers?: Readonly<Record<string, string>>;
   read: (response: Response) => Promise<string | undefined>;
+  reason?: (response: Response) => Promise<string | undefined>;
 }
 
 export async function checkBuildId(
@@ -54,9 +59,12 @@ export async function checkBuildId(
         headers: { "cache-control": "no-cache", ...probe.headers },
         signal: AbortSignal.timeout(10_000),
       });
+      const reason =
+        !response.ok && probe.reason ? await probe.reason(response) : undefined;
       observed = {
         status: response.status,
         buildId: response.ok ? await probe.read(response) : undefined,
+        ...(reason ? { reason } : {}),
       };
     } catch (error) {
       observed = {

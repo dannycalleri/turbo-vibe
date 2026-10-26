@@ -426,7 +426,7 @@ services:
 
   describe("checks in a dry run that the container answers its health route and stops on SIGTERM", () => {
     const buildId = "abc1230000000000000000000000000000000000";
-    const healthUrl = "http://127.0.0.1:55001/api/health";
+    const probeUrl = "http://127.0.0.1:55001/";
 
     function container(running: string, exitCode: string) {
       return vi.fn(async (_command: string, args: readonly string[]) => ({
@@ -442,14 +442,12 @@ services:
       }));
     }
 
-    const answering = (body: string) =>
-      vi.fn(async () => new Response(body, { status: 200 }));
+    const answering = (status: number) =>
+      vi.fn(async () => new Response("Not Found", { status }));
 
     async function dryRun(
       capture: ReturnType<typeof container>,
-      fetch: typeof globalThis.fetch = answering(
-        JSON.stringify({ build_id: buildId, status: "ok" }),
-      ),
+      fetch: typeof globalThis.fetch = answering(404),
       files: Record<string, string> = {},
     ) {
       const calls = runner();
@@ -464,16 +462,12 @@ services:
       return { ...result, calls, capture };
     }
 
-    it("passes a container that reports the build and exits on SIGTERM, and removes it", async () => {
+    it("passes a container that answers / below HTTP 500 and exits on SIGTERM, and removes it", async () => {
       const capture = container("true", "0");
-      const fetch = answering(
-        JSON.stringify({ build_id: buildId, status: "ok" }),
-      );
+      const fetch = answering(404);
       const { code, stdout, calls } = await dryRun(capture, fetch);
       expect(code).toBe(0);
-      expect(stdout).toContain(
-        `api: the container answers /api/health with build ${buildId}\n`,
-      );
+      expect(stdout).toContain("api: the container answers / on port 8080\n");
       expect(stdout).toContain("api: the container stops on SIGTERM\n");
       expect(stdout).toContain(
         "dry run passed: every service built and checked; nothing was uploaded\n",
@@ -495,7 +489,7 @@ services:
         ],
         expect.anything(),
       );
-      expect(fetch).toHaveBeenCalledWith(healthUrl, expect.anything());
+      expect(fetch).toHaveBeenCalledWith(probeUrl, expect.anything());
       expect(capture).toHaveBeenCalledWith(
         "docker",
         ["stop", "--timeout", "10", "c0ffee"],
@@ -510,34 +504,45 @@ services:
 
     it.each([
       [
-        "reports another build",
-        answering(JSON.stringify({ build_id: "local" })),
-        `${healthUrl} reports build local, expected ${buildId}`,
-      ],
-      [
-        "answers without JSON",
-        answering("ok"),
-        `${healthUrl} reports build (none), expected ${buildId}`,
+        "answers / with HTTP 500",
+        answering(500),
+        {},
+        `${probeUrl} answered HTTP 500`,
+        "any answer below HTTP 500 from /",
       ],
       [
         "does not answer",
         vi.fn(async () => {
           throw new Error("connection refused");
         }),
-        `${healthUrl} unreachable: connection refused`,
+        {},
+        `${probeUrl} unreachable: connection refused`,
+        "any answer below HTTP 500 from /",
+      ],
+      [
+        "answers its configured health path with HTTP 404",
+        answering(404),
+        {
+          "turbo-vibe.yaml": project.replace(
+            '    build: { dockerfile: Dockerfile, test: "go test ./..." }\n',
+            '    build: { dockerfile: Dockerfile, test: "go test ./..." }\n    container: { health: /ready }\n',
+          ),
+        },
+        "http://127.0.0.1:55001/ready answered HTTP 404",
+        "HTTP 2xx from /ready (container.health)",
       ],
     ])(
-      "fails a container whose health route %s, says how to fix it, and removes it",
-      async (_case, fetch, problem) => {
+      "fails a container that %s, says how to fix it, and removes it",
+      async (_case, fetch, files, problem, wanted) => {
         const { code, stderr, calls, capture } = await dryRun(
           container("true", "0"),
           fetch as typeof globalThis.fetch,
+          files,
         );
         expect(code).toBe(1);
         expect(stderr).toContain(
-          `api: ${problem}. The smoke test after every deploy asks GET /api/health on port 8080 (the default; cannot read Dockerfile, also given as PORT; set container.port to change it)`,
+          `api: ${problem}. After every deploy, the smoke test needs ${wanted} on port 8080 (the default; cannot read Dockerfile, also given as PORT; set container.port to change it), so listen on 0.0.0.0 on that port\n`,
         );
-        expect(stderr).toContain("ARG BUILD_ID and ENV BUILD_ID=$BUILD_ID");
         expect(capture).not.toHaveBeenCalledWith(
           "docker",
           expect.arrayContaining(["stop"]),
@@ -582,7 +587,7 @@ services:
       const capture = vi.fn(async (command: string, args: readonly string[]) =>
         args[0] === "port" ? { code: 1, stdout: "" } : base(command, args),
       );
-      const fetch = answering("{}");
+      const fetch = answering(404);
       const { code, stderr } = await dryRun(capture, fetch);
       expect(code).toBe(1);
       expect(stderr).toContain(
@@ -797,7 +802,7 @@ describe("smoke", () => {
   const serving =
     (apiBuild: string, pageBody = apiBuild) =>
     (url: string) =>
-      url.endsWith("/api/health")
+      url.endsWith("/_turbo-vibe/health")
         ? Response.json({ build_id: apiBuild })
         : new Response(pageBody);
 
@@ -818,7 +823,7 @@ describe("smoke", () => {
     );
     expect(code).toBe(0);
     expect(stdout).toBe(
-      "ok api: https://staging.acme.example.com/api/health reports build abc1230000000000000000000000000000000000\n" +
+      "ok api: https://staging.acme.example.com/_turbo-vibe/health reports build abc1230000000000000000000000000000000000\n" +
         "ok web: https://staging.acme.example.com/_turbo-vibe/build-id reports build abc1230000000000000000000000000000000000\n",
     );
     expect(
@@ -837,13 +842,34 @@ describe("smoke", () => {
       stateEnv,
       undefined,
       r2.fetch((url) =>
-        url.endsWith("/api/health") && starting-- > 0
+        url.endsWith("/_turbo-vibe/health") && starting-- > 0
           ? new Response("", { status: 503 })
           : serving(buildId)(url),
       ),
     );
     expect(code).toBe(0);
     expect(r2.record(`acme/builds/${buildId}.json`).smoke).toBe("passed");
+  });
+
+  it("fails a container that never gets ready, and shows the Worker's reason", async () => {
+    const r2 = fakeR2(seeded(record({ smoke: "pending" })));
+    const buildId = "abc1230000000000000000000000000000000000";
+    const { code, stderr } = await run(
+      ["smoke", "--env", "staging", "--build-id", buildId],
+      { "turbo-vibe.yaml": project },
+      stateEnv,
+      undefined,
+      r2.fetch((url) =>
+        url.endsWith("/_turbo-vibe/health")
+          ? Response.json({ error: "/ answered HTTP 500" }, { status: 503 })
+          : serving(buildId)(url),
+      ),
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain(
+      "FAIL api: https://staging.acme.example.com/_turbo-vibe/health answered HTTP 503: / answered HTTP 500\n",
+    );
+    expect(r2.record(`acme/builds/${buildId}.json`).smoke).toBe("failed");
   });
 
   it("waits for a container that still reports the previous build after a deploy", async () => {
@@ -856,7 +882,7 @@ describe("smoke", () => {
       stateEnv,
       undefined,
       r2.fetch((url) =>
-        url.endsWith("/api/health") && switching-- > 0
+        url.endsWith("/_turbo-vibe/health") && switching-- > 0
           ? Response.json({ build_id: "previous" })
           : serving(buildId)(url),
       ),
@@ -965,7 +991,7 @@ describe("smoke", () => {
     );
     expect(code).toBe(1);
     expect(stderr).toBe(
-      "FAIL api: https://staging.acme.example.com/api/health reports build old999, expected abc1230000000000000000000000000000000000\n",
+      "FAIL api: https://staging.acme.example.com/_turbo-vibe/health reports build old999, expected abc1230000000000000000000000000000000000\n",
     );
     expect(
       r2.record("acme/builds/abc1230000000000000000000000000000000000.json")
@@ -987,7 +1013,7 @@ describe("smoke", () => {
       stateEnv,
       undefined,
       r2.fetch((url) =>
-        url.endsWith("/api/health")
+        url.endsWith("/_turbo-vibe/health")
           ? new Response("OK")
           : new Response("abc1230000000000000000000000000000000000"),
       ),
@@ -1036,7 +1062,7 @@ describe("smoke", () => {
     );
     expect(code).toBe(0);
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
-      "https://acme.example.com/api/health",
+      "https://acme.example.com/_turbo-vibe/health",
       "https://acme.example.com/_turbo-vibe/build-id",
     ]);
   });
@@ -2112,7 +2138,7 @@ describe("a project with a database", () => {
       stateEnv,
       undefined,
       r2.fetch((url) =>
-        url.endsWith("/api/health")
+        url.endsWith("/_turbo-vibe/health")
           ? Response.json({
               build_id: "abc1230000000000000000000000000000000000",
             })
