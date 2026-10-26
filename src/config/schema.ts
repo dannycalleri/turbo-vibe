@@ -64,6 +64,10 @@ const backend = z.strictObject({
         )
         .optional(),
       max_instances: z.number().int().min(1).optional(),
+      health: z
+        .string()
+        .regex(/^\/(?!\/)[^\s?#]*$/, "must be a path such as /ready")
+        .optional(),
       port: z
         .number()
         .int()

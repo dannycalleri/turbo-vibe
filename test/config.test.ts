@@ -240,6 +240,24 @@ services:
     );
   });
 
+  it.each(["ready", "//ready"])(
+    "refuses %s as the container's health path",
+    (path) => {
+      const source = valid.replace(
+        '    build: { dockerfile: Dockerfile, test: "make check" }\n',
+        `    build: { dockerfile: Dockerfile, test: "make check" }\n    container: { health: "${path}" }\n`,
+      );
+      expect(problems(source)).toEqual([
+        {
+          line: 9,
+          message:
+            "`services.api.container.health` must be a path such as /ready",
+        },
+      ]);
+      expect(parseConfig(source.replace(`"${path}"`, "/ready")).ok).toBe(true);
+    },
+  );
+
   it("requires a database's Supabase region", () => {
     const source = `${valid}  db:\n    kind: database\n    target: supabase\n`;
     expect(problems(source)).toEqual([

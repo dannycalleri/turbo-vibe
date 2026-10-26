@@ -1,7 +1,8 @@
 export const defaultBackendPort = 8080;
 export const backendPrefix = "/api/";
 export const healthPath = "/api/health";
-export const buildIdVariable = "BUILD_ID";
+export const buildIdVariable = "TURBO_VIBE_BUILD_ID";
+export const legacyBuildArg = "BUILD_ID";
 
 export const stateSecrets = [
   "TURBO_VIBE_STATE_BUCKET",
@@ -13,6 +14,7 @@ export const stateSecrets = [
 export const serviceVariables: Readonly<Record<string, string>> = {
   PORT: "the port the container listens on",
   [buildIdVariable]: "the build ID",
+  [legacyBuildArg]: "the build ID, as a build argument",
   DATABASE_URL: "the database's connection string",
   WORKOS_REDIRECT_URI: "the sign-in callback",
   ALLOWED_ORIGINS: "the frontend's origins",

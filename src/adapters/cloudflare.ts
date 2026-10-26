@@ -1,6 +1,11 @@
 import { rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { backendPrefix, buildIdVariable, healthPath } from "../contract.js";
+import {
+  backendPrefix,
+  buildIdVariable,
+  healthPath,
+  legacyBuildArg,
+} from "../contract.js";
 import { type BackendPort, backendPort } from "../port.js";
 import { checkBuildId } from "../smoke.js";
 import { hasNotFoundPage, recordedOrBuilt, staticBuild } from "./assets.js";
@@ -8,6 +13,7 @@ import { awaitRollout, existingRollouts } from "./rollout.js";
 import type { Adapter, DeployContext, ServiceContext } from "./types.js";
 import {
   buildIdPath,
+  kitHealthPath,
   wranglerDeployArgs,
   wranglerPushArgs,
   writeWorker,
@@ -34,6 +40,8 @@ function dockerBuild(
       "linux/amd64",
       "--build-arg",
       `${buildIdVariable}=${context.buildId}`,
+      "--build-arg",
+      `${legacyBuildArg}=${context.buildId}`,
       ...Object.keys(context.buildSecrets).flatMap((name) => [
         "--secret",
         `id=${name},env=${name}`,
@@ -108,6 +116,8 @@ async function meetsContract(
       "linux/amd64",
       "--env",
       `PORT=${listening}`,
+      "--env",
+      `${buildIdVariable}=${context.buildId}`,
       "--publish",
       `127.0.0.1::${listening}`,
       tag,
@@ -155,7 +165,7 @@ async function meetsContract(
     );
     if (!health.ok) {
       io.stderr(
-        `${context.name}: ${health.message}. The smoke test after every deploy asks GET ${healthPath} on port ${listening} (${source}, also given as PORT; set container.port to change it) for JSON whose build_id is the ${buildIdVariable} build argument, so listen on 0.0.0.0, serve that route, and put ARG ${buildIdVariable} and ENV ${buildIdVariable}=$${buildIdVariable} in the Dockerfile's final stage\n`,
+        `${context.name}: ${health.message}. The smoke test after every deploy asks GET ${healthPath} on port ${listening} (${source}, also given as PORT; set container.port to change it) for JSON whose build_id is the ${legacyBuildArg} build argument, so listen on 0.0.0.0, serve that route, and put ARG ${legacyBuildArg} and ENV ${legacyBuildArg}=$${legacyBuildArg} in the Dockerfile's final stage\n`,
       );
       return 1;
     }
@@ -231,12 +241,15 @@ export const cloudflareContainer: Adapter = {
   secrets,
   outputs: ["url", "worker"],
   plan(context) {
-    const route = servedFrontend(context)
-      ? `${context.hostname}/*`
-      : `${context.hostname}${backendPrefix}*`;
+    const routes = servedFrontend(context)
+      ? [`${context.hostname}/*`]
+      : [
+          `${context.hostname}${backendPrefix}*`,
+          `${context.hostname}${kitHealthPath}`,
+        ];
     return {
       cloudflare: {
-        workers: { [workerName(context)]: { routes: [route] } },
+        workers: { [workerName(context)]: { routes } },
         hostnames: [context.hostname],
       },
     };

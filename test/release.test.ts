@@ -1,6 +1,7 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { healthModule } from "../src/adapters/wrangler.js";
 import type { BuildRecord } from "../src/builds.js";
 import {
   capturing,
@@ -105,8 +106,11 @@ describe("deploy to staging", () => {
     expect(calls.mock.calls[0]?.[2].env).toEqual({
       BUILD_ID: "abc1230000000000000000000000000000000000",
     });
-    expect(calls.mock.calls[2]?.[1]).toContain(
-      "BUILD_ID=abc1230000000000000000000000000000000000",
+    expect(calls.mock.calls[2]?.[1]).toEqual(
+      expect.arrayContaining([
+        "TURBO_VIBE_BUILD_ID=abc1230000000000000000000000000000000000",
+        "BUILD_ID=abc1230000000000000000000000000000000000",
+      ]),
     );
     const deployArgs =
       calls.mock.calls.find((call) => call[1][1] === "deploy")?.[1] ?? [];
@@ -175,7 +179,7 @@ describe("deploy to staging", () => {
     const config = await workerConfig(cwd, "staging", "acme-api-staging");
     expect(config.assets).toMatchObject({
       not_found_handling: "404-page",
-      run_worker_first: ["/api/*"],
+      run_worker_first: ["/api/*", "/_turbo-vibe/health"],
     });
   });
 
@@ -483,6 +487,8 @@ services:
           "linux/amd64",
           "--env",
           "PORT=8080",
+          "--env",
+          `TURBO_VIBE_BUILD_ID=${buildId}`,
           "--publish",
           "127.0.0.1::8080",
           `acme-api:${buildId}`,
@@ -656,7 +662,10 @@ services:
       (await workerConfig(cwd, "staging", "acme-api-staging")).containers[0],
     ).toMatchObject({
       image: join(cwd, "Dockerfile"),
-      image_vars: { BUILD_ID: "abc1230000000000000000000000000000000000" },
+      image_vars: {
+        TURBO_VIBE_BUILD_ID: "abc1230000000000000000000000000000000000",
+        BUILD_ID: "abc1230000000000000000000000000000000000",
+      },
     });
     expect(r2.objects.size).toBe(0);
   });
@@ -1541,6 +1550,9 @@ describe("runtime secrets", () => {
     );
     expect(await readFile(join(workerDir, "routing.js"), "utf8")).toContain(
       "export function instanceName(request)",
+    );
+    expect(await readFile(join(workerDir, "health.js"), "utf8")).toBe(
+      healthModule,
     );
     expect(stdout + stderr).not.toContain("runpw");
   });
