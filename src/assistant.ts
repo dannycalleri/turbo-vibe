@@ -6,9 +6,9 @@ import { updatePermissionsQuestion } from "./checks/cloudflare.js";
 import { reservedNames } from "./config/load.js";
 import { serviceKinds } from "./config/schema.js";
 import {
-  backendPort,
   backendPrefix,
   buildIdVariable,
+  defaultBackendPort,
   healthPath,
 } from "./contract.js";
 import { vendorSteps } from "./setup/steps.js";
@@ -78,7 +78,7 @@ const adoptDescription =
 const cli = (version: string) =>
   `npx @turbo-vibe/cli@${references(version).cliRange}`;
 
-const contract = `- A backend answers \`GET ${healthPath}\` with JSON containing \`build_id\`, taken from the \`${buildIdVariable}\` build argument baked into its image, and listens on \`PORT\` when it is set, ${backendPort} otherwise.`;
+const contract = `- A backend answers \`GET ${healthPath}\` with JSON containing \`build_id\`, taken from the \`${buildIdVariable}\` build argument baked into its image, and listens on \`PORT\` when it is set, ${defaultBackendPort} otherwise.`;
 
 const tokenSteps = () =>
   vendorSteps
@@ -250,7 +250,7 @@ Skip this step for a project with no backend. Each change below can break the wa
    \`\`\`
 
    A secret only the build needs (step 2's \`build.secrets\`) arrives as a BuildKit secret: read it with \`RUN --mount=type=secret,id=<NAME> <NAME>="$(cat /run/secrets/<NAME>)" <command>\`, and never put it in an \`ARG\`, an \`ENV\` or a copied file. Use the exec form for the start command (\`CMD ["node", "server.js"]\`), not the shell form, so the server receives signals itself. The exec form does not expand \`$PORT\`: read it in the server's code or its config file (gunicorn's \`gunicorn.conf.py\`), or use \`CMD ["sh", "-c", "exec <server> --port $PORT"]\`.
-2. **Port.** Listen on \`0.0.0.0\`, on \`PORT\` when it is set, and on ${backendPort} otherwise. Tell the person when this changes the port they use locally.
+2. **Port.** Listen on \`0.0.0.0\`, on \`PORT\` when it is set, and on ${defaultBackendPort} otherwise. Tell the person when this changes the port they use locally.
 3. **Routes under \`${backendPrefix}\`.** Only \`${backendPrefix}*\` reaches the backend, whatever else the project has; every other path is answered by the frontend, or not at all. Mount the router under \`${backendPrefix}\` if the routes are elsewhere, and update the frontend's calls if it has one. Server-rendered pages outside \`${backendPrefix}\` stop being reachable: drop them, move them under \`${backendPrefix}\`, or turn them into a \`cloudflare-static\` frontend, as the person chose. With the frontend on the same host, the API no longer needs cross-origin access, so an open CORS policy can be tightened: remove it, or allow only the local dev server's origin.
 4. **Health.** Answer \`GET ${healthPath}\` with status 200 and a JSON object whose \`"build_id"\` is the \`${buildIdVariable}\` environment variable, as a string; other fields are fine. Do not touch the database there: the pull request's dry run starts the image without one. If the app had another health route, say it is replaced, or keep both.
 5. **Stop on \`SIGTERM\`.** Each deploy replaces the container by sending \`SIGTERM\`, and waits up to 15 minutes for one that ignores it. Go servers and gunicorn exit by default. Node, and Python servers that run as process 1 without such a manager, need a handler that closes the server and exits, or an init such as \`tini\` as the entrypoint.
@@ -290,7 +290,7 @@ Run each command, fix what fails, and run it again:
 2. \`${cli(version)} test\` → each service's \`build.test\` passes.
 3. \`${cli(version)} deploy --env staging --dry-run --build-id local\` → each service builds, and the backend's container answers \`${healthPath}\` with build \`local\` and stops on \`SIGTERM\`. It needs Docker and no credentials, and ends with \`dry run passed\`. Its error names what to fix.
 4. With a database, apply the migrations to a throwaway PostgreSQL: \`docker run -d --name migrations-check -e POSTGRES_PASSWORD=check postgres:17\`, wait until \`docker exec migrations-check pg_isready -h 127.0.0.1\` succeeds (without \`-h\` it can answer for the image's set-up server), run each file in name order with \`docker exec -i migrations-check psql -U postgres -v ON_ERROR_STOP=1 < <file>\`, then \`docker rm -f migrations-check\`. Every file must apply without an error.
-5. Only if the dry run says the container exited by itself (it needs variables to start, such as \`DATABASE_URL\`), check by hand: \`docker build --platform linux/amd64 --build-arg ${buildIdVariable}=local -t app .\`, then \`docker run -d --name app-check -p ${backendPort}:${backendPort} app\`, adding \`-e NAME=placeholder\` for any variable the app needs to start, such as \`DATABASE_URL\`. Then \`curl localhost:${backendPort}${healthPath}\` → JSON whose \`build_id\` is \`local\`. Finish with \`docker stop app-check\`, which should return at once, and \`docker rm app-check\`.
+5. Only if the dry run says the container exited by itself (it needs variables to start, such as \`DATABASE_URL\`), check by hand: \`docker build --platform linux/amd64 --build-arg ${buildIdVariable}=local -t app .\`, then \`docker run -d --name app-check -p ${defaultBackendPort}:${defaultBackendPort} app\`, adding \`-e NAME=placeholder\` for any variable the app needs to start, such as \`DATABASE_URL\`. Then \`curl localhost:${defaultBackendPort}${healthPath}\` → JSON whose \`build_id\` is \`local\`. Finish with \`docker stop app-check\`, which should return at once, and \`docker rm app-check\`.
 
 Report what passed, what you could not run, and why.
 

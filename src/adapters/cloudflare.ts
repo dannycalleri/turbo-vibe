@@ -1,11 +1,7 @@
 import { rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import {
-  backendPort,
-  backendPrefix,
-  buildIdVariable,
-  healthPath,
-} from "../contract.js";
+import { backendPrefix, buildIdVariable, healthPath } from "../contract.js";
+import { type BackendPort, backendPort } from "../port.js";
 import { checkBuildId } from "../smoke.js";
 import { hasNotFoundPage, recordedOrBuilt, staticBuild } from "./assets.js";
 import { awaitRollout, existingRollouts } from "./rollout.js";
@@ -96,6 +92,7 @@ const healthBuildId = async (response: Response) => {
 async function meetsContract(
   context: DeployContext,
   backend: Backend,
+  { port: listening, source }: BackendPort,
 ): Promise<number | "unchecked"> {
   const { io, configDir } = context;
   const tag = imageTag(context);
@@ -110,9 +107,9 @@ async function meetsContract(
       "--platform",
       "linux/amd64",
       "--env",
-      `PORT=${backendPort}`,
+      `PORT=${listening}`,
       "--publish",
-      `127.0.0.1::${backendPort}`,
+      `127.0.0.1::${listening}`,
       tag,
     ],
     options,
@@ -137,13 +134,13 @@ async function meetsContract(
     }
     const published = await io.capture(
       "docker",
-      ["port", id, `${backendPort}/tcp`],
+      ["port", id, `${listening}/tcp`],
       options,
     );
     const port = published.stdout.trim().split("\n")[0]?.split(":").pop();
     if (published.code !== 0 || !/^\d+$/.test(port ?? "")) {
       io.stderr(
-        `${context.name}: the container published no port for ${backendPort}, so its health route is not reachable; it may have stopped (see docker logs) or the Docker daemon may not be local\n`,
+        `${context.name}: the container published no port for ${listening} (${source}), so its health route is not reachable; it may have stopped (see docker logs) or the Docker daemon may not be local\n`,
       );
       return 1;
     }
@@ -158,7 +155,7 @@ async function meetsContract(
     );
     if (!health.ok) {
       io.stderr(
-        `${context.name}: ${health.message}. The smoke test after every deploy asks GET ${healthPath} on port ${backendPort} (also given as PORT) for JSON whose build_id is the ${buildIdVariable} build argument, so listen on 0.0.0.0, serve that route, and put ARG ${buildIdVariable} and ENV ${buildIdVariable}=$${buildIdVariable} in the Dockerfile's final stage\n`,
+        `${context.name}: ${health.message}. The smoke test after every deploy asks GET ${healthPath} on port ${listening} (${source}, also given as PORT; set container.port to change it) for JSON whose build_id is the ${buildIdVariable} build argument, so listen on 0.0.0.0, serve that route, and put ARG ${buildIdVariable} and ENV ${buildIdVariable}=$${buildIdVariable} in the Dockerfile's final stage\n`,
       );
       return 1;
     }
@@ -253,9 +250,10 @@ export const cloudflareContainer: Adapter = {
       );
       return { code: 1 };
     }
+    const port = await backendPort(context.service, context.configDir);
     let unchecked = false;
     if (context.dryRun && !context.recorded) {
-      const checked = await meetsContract(context, context.service);
+      const checked = await meetsContract(context, context.service, port);
       if (checked === "unchecked") unchecked = true;
       else if (checked !== 0) return { code: checked };
     }
@@ -275,6 +273,7 @@ export const cloudflareContainer: Adapter = {
       buildId: context.buildId,
       configDir: context.configDir,
       backend: context.service,
+      port: port.port,
       secretNames: context.secretNames,
       ...(image ? { image } : {}),
       ...(assets ? { assets } : {}),

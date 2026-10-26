@@ -64,6 +64,12 @@ const backend = z.strictObject({
         )
         .optional(),
       max_instances: z.number().int().min(1).optional(),
+      port: z
+        .number()
+        .int()
+        .min(1, "must be a port from 1 to 65535")
+        .max(65535, "must be a port from 1 to 65535")
+        .optional(),
       instance_from: z
         .string()
         .regex(

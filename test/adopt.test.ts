@@ -9,7 +9,11 @@ import {
   parseAssistants,
 } from "../src/assistant.js";
 import { reservedNames } from "../src/config/load.js";
-import { backendPort, buildIdVariable, healthPath } from "../src/contract.js";
+import {
+  buildIdVariable,
+  defaultBackendPort,
+  healthPath,
+} from "../src/contract.js";
 import { choices } from "../src/init.js";
 import { vendorSteps } from "../src/setup/steps.js";
 import { cliRange, version } from "../src/version.js";
@@ -198,7 +202,7 @@ describe("the adoption guidance", () => {
 
   it("states the backend contract the deploy checks", () => {
     expect(guidance).toContain(`GET ${healthPath}`);
-    expect(guidance).toContain(`on ${backendPort} otherwise`);
+    expect(guidance).toContain(`on ${defaultBackendPort} otherwise`);
     expect(guidance).toContain(`ARG ${buildIdVariable}`);
     expect(guidance).toContain(`ENV ${buildIdVariable}=$${buildIdVariable}`);
   });

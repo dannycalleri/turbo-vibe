@@ -24,6 +24,16 @@ describe("turbo-vibe plan", () => {
     expect(stdout).toContain("staging (staging.acme.example.com)");
   });
 
+  it("prints a backend's port from its Dockerfile", async () => {
+    const { code, stdout } = await run(["plan"], {
+      "turbo-vibe.yaml":
+        "version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  api:\n    kind: backend\n    target: cloudflare-container\n    build: { dockerfile: Dockerfile }\n",
+      Dockerfile: "FROM node\nEXPOSE 3000\n",
+    });
+    expect(code).toBe(0);
+    expect(stdout).toContain("    port: 3000 (EXPOSE in Dockerfile)\n");
+  });
+
   it("stops with file:line errors and calls nothing external when validation fails", async () => {
     const fetch = vi.spyOn(globalThis, "fetch");
     const { code, stdout, stderr, cwd } = await run(["plan"], {

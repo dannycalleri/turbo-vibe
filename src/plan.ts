@@ -6,6 +6,7 @@ import {
 } from "./config/schema.js";
 import { backendPrefix } from "./contract.js";
 import { hostOf, layout } from "./origins.js";
+import type { BackendPort } from "./port.js";
 
 export interface PlannedService {
   name: string;
@@ -13,6 +14,7 @@ export interface PlannedService {
   target: string;
   url?: string;
   servedWith?: string;
+  port?: BackendPort;
   secrets?: string[];
   publicValues?: string[];
   buildSecrets?: string[];
@@ -30,7 +32,10 @@ export function pathFor(kind: ServiceKind): string | undefined {
   return undefined;
 }
 
-export function derivePlan(config: Config): EnvironmentPlan[] {
+export function derivePlan(
+  config: Config,
+  ports: Readonly<Record<string, BackendPort>> = {},
+): EnvironmentPlan[] {
   return environmentNames.map((environment) => {
     const hosts = layout(config, environment);
     const services = Object.entries(config.services).map(
@@ -42,6 +47,8 @@ export function derivePlan(config: Config): EnvironmentPlan[] {
         };
         const path = pathFor(service.kind);
         if (path) planned.url = `https://${hostOf(hosts, service)}${path}`;
+        const port = ports[name];
+        if (port) planned.port = port;
         if (service.kind === "frontend" && service.serve_with) {
           planned.servedWith = service.serve_with;
         }
@@ -75,6 +82,9 @@ export function formatPlan(plan: EnvironmentPlan[]): string {
           `  ${service.name}  ${service.kind}  ${service.target}  ${service.url ?? ""}${via}`.trimEnd();
         return [
           row,
+          ...(service.port
+            ? [`    port: ${service.port.port} (${service.port.source})`]
+            : []),
           ...(service.secrets
             ? [`    secrets: ${service.secrets.join(", ")}`]
             : []),
