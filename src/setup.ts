@@ -2,6 +2,7 @@ import { checksFor, formatFindings, runChecks } from "./check.js";
 import { updatePermissionsQuestion } from "./checks/cloudflare.js";
 import type { Finding } from "./checks/types.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
+import { promoteFromStaging } from "./contract.js";
 import { environmentSecrets } from "./deploy.js";
 import { Cancelled, type Io } from "./io.js";
 import {
@@ -219,6 +220,18 @@ async function onlyMain(repo: string, name: string, io: Io): Promise<void> {
   );
 }
 
+async function promoteOnApproval(repo: string, io: Io): Promise<void> {
+  const set = await gh(
+    ["variable", "set", promoteFromStaging, "--body", "true", "--repo", repo],
+    io,
+  );
+  io.stdout(
+    set?.code === 0
+      ? `github: each Staging run now waits for a reviewer's approval to promote its build (${promoteFromStaging})\n`
+      : `warn  github: cannot set the repository variable ${promoteFromStaging}, so Staging runs do not offer promotion; run "Deploy to production" with the build ID instead\n`,
+  );
+}
+
 async function protect(
   repo: string,
   name: "staging" | "production",
@@ -257,6 +270,7 @@ async function protect(
       io.stdout(
         `github: production now requires a review by ${reviewer.login}\n`,
       );
+      await promoteOnApproval(repo, io);
       await onlyMain(repo, name, io);
       return;
     }

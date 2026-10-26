@@ -52,6 +52,7 @@ function fakeGh({
   const envs = new Map(Object.entries(environments));
   const branchRules = new Map<string, string[]>(Object.entries(rules));
   const stored: { env: string; name: string; value: string | undefined }[] = [];
+  const promoted: string[] = [];
   const capture = vi.fn<Capturer>(async (command, args, options) => {
     const failed = (stdout: string, error: string) => ({
       code: 1,
@@ -61,6 +62,10 @@ function fakeGh({
     if (command !== "gh") return { code: 0, stdout: "{}" };
     if (!installed) throw new Error("spawn gh ENOENT");
     const [first, ...rest] = args;
+    if (first === "variable" && rest[1] === "TURBO_VIBE_PROMOTE_FROM_STAGING") {
+      promoted.push(args.join(" "));
+      return { code: 0, stdout: "" };
+    }
     if (first === "secret" || first === "variable") {
       const env = args.includes("--env")
         ? (args[args.indexOf("--env") + 1] ?? "")
@@ -128,7 +133,7 @@ function fakeGh({
     return { code: 0, stdout: "{}" };
   });
   const calls = () => capture.mock.calls.map(([, args]) => args.join(" "));
-  return { capture, calls, stored };
+  return { capture, calls, stored, promoted };
 }
 
 interface FakeCloudflare {
@@ -469,6 +474,12 @@ describe("setup", () => {
     expect(result.stdout).toContain(
       "staging accepts deployments from main only",
     );
+    expect(gh.promoted).toEqual([
+      "variable set TURBO_VIBE_PROMOTE_FROM_STAGING --body true --repo acme/app",
+    ]);
+    expect(result.stdout).toContain(
+      "each Staging run now waits for a reviewer's approval to promote its build",
+    );
   });
 
   it("changes nothing on environments that already require a reviewer and accept only main", async () => {
@@ -499,6 +510,7 @@ describe("setup", () => {
         .calls()
         .some((call) => call.includes("-X PUT") || call.includes("-X POST")),
     ).toBe(false);
+    expect(gh.promoted).toEqual([]);
   });
 
   it("sends the existing reviewers and settings back when it limits an environment to main", async () => {
@@ -534,6 +546,7 @@ describe("setup", () => {
     expect(result.stdout).toContain("needs GitHub Enterprise for it");
     expect(result.stdout).toContain("typed build ID");
     expect(result.stderr).not.toContain("HTTP 422");
+    expect(gh.promoted).toEqual([]);
     expect(gh.calls()).toContain(
       "api -X PUT repos/acme/app/environments/production -F deployment_branch_policy[protected_branches]=false -F deployment_branch_policy[custom_branch_policies]=true",
     );

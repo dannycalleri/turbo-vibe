@@ -1023,8 +1023,23 @@ describe("against recorded fakes", () => {
 
   describe("github", () => {
     const githubEnv = { GITHUB_TOKEN: "ghp", GITHUB_REPOSITORY: "acme/app" };
-    function repo(environment: string, rules: string[], secrets: string[]) {
+    function repo(
+      environment: string,
+      rules: string[],
+      secrets: string[],
+      promote?: string,
+    ) {
       server.use(
+        http.get(
+          "https://api.github.com/repos/acme/app/actions/variables/TURBO_VIBE_PROMOTE_FROM_STAGING",
+          () =>
+            promote === undefined
+              ? HttpResponse.json({ message: "Not Found" }, { status: 404 })
+              : HttpResponse.json({
+                  name: "TURBO_VIBE_PROMOTE_FROM_STAGING",
+                  value: promote,
+                }),
+        ),
         http.get(
           `https://api.github.com/repos/acme/app/environments/${environment}`,
           () =>
@@ -1141,6 +1156,34 @@ describe("against recorded fakes", () => {
       expect(
         (await github(production)).map((finding) => finding.severity).sort(),
       ).toEqual(["ok", "warn"]);
+    });
+
+    it("fails a production that promotes from staging without a reviewer, and passes it with one", async () => {
+      const secrets = [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_ZONE_ID",
+        "TURBO_VIBE_BUILDS_BUCKET",
+        "TURBO_VIBE_STATE_BUCKET",
+      ];
+      const production = {
+        ...context(container, githubEnv),
+        environment: "production" as const,
+      };
+      repo("production", [], secrets, "true");
+      expect(await github(production)).toContainEqual({
+        severity: "fail",
+        check: "github",
+        message:
+          "TURBO_VIBE_PROMOTE_FROM_STAGING is true but production has no required reviewer, so every Staging run's production job stops before deploying",
+        fix: "add a reviewer in Settings → Environments → production, or delete the repository variable TURBO_VIBE_PROMOTE_FROM_STAGING",
+      });
+      repo("production", ["required_reviewers"], secrets, "true");
+      expect(
+        (await github(production)).map((finding) => finding.severity),
+      ).toEqual(["ok", "ok"]);
     });
 
     it("names a build secret the repository lacks", async () => {

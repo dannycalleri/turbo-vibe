@@ -591,6 +591,25 @@ describe("confirm-build", () => {
   });
 });
 
+describe("init's Staging workflow", () => {
+  it("promotes its own build after an approval, only on a push to main with the variable set", () => {
+    const { production } = parse(stagingWorkflow).jobs;
+    expect(production).toEqual({
+      needs: "deploy",
+      if: "vars.TURBO_VIBE_PROMOTE_FROM_STAGING == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'",
+      uses: expect.stringMatching(
+        /^dannycalleri\/turbo-vibe\/\.github\/workflows\/promote\.yml@/,
+      ),
+      with: {
+        "confirm-build": "${{ github.sha }}",
+        "require-reviewer": true,
+        "allow-deletions": "${{ inputs.allow-deletions == true }}",
+      },
+      secrets: "inherit",
+    });
+  });
+});
+
 describe("require-reviewer", () => {
   it("first checks, without a secret, that production has a required reviewer", async () => {
     const promote = await workflow("promote.yml");

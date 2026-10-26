@@ -12,6 +12,7 @@ import {
 import { schemaUrl } from "./config/json-schema.js";
 import { parseConfig } from "./config/load.js";
 import { hostname, name } from "./config/schema.js";
+import { promoteFromStaging } from "./contract.js";
 import {
   type Defaults,
   detectProject,
@@ -164,6 +165,16 @@ jobs:
   deploy:
     uses: dannycalleri/turbo-vibe/.github/workflows/deploy.yml@${workflowRef}
     with:
+      allow-deletions: \${{ inputs.allow-deletions == true }}
+    secrets: inherit
+
+  production:
+    needs: deploy
+    if: vars.${promoteFromStaging} == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: dannycalleri/turbo-vibe/.github/workflows/promote.yml@${workflowRef}
+    with:
+      confirm-build: \${{ github.sha }}
+      require-reviewer: true
       allow-deletions: \${{ inputs.allow-deletions == true }}
     secrets: inherit
 `;
@@ -460,7 +471,7 @@ function nextSteps({ setup }: { setup: SetupOutcome }): string {
   const steps = [
     ...first[setup],
     "Commit these files and push to main: every push deploys to staging",
-    'To go live, run "Deploy to production" in the Actions tab, type the build ID and approve it',
+    'To go live, approve the "production" job of a passing Staging run (setup adds you as its reviewer). Where GitHub offers no reviewers, run "Deploy to production" in the Actions tab and type the build ID',
   ];
   return [
     "",

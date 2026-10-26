@@ -256,7 +256,8 @@ describe("turbo-vibe init", () => {
     };
     const push =
       "Commit these files and push to main: every push deploys to staging";
-    const live = 'To go live, run "Deploy to production" in the Actions tab';
+    const live =
+      'To go live, approve the "production" job of a passing Staging run';
     const io = (
       now: boolean | undefined,
       signedIn = true,
