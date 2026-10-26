@@ -1,7 +1,7 @@
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { adapters } from "./adapters/index.js";
-import { buildIdPath } from "./adapters/wrangler.js";
+import { buildIdPath, kitHealthPath } from "./adapters/wrangler.js";
 import { updatePermissionsQuestion } from "./checks/cloudflare.js";
 import { reservedNames } from "./config/load.js";
 import { serviceKinds } from "./config/schema.js";
@@ -111,7 +111,7 @@ This project is deployed by turbo-vibe ${version}. \`turbo-vibe.yaml\` at the re
 - After every edit, run \`${cli(version)} plan\`. It validates the file and lists each environment's services and addresses, without credentials.
 - When credentials are available, run \`plan --env staging\` before proposing a change and show the person its summary. Point out every line under "Deletions and replacements": those destroy data or traffic.
 - Never pass \`--allow-deletions\`, or tick the workflows' allow-deletions input, unless the person has agreed to the specific deletions \`plan\` listed.
-- To make an environment private, add \`access.emails\` to it in \`turbo-vibe.yaml\`, run \`plan\`, and let the person push. Tell them that \`${buildIdPath}\` and \`${healthPath}\` stay public, so the smoke test can read them. Do not ask them to enable Zero Trust or to change a token first: the CI tokens \`setup\` creates already have the permission, and \`check\` says when Zero Trust is off. Only when a check or a run reports a missing permission, send them to run \`setup\` in their own terminal and answer y to "${updatePermissionsQuestion}". Only when it reports that Access is not available, give them the Zero Trust link from that report: they choose a team name and the Free plan.
+- To make an environment private, add \`access.emails\` to it in \`turbo-vibe.yaml\`, run \`plan\`, and let the person push. Tell them that \`${buildIdPath}\` and \`${kitHealthPath}\` stay public, so the smoke test can read them. Do not ask them to enable Zero Trust or to change a token first: the CI tokens \`setup\` creates already have the permission, and \`check\` says when Zero Trust is off. Only when a check or a run reports a missing permission, send them to run \`setup\` in their own terminal and answer y to "${updatePermissionsQuestion}". Only when it reports that Access is not available, give them the Zero Trust link from that report: they choose a team name and the Free plan.
 
 ## Setting up the accounts
 

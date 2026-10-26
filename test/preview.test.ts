@@ -169,9 +169,9 @@ describe("previewFor", () => {
 });
 
 describe("previewUrls", () => {
-  it("links a backend with no page on its hostname to /api/health, since its root reaches no origin", () => {
+  it("links a backend with no page on its hostname to /_turbo-vibe/health, since its root reaches no origin", () => {
     expect(previewUrls(config(shop), "preview-feature-x")).toEqual([
-      "https://feature-x-staging-shop.example.com/api/health",
+      "https://feature-x-staging-shop.example.com/_turbo-vibe/health",
     ]);
   });
 
@@ -184,12 +184,12 @@ describe("previewUrls", () => {
     ]);
   });
 
-  it("links a Vercel page at its root and its API at /api/health", () => {
+  it("links a Vercel page at its root and its API at /_turbo-vibe/health", () => {
     const split = config(
       `${shop}  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n`,
     );
     expect(previewUrls(split, "preview-feature-x")).toEqual([
-      "https://api-feature-x-staging-shop.example.com/api/health",
+      "https://api-feature-x-staging-shop.example.com/_turbo-vibe/health",
       "https://feature-x-staging-shop.example.com/",
     ]);
   });
@@ -220,7 +220,7 @@ describe("turbo-vibe preview deploy", () => {
       }),
     ]);
     expect(stdout).toContain(
-      "preview: https://feature-x-staging-shop.example.com/api/health\n",
+      "preview: https://feature-x-staging-shop.example.com/_turbo-vibe/health\n",
     );
     expect([...r2.objects.keys()]).toEqual([]);
     const worker = JSON.parse(
@@ -252,7 +252,7 @@ describe("turbo-vibe preview deploy", () => {
       env,
       runner(),
       fakeR2().fetch((url) =>
-        url.endsWith("/api/health")
+        url.endsWith("/_turbo-vibe/health")
           ? Response.json({ build_id: "abc123" })
           : new Response("abc123"),
       ),
