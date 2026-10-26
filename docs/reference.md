@@ -47,22 +47,34 @@ A staging `deploy` builds every service once and records what it shipped in stag
 
 `smoke --env staging` marks that record `passed` or `failed`.
 
-`promote --env production` picks the newest staging build that passed. Newer failed or unchecked builds are skipped. It deploys only that build's recorded outputs: the same image digest, and the same files unpacked from the archive. Nothing is built again. With no passing build, it stops before changing anything. `promote --choose` prints the build it would promote and changes nothing. `promote --build-id <id>` promotes exactly that build, and refuses it unless it passed on staging. Use the two together to migrate production from the chosen build's commit before deploying it. `deploy --env production` is refused, so production only ever runs promoted builds.
+`promote --env production` picks the newest staging build that passed. Newer failed or unchecked builds are skipped. It deploys only that build's recorded outputs: the same image digest, and the same files unpacked from the archive. Nothing is built again. With no passing build, it stops before changing anything. `promote --choose` prints the build it would promote and changes nothing. `promote --build-id <id>` promotes exactly that build, and refuses it unless it passed on staging. Use the two together to migrate production from the chosen build's commit before deploying it. `promote --choose --confirm <id>` chooses that build when it passed staging, also when a newer build passed: that is a rollback. With `--newest`, it refuses any build but the newest that passed. `promote --describe [--build-id <id>]` prints, from GitHub's `staging` deployments, the build to promote, its commit subject and when it passed staging, and says when it is a rollback. It needs only a signed-in `gh` or `GITHUB_TOKEN`, and changes nothing. `deploy --env production` is refused, so production only ever runs promoted builds.
 
 ## Deploy to production
 
 Production is promoted in one of two ways. Both run the reusable `promote.yml` in the GitHub environment `production`.
 
-- **Approve the Staging run.** The Staging workflow that `init` writes has a `production` job. It runs on a push to `main` after staging passes, when the repository variable `TURBO_VIBE_PROMOTE_FROM_STAGING` is `true`. The job waits for a reviewer of the `production` environment: GitHub shows **Review deployments** on the run, in the notification and in the mobile app. The approval promotes that run's own build, so nobody types a build ID. `setup` sets the variable when it adds you as a required reviewer. Before it uses any secret, the job checks that `production` has a required reviewer, and stops when it has none, so the variable alone never deploys without an approval. When a newer build has passed staging, the approval of an older run stops before any change, and its summary names the newer build. Every production run shares one concurrency group, so two never change production at once; a production job left waiting for an approval can hold back the next one, so reject the approvals you do not mean to give.
-- **Deploy to production.** A `workflow_dispatch` workflow that calls `promote.yml`, the way `.github/workflows/production.yml` does for the kit's examples. The run asks for `confirm-build`, the ID of the build to promote; each passing Staging run prints it in its summary. If it is not the build promotion would choose, the run stops before changing anything and its summary names the right one. This is the way where GitHub offers no required reviewers: on public repositories it offers them, and on private ones only with GitHub Enterprise.
+- **Approve the Staging run.** The Staging workflow that `init` writes has a `production` job. It runs on a push to `main` after staging passes, when the repository variable `TURBO_VIBE_PROMOTE_FROM_STAGING` is `true`. The job waits for a reviewer of the `production` environment: GitHub shows **Review deployments** on the run, in the notification and in the mobile app. The approval promotes that run's own build, so nobody types a build ID. `setup` sets the variable when it adds you as a required reviewer. Before it uses any secret, the job checks that `production` has a required reviewer, and stops when it has none, so the variable alone never deploys without an approval. When a newer build has passed staging, the approval of an older run stops before any change, and its summary names the newer build.
+- **Deploy to production.** A `workflow_dispatch` workflow that calls `promote.yml`, the way `.github/workflows/production.yml` does for the kit's examples. It takes an optional `confirm-build`, the ID of the build to promote; each passing Staging run prints it in its summary. This is the way for a rollback, and the way where GitHub offers no required reviewers: on public repositories it offers them, and on private ones only with GitHub Enterprise.
+
+| `confirm-build` | Required reviewer on `production` | Result |
+|---|---|---|
+| empty | yes | promotes the newest build that passed staging |
+| empty | no | stops before any change; the summary names the newest build and asks for its ID |
+| the newest build | either | promotes it |
+| an older build that passed | either | promotes it; the summary calls it a rollback |
+| a build that did not pass, or no record | either | stops before any change |
+
+Before the approval, a first job with no secret writes the build to promote to the run's summary: the commit, its subject and when it passed staging, read from GitHub's `staging` deployments. The reviewer reads it before approving. The build records in the state bucket stay the authority: the production job promotes only a build that they show as passed, the newest one or the ID given. `promote.yml` reads GitHub with `GITHUB_TOKEN` and asks for no permission beyond `contents: read`. Where GitHub does not list the deployments to that token, as on a private repository, the summary shows the commit's subject and date for a given ID, and cannot name the newest build for an empty one. There, pass the build ID to see the build before approving.
+
+A rollback checks out the older commit and runs its migrations. Before `apply`, `migrate --check` compares the migrations the database has applied with the older commit's. When the database has one that the commit lacks, the run stops before any change and names the migration: a rollback cannot cross a migration. Fix forward instead: merge a change, and promote the build it makes.
 
 A project set up before the Staging workflow had a `production` job adds the job from the [adoption guide](adoption.md#3-add-the-two-workflows), and, when `production` already has a reviewer, sets the variable once: `gh variable set TURBO_VIBE_PROMOTE_FROM_STAGING --body true`. To promote only with **Deploy to production**, delete the variable.
 
 It then:
 
-1. chooses the latest staging build that passed, and checks it is the confirmed one (`promote --choose --confirm <id>`);
+1. checks the reviewer rule, then chooses the build: the newest that passed, or the confirmed one (`promote --choose --confirm <id>`, with `--newest` for an approval from a Staging run);
 2. checks out that build's commit, so production's infrastructure and migrations match the code being promoted;
-3. runs `apply`, then `migrate`, then `promote --build-id <id>` with the recorded image digests and asset archives, then `smoke`.
+3. runs `migrate --check`, then `apply`, then `migrate`, then `promote --build-id <id>` with the recorded image digests and asset archives, then `smoke`.
 
 Nothing is built. Production's resources come from the same adapters as staging's: its own Worker routes and DNS on the project domain, its own Supabase project, and the callback registered in the WorkOS production environment with the production key.
 
