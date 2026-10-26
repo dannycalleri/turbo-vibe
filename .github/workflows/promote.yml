@@ -19,6 +19,10 @@ on:
         description: The ID of the build to promote. The run stops if it is not the latest staging build that passed.
         type: string
         required: true
+      require-reviewer:
+        description: Stop before any secret unless the production environment has a required reviewer. The Staging workflow's production job sets it.
+        type: boolean
+        default: false
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: false
@@ -65,6 +69,19 @@ jobs:
       group: turbo-vibe-production-${{ inputs.config }}
       cancel-in-progress: false
     steps:
+      - name: Check that production has a required reviewer
+        if: inputs.require-reviewer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! reviewed=$(gh api "repos/$GITHUB_REPOSITORY/environments/production" --jq '[.protection_rules[]?.type] | index("required_reviewers") != null'); then
+            echo "Cannot read the production environment's protection rules, so production is unchanged." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$reviewed" != "true" ]; then
+            echo "The production environment has no required reviewer, so this run would deploy production without an approval. Production is unchanged. Add a reviewer to the production environment, or delete the repository variable TURBO_VIBE_PROMOTE_FROM_STAGING." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -129,10 +146,18 @@ jobs:
           WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
           VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          REQUIRE_REVIEWER: ${{ inputs.require-reviewer }}
+          CONFIRM_BUILD: ${{ inputs.confirm-build }}
         if: failure() && steps.choose.outcome == 'failure'
         run: |
           build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose) || exit 0
-          echo "The build ready to promote is \`$build_id\`. Run **Deploy to production** again with confirm-build set to \`$build_id\`." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$build_id" = "$(echo "$CONFIRM_BUILD" | tr -d '[:space:]')" ]; then
+            echo "Build \`$build_id\` could not be chosen; see the log of the step that chooses it. Production is unchanged." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$REQUIRE_REVIEWER" = "true" ]; then
+            echo "A newer build, \`$build_id\`, passed staging, so this run's build is not promoted. Approve the production job of that build's Staging run." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The build ready to promote is \`$build_id\`. Run **Deploy to production** again with confirm-build set to \`$build_id\`." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.choose.outputs.build-id }}
