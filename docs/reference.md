@@ -146,7 +146,7 @@ With `serve_with`, the backend's Worker serves the frontend with the frontend's 
 
 ## What a backend must do
 
-A `cloudflare-container` backend listens on port 8080 (also given as `PORT`), reads its database, if the project has one, from `DATABASE_URL`, and answers `GET /api/health` with JSON containing `build_id`. The kit passes the build ID to `docker build` as the build argument `BUILD_ID`; the Dockerfile's final stage turns it into the environment variable the app reports:
+A `cloudflare-container` backend listens on its port, which `plan` prints with where it came from: `container.port` when the config sets it, else the first TCP port of the last `EXPOSE` in the Dockerfile's final stage, else 8080. The kit also gives the port as `PORT`. The backend reads its database, if the project has one, from `DATABASE_URL`, and answers `GET /api/health` with JSON containing `build_id`. The kit passes the build ID to `docker build` as the build argument `BUILD_ID`; the Dockerfile's final stage turns it into the environment variable the app reports:
 
 ```dockerfile
 ARG BUILD_ID

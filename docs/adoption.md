@@ -10,7 +10,7 @@ A static site, or an app whose server already meets the backend contract, needs 
 
 The smoke test after every deploy asks the backend which build it is running.
 
-- Listen on port 8080 (the kit also sets `PORT`).
+- Listen on `0.0.0.0`, on the port in the Dockerfile's `EXPOSE`. Without `EXPOSE`, set `container.port` in `turbo-vibe.yaml`; without either, the port is 8080. The kit also sets `PORT`.
 - Answer `GET /api/health` with JSON containing `build_id`, without touching the database: the pull request's dry run starts the image with no `DATABASE_URL`, and staging checks it while a paused database wakes:
 
   ```json
@@ -27,7 +27,7 @@ The smoke test after every deploy asks the backend which build it is running.
 - Serve every backend route under `/api/`. Only `/api/*` reaches the backend, with or without a frontend; every other path is the frontend's, or answers nothing.
 - Exit on `SIGTERM`. Every deploy after the first replaces the running container: Cloudflare sends `SIGTERM` and waits up to 15 minutes before killing one that ignores it, and the deploy waits for that. A process running as the container's PID 1 ignores `SIGTERM` unless it handles it: Go servers exit by default, but Python and Node need a handler (or an init such as `tini` as the entrypoint). The test-and-build job checks this on every pull request, with the health route: its dry run starts the image, and fails unless `/api/health` reports the build ID and `docker stop` stops it without killing it.
 
-Check: once `turbo-vibe.yaml` exists (step 2), `npx @turbo-vibe/cli@1 deploy --env staging --build-id local --dry-run` builds the image, starts it, and fails unless `/api/health` reports `local` and the container stops on `SIGTERM`. By hand: `docker build --build-arg BUILD_ID=local -t app . && docker run -p 8080:8080 app`, then `curl localhost:8080/api/health` → JSON whose `build_id` is `local`. `docker stop` should return at once, not after its 10-second timeout.
+Check: once `turbo-vibe.yaml` exists (step 2), `npx @turbo-vibe/cli@1 deploy --env staging --build-id local --dry-run` builds the image, starts it, and fails unless `/api/health` reports `local` and the container stops on `SIGTERM`. By hand: `docker build --build-arg BUILD_ID=local -t app . && docker run -p 3000:3000 app` with your port in place of 3000, then `curl localhost:3000/api/health` → JSON whose `build_id` is `local`. `docker stop` should return at once, not after its 10-second timeout.
 
 ## 2. Add `turbo-vibe.yaml`
 
