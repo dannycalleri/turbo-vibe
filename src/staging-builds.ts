@@ -81,20 +81,57 @@ export async function stagingBuilds(
   return builds.sort((a, b) => b.passedAt.localeCompare(a.passedAt));
 }
 
+export interface Commit {
+  subject: string;
+  committedAt: string;
+}
+
+export async function commitOf(
+  io: Io,
+  sha: string,
+): Promise<Commit | undefined> {
+  if (!/^[0-9a-f]{40}$/.test(sha)) return undefined;
+  const repo = await repository(io).catch(() => undefined);
+  if (!repo) return undefined;
+  const answer = await io
+    .capture(
+      "gh",
+      [
+        "api",
+        `repos/${repo}/commits/${sha}`,
+        "--jq",
+        '{subject: (.commit.message | split("\\n")[0]), committedAt: .commit.committer.date}',
+      ],
+      { cwd: io.cwd, env: io.env, quiet: true },
+    )
+    .catch(() => undefined);
+  if (answer?.code !== 0) return undefined;
+  try {
+    return JSON.parse(answer.stdout) as Commit;
+  } catch {
+    return undefined;
+  }
+}
+
 const named = (build: StagingBuild) =>
   `\`${build.sha}\` (${build.subject}), which passed staging at ${build.passedAt}`;
 
 export function describePromotion(
   builds: StagingBuild[] | { error: string },
   buildId?: string,
+  commit?: Commit,
 ): string {
   const records = "The production job checks the build records";
-  if (!Array.isArray(builds))
+  if (!Array.isArray(builds)) {
+    const unlisted = `GitHub did not list the staging deployments (${builds.error}), so this summary cannot say whether a newer build passed. ${records}.`;
+    if (buildId && commit)
+      return `Promoting \`${buildId}\` (${commit.subject}), committed at ${commit.committedAt}. ${unlisted}`;
     return `Cannot list the staging deployments (${builds.error}). ${records}.`;
+  }
   const [newest] = builds;
   if (!buildId) {
     return newest
-      ? `Promoting the newest build: ${named(newest)}.`
+      ? `The newest build is ${named(newest)}. A run without a build ID promotes it where production has a required reviewer, and otherwise stops and asks for its ID.`
       : `GitHub lists no staging deployment that passed. ${records}, and stops when no build passed.`;
   }
   const index = builds.findIndex((build) => build.sha === buildId);

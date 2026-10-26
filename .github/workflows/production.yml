@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       confirm-build:
-        description: The ID of the build to promote, as the last Staging run reports it
+        description: "Empty: the newest build that passed staging, where production has a required reviewer. An older build's ID: a rollback"
         type: string
-        required: true
+        default: ""
       allow-deletions:
         description: Let apply delete or replace resources
         type: boolean

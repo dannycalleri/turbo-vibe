@@ -34,7 +34,11 @@ import {
   missingBuildSecrets,
   placeholder,
 } from "./secrets.js";
-import { describePromotion, stagingBuilds } from "./staging-builds.js";
+import {
+  commitOf,
+  describePromotion,
+  stagingBuilds,
+} from "./staging-builds.js";
 
 export interface Project {
   config: Config;
@@ -414,7 +418,12 @@ export async function promote(
     return 1;
   }
   if (describe) {
-    io.stdout(`${describePromotion(await stagingBuilds(io), buildId)}\n`);
+    const builds = await stagingBuilds(io);
+    const commit =
+      !Array.isArray(builds) && buildId
+        ? await commitOf(io, buildId)
+        : undefined;
+    io.stdout(`${describePromotion(builds, buildId, commit)}\n`);
     return 0;
   }
   const confirm = typed?.trim();
