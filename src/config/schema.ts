@@ -38,6 +38,21 @@ const backend = z.strictObject({
   kind: z.literal("backend"),
   target: z.string(),
   secrets: secretNames,
+  paths: z
+    .array(
+      z
+        .string()
+        .regex(
+          /^\/([A-Za-z0-9._~-]+\/)*$/,
+          "must start and end with /, such as /api/",
+        ),
+    )
+    .min(1, "must list at least one path, such as /api/")
+    .refine(
+      (paths) => new Set(paths).size === paths.length,
+      "must not list a path twice",
+    )
+    .optional(),
   build: z.strictObject({
     dockerfile: z.string().min(1),
     context: z.string().min(1).optional(),
@@ -116,10 +131,7 @@ const identity = z.strictObject({
   target: z.string(),
   callback_path: z
     .string()
-    .regex(
-      /^\/api\/[A-Za-z0-9/_-]*$/,
-      "must be a path under /api/, where the backend answers",
-    )
+    .regex(/^\/[A-Za-z0-9/_-]*$/, "must be a path such as /api/auth/callback")
     .default("/api/auth/callback"),
 });
 

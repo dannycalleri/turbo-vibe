@@ -59,6 +59,33 @@ describe("composeInfrastructure", () => {
     });
   });
 
+  it("routes each of a backend's paths, and its health path unless one covers it", () => {
+    const withPaths = (paths: string) =>
+      config(
+        api.replace(
+          "    target: cloudflare-container\n",
+          `    target: cloudflare-container\n    paths: ${paths}\n`,
+        ),
+      );
+    expect(
+      composeInfrastructure(withPaths("[/v1/, /auth/]"), "staging").cloudflare
+        ?.workers,
+    ).toEqual({
+      "acme-api-staging": {
+        routes: [
+          "staging.acme.example.com/v1/*",
+          "staging.acme.example.com/auth/*",
+          "staging.acme.example.com/_turbo-vibe/health",
+        ],
+      },
+    });
+    expect(
+      composeInfrastructure(withPaths("[/]"), "staging").cloudflare?.workers,
+    ).toEqual({
+      "acme-api-staging": { routes: ["staging.acme.example.com/*"] },
+    });
+  });
+
   it("places a serve_with frontend in the backend's Worker, which takes the whole hostname", () => {
     expect(
       composeInfrastructure(

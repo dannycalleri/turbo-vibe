@@ -111,6 +111,22 @@ services:
     );
   });
 
+  it("lists a backend's paths when it has more than one, and links its first", () => {
+    const text = formatPlan(
+      derivePlan(
+        config(
+          backendOnly.replace(
+            "    target: cloudflare-container\n",
+            "    target: cloudflare-container\n    paths: [/v1/, /auth/]\n",
+          ),
+        ),
+      ),
+    );
+    expect(text).toContain(
+      "  api  backend  cloudflare-container  https://staging.acme.example.com/v1/\n    paths: /v1/, /auth/\n",
+    );
+  });
+
   it("shows a backend's port and where it came from", () => {
     const text = formatPlan(
       derivePlan(config(backendOnly), {

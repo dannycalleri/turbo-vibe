@@ -1,6 +1,6 @@
 import { rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { backendPrefix, buildIdVariable, legacyBuildArg } from "../contract.js";
+import { backendPaths, buildIdVariable, legacyBuildArg } from "../contract.js";
 import { type BackendPort, backendPort } from "../port.js";
 import { checkBuildId } from "../smoke.js";
 import { hasNotFoundPage, recordedOrBuilt, staticBuild } from "./assets.js";
@@ -280,11 +280,15 @@ export const cloudflareContainer: Adapter = {
   secrets,
   outputs: ["url", "worker"],
   plan(context) {
+    const paths =
+      context.service.kind === "backend" ? backendPaths(context.service) : [];
     const routes = servedFrontend(context)
       ? [`${context.hostname}/*`]
       : [
-          `${context.hostname}${backendPrefix}*`,
-          `${context.hostname}${kitHealthPath}`,
+          ...paths.map((path) => `${context.hostname}${path}*`),
+          ...(paths.some((path) => kitHealthPath.startsWith(path))
+            ? []
+            : [`${context.hostname}${kitHealthPath}`]),
         ];
     return {
       cloudflare: {
