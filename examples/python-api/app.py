@@ -34,4 +34,4 @@ def serve(port):
 if __name__ == "__main__":
     # As the container's PID 1, Python would ignore SIGTERM, and Cloudflare waits 15 minutes before replacing it.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    serve(int(os.environ.get("PORT", "8080"))).serve_forever()
+    serve(int(os.environ.get("PORT", "3000"))).serve_forever()
