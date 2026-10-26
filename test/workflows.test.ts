@@ -645,6 +645,13 @@ describe("require-reviewer", () => {
       'gh api "repos/$GITHUB_REPOSITORY/environments/production"',
     );
     expect(check.run).toContain('index("required_reviewers") != null');
+    const choose = steps.find((step: { id?: string }) => step.id === "choose");
+    expect(choose.run).toContain(
+      '--confirm "$CONFIRM_BUILD" ${NEWEST:+--newest}',
+    );
+    expect(choose.env.NEWEST).toBe(
+      "${{ inputs.require-reviewer && 'yes' || '' }}",
+    );
     expect(check.run).toContain(
       "delete the repository variable TURBO_VIBE_PROMOTE_FROM_STAGING",
     );
@@ -658,7 +665,11 @@ describe("require-reviewer", () => {
     );
     expect(named.env.REQUIRE_REVIEWER).toBe("${{ inputs.require-reviewer }}");
     expect(named.env.CONFIRM_BUILD).toBe("${{ inputs.confirm-build }}");
-    expect(named.run).toContain('if [ "$build_id" = "$(echo "$CONFIRM_BUILD"');
+    expect(named.run).toContain(
+      "confirmed=$(echo \"$CONFIRM_BUILD\" | tr -d '[:space:]')",
+    );
+    expect(named.run).toContain('if [ "$build_id" = "$confirmed" ]; then');
+    expect(named.run).toContain("cannot be promoted; see the log");
     expect(named.run).toContain(
       "Approve the production job of that build's Staging run, or run **Deploy to production**",
     );

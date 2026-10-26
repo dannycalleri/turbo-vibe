@@ -34,6 +34,7 @@ import {
   missingBuildSecrets,
   placeholder,
 } from "./secrets.js";
+import { describePromotion, stagingBuilds } from "./staging-builds.js";
 
 export interface Project {
   config: Config;
@@ -393,14 +394,33 @@ export async function promote(
   {
     buildId,
     choose,
-    confirm,
-  }: { buildId?: string; choose?: boolean; confirm?: string },
+    confirm: typed,
+    newest,
+    describe,
+  }: {
+    buildId?: string;
+    choose?: boolean;
+    confirm?: string;
+    newest?: boolean;
+    describe?: boolean;
+  },
   io: Io,
 ): Promise<number> {
   const { config } = project;
   if (environment !== "production") {
     io.stderr(
       "promote deploys to production; staging is deployed on every merge\n",
+    );
+    return 1;
+  }
+  if (describe) {
+    io.stdout(`${describePromotion(await stagingBuilds(io), buildId)}\n`);
+    return 0;
+  }
+  const confirm = typed?.trim();
+  if (confirm && !/^[0-9a-f]{40}$/.test(confirm)) {
+    io.stderr(
+      `${JSON.stringify(confirm)} is not a full commit SHA; production is unchanged\n`,
     );
     return 1;
   }
@@ -413,13 +433,14 @@ export async function promote(
     config.project,
     buildsBucket("production", io.env),
   );
-  const chosen = buildId
-    ? await store.getRecord(buildId)
+  const named = buildId ?? (newest || !confirm ? undefined : confirm);
+  const chosen = named
+    ? await store.getRecord(named)
     : choosePromotion(await store.listRecords());
   if (!chosen) {
     io.stderr(
-      buildId
-        ? `build ${buildId} has no record; production is unchanged\n`
+      named
+        ? `build ${named} has no record; production is unchanged\n`
         : "no staging build has passed its smoke test; production is unchanged\n",
     );
     return 1;
@@ -437,7 +458,7 @@ export async function promote(
     );
     return 1;
   }
-  if (confirm !== undefined && confirm.trim() !== chosen.buildId) {
+  if (confirm !== undefined && confirm !== chosen.buildId) {
     io.stderr(
       `the build to promote is ${chosen.buildId}, not ${JSON.stringify(confirm)}; production is unchanged. Confirm with ${chosen.buildId} to promote it\n`,
     );

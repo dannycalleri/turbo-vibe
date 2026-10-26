@@ -327,7 +327,15 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     )
     .option(
       "--confirm <id>",
-      "refuse unless this is the build that would be promoted",
+      "promote this build, which must have passed on staging; an older one is a rollback",
+    )
+    .option(
+      "--newest",
+      "with --confirm, refuse unless the build is the newest that passed",
+    )
+    .option(
+      "--describe",
+      "print, from GitHub, the build that --build-id names or the newest that passed, and change nothing",
     )
     .action(
       async (options: {
@@ -335,6 +343,8 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
         buildId?: string;
         choose?: boolean;
         confirm?: string;
+        newest?: boolean;
+        describe?: boolean;
       }) => {
         const project = await loadProject();
         if (project) {
@@ -347,6 +357,8 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
               ...(options.confirm !== undefined
                 ? { confirm: options.confirm }
                 : {}),
+              ...(options.newest ? { newest: true } : {}),
+              ...(options.describe ? { describe: true } : {}),
             },
             io,
           );
