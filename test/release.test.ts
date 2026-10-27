@@ -529,7 +529,7 @@ services:
         );
         expect(code).toBe(1);
         expect(stderr).toContain(
-          `api: ${problem}. The smoke test after every deploy asks GET /api/health on port 8080 (the default, also given as PORT; set container.port to change it)`,
+          `api: ${problem}. The smoke test after every deploy asks GET /api/health on port 8080 (the default; cannot read Dockerfile, also given as PORT; set container.port to change it)`,
         );
         expect(stderr).toContain("ARG BUILD_ID and ENV BUILD_ID=$BUILD_ID");
         expect(capture).not.toHaveBeenCalledWith(
@@ -580,7 +580,7 @@ services:
       const { code, stderr } = await dryRun(capture, fetch);
       expect(code).toBe(1);
       expect(stderr).toContain(
-        "api: the container published no port for 8080 (the default), so its health route is not reachable",
+        "api: the container published no port for 8080 (the default; cannot read Dockerfile), so its health route is not reachable",
       );
       expect(fetch).not.toHaveBeenCalled();
       expect(capture).toHaveBeenCalledWith(
