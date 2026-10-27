@@ -489,7 +489,10 @@ services:
         ],
         expect.anything(),
       );
-      expect(fetch).toHaveBeenCalledWith(probeUrl, expect.anything());
+      expect(fetch).toHaveBeenCalledWith(
+        probeUrl,
+        expect.objectContaining({ redirect: "manual" }),
+      );
       expect(capture).toHaveBeenCalledWith(
         "docker",
         ["stop", "--timeout", "10", "c0ffee"],
@@ -558,6 +561,16 @@ services:
         );
       },
     );
+
+    it("fails a container whose health route reports another build as JSON", async () => {
+      const capture = container("true", "0");
+      const fetch = vi.fn(async () =>
+        Response.json({ build_id: "dev" }, { status: 200 }),
+      );
+      const { code, stderr } = await dryRun(capture, fetch);
+      expect(code).toBe(1);
+      expect(stderr).toContain(`api: ${probeUrl} reports build dev.`);
+    });
 
     it("runs and probes the container on the port its Dockerfile exposes", async () => {
       const capture = container("true", "0");

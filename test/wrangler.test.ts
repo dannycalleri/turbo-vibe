@@ -220,13 +220,16 @@ describe("the generated health module", () => {
     return module.health;
   }
 
-  const answering = (status: number) => {
+  const answering = (status: number, body = "body", type = "text/plain") => {
     const requests: string[] = [];
     return {
       requests,
       fetch: async (request: Request) => {
         requests.push(request.url);
-        return new Response(status === 204 ? null : "body", { status });
+        return new Response(status === 204 ? null : body, {
+          status,
+          headers: { "content-type": type },
+        });
       },
     };
   };
@@ -235,8 +238,10 @@ describe("the generated health module", () => {
     status: number,
     path = "/",
     strict = false,
+    body?: string,
+    type?: string,
   ): Promise<{ status: number; body: unknown; requests: string[] }> {
-    const container = answering(status);
+    const container = answering(status, body, type);
     const response = await (await load())(
       container,
       "https://staging.acme.example.com/_turbo-vibe/health",
@@ -259,11 +264,56 @@ describe("the generated health module", () => {
     });
   });
 
-  it("answers 503 and names the status when / answers 500", async () => {
+  it("answers 502, a plain failure, and names the status when / answers 500", async () => {
     expect(await probe(500)).toMatchObject({
-      status: 503,
+      status: 502,
       body: { error: "/ answered HTTP 500" },
     });
+  });
+
+  it("answers 503 while the container reports another build, and passes once it reports this one", async () => {
+    expect(
+      await probe(
+        200,
+        "/api/health",
+        true,
+        JSON.stringify({ build_id: "old999" }),
+        "application/json",
+      ),
+    ).toMatchObject({
+      status: 503,
+      body: { error: "/api/health reports build old999" },
+    });
+    expect(
+      await probe(
+        200,
+        "/api/health",
+        true,
+        JSON.stringify({ build_id: "abc123" }),
+        "application/json",
+      ),
+    ).toMatchObject({ status: 200, body: { build_id: "abc123" } });
+  });
+
+  it("reads the body only when it is JSON", async () => {
+    const stream = new ReadableStream({ pull() {} });
+    const response = await (await load())(
+      {
+        fetch: async () =>
+          new Response(stream, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          }),
+      },
+      "https://staging.acme.example.com/_turbo-vibe/health",
+      "/",
+      false,
+      "abc123",
+    );
+    expect(response.status).toBe(200);
+    expect(
+      await probe(200, "/", false, JSON.stringify({ build_id: "old999" })),
+    ).toMatchObject({ status: 200 });
   });
 
   it("accepts only 2xx from a configured path", async () => {
@@ -272,7 +322,7 @@ describe("the generated health module", () => {
       requests: ["https://staging.acme.example.com/ready"],
     });
     expect(await probe(404, "/ready", true)).toMatchObject({
-      status: 503,
+      status: 502,
       body: { error: "/ready answered HTTP 404" },
     });
   });

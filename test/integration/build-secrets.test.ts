@@ -66,9 +66,7 @@ describe("a backend's build secret", () => {
         sql: postgresSession,
       },
     );
-    expect(output.join("")).toContain(
-      "api: the container answers /api/health with build integration",
-    );
+    expect(output.join("")).toContain("api: the container answers / on port");
     expect(code).toBe(0);
     const history = execFileSync(
       "docker",
