@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.1.0](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.1...v1.1.0) (2026-10-27)
+
+
+### Features
+
+* **check:** fail when npm ci would refuse a frontend's lockfile ([440a397](https://github.com/dannycalleri/turbo-vibe/commit/440a397edce704a948be2bd003f0e00358db2727))
+* **cloudflare:** keep Access on the project's zone for an environment that becomes private, without a service token ([d13de9c](https://github.com/dannycalleri/turbo-vibe/commit/d13de9cdc11365ef31e5815353fcffa42c0986d7))
+* **cloudflare:** send requests to the backend's port, from container.port or the Dockerfile's EXPOSE ([52f7b7b](https://github.com/dannycalleri/turbo-vibe/commit/52f7b7b654c8ff3a08bf9b26f5bb7f2c59b45b8c))
+* **cloudflare:** the smoke test and the dry run check the container without its own health route ([3d8bb51](https://github.com/dannycalleri/turbo-vibe/commit/3d8bb511f311d378cf103265f8f56db191c4d069))
+* **cloudflare:** the Worker answers /_turbo-vibe/health by probing the container, and gives it TURBO_VIBE_BUILD_ID ([6a46b13](https://github.com/dannycalleri/turbo-vibe/commit/6a46b131427ee166a4d3fecb8e8ffae17b30a999))
+* **config:** a backend's paths, default /api/, decide its routes and the sign-in callback's place ([d82fded](https://github.com/dannycalleri/turbo-vibe/commit/d82fdede94306e92c5055c8ab7db71be9e1b822f))
+* **init:** the Staging workflow promotes its own build after a reviewer's approval ([abe67bd](https://github.com/dannycalleri/turbo-vibe/commit/abe67bd47e88e22d5625e30df9a7bdc4f00e42bf))
+* **migrate:** refuse a rollback that crosses a migration, and name the migration ([faecd12](https://github.com/dannycalleri/turbo-vibe/commit/faecd12704faf94bb9ad3fbd4dea2a12f117997a))
+* **promote:** describe the build to promote from GitHub, and accept an older build that passed as a rollback ([074a993](https://github.com/dannycalleri/turbo-vibe/commit/074a99308660b4ea4b62e5d53b954e38a0f15598))
+* **setup:** add missing permissions to a kept CI token, without a new token ([1969bf1](https://github.com/dannycalleri/turbo-vibe/commit/1969bf1092e904b3d72468ee2723f0f1678b2fec))
+* **ship:** choose a build that passed staging and start Deploy to production with it ([f60be0a](https://github.com/dannycalleri/turbo-vibe/commit/f60be0aad846d72a056f770a627e10946cde610b))
+* **workflows:** Deploy to production shows the build before the approval, and needs no build ID where production has a reviewer ([5c4843c](https://github.com/dannycalleri/turbo-vibe/commit/5c4843c9b5f4f1fcb89bcebbe5fc925d34637079))
+* **workflows:** promote.yml stops before any secret when require-reviewer is set and production has no reviewer ([593c11d](https://github.com/dannycalleri/turbo-vibe/commit/593c11df24b94be6fbf74dbf4b38b9fd91807c2d))
+
+
+### Bug Fixes
+
+* **apply:** decide again where Access goes when an earlier apply failed before creating the service token ([cf6def3](https://github.com/dannycalleri/turbo-vibe/commit/cf6def317655836641104600965abcb26236faa1))
+* **cloudflare:** read the port of the stage a final stage builds on, and keep a TCP port past a UDP-only EXPOSE ([3984fa5](https://github.com/dannycalleri/turbo-vibe/commit/3984fa518c1ce5cecf5cbf330bda9acde0338dbb))
+* **cloudflare:** wait while the container reports another build, fail an app error in a minute, and probe without following redirects ([686a1b3](https://github.com/dannycalleri/turbo-vibe/commit/686a1b3009ebc7ef3adfb8d547979dee2c6fe009))
+* **config:** keep backend paths off /_turbo-vibe/ and dot segments, and the callback under /api/ without a backend ([2041379](https://github.com/dannycalleri/turbo-vibe/commit/2041379048cf17c445d0acce5a0c2aa6b57b1e62))
+* **init:** offer setup first, then list only the steps that remain ([fadd39a](https://github.com/dannycalleri/turbo-vibe/commit/fadd39a6419016ceb65c10ebf1240aab0f901224))
+* **init:** write the install command for the repository's lockfile ([c8cb2ee](https://github.com/dannycalleri/turbo-vibe/commit/c8cb2ee798ce6eb7b1aa6ea933d197f7b9938647))
+* **promote:** check a rollback's migrations before apply, so production's infrastructure stays unchanged ([706a829](https://github.com/dannycalleri/turbo-vibe/commit/706a829980c4e52e34c2602db0715e81bb05aba8))
+* **promote:** promote the build the reviewer approved, judge a commit by its latest staging run, and let db push compare migrations it cannot read ([53ff815](https://github.com/dannycalleri/turbo-vibe/commit/53ff81574a4b6398c610cf203b9e5e8678615295))
+* **setup:** hide gh's own error for the failures setup explains ([9a2b9e7](https://github.com/dannycalleri/turbo-vibe/commit/9a2b9e76f423748db5db6df30097e77c5bc7f26e))
+* **ship:** report only a run it started, in the folder's repository, and name a rollback without a terminal ([b31f08d](https://github.com/dannycalleri/turbo-vibe/commit/b31f08d5f04eb991a1d56ea46537b37c661346f4))
+* **workflows:** name the production job only on a push run, offer Deploy to production for a newer build, and report an unreadable variable ([81d2c20](https://github.com/dannycalleri/turbo-vibe/commit/81d2c20e109a5f53740c205c5daab091775a8ca5))
+
 ## [1.0.1](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.0...v1.0.1) (2026-10-21)
 
 
