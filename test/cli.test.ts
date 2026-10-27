@@ -943,6 +943,15 @@ describe("turbo-vibe apply on a private staging", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("decides again when an earlier apply recorded the account but failed before creating the service token", async () => {
+    const { code, cwd } = await applyWith({
+      access_on_account: true,
+      access_client_id: null,
+    });
+    expect(code).toBe(0);
+    expect(await access(cwd)).not.toHaveProperty("on_account");
+  });
+
   it("puts a new environment on the account when its 1.0 token reaches Access there only, as a new preview of a 1.0 staging", async () => {
     const { code, cwd } = await applyWith({}, reachable("/accounts/acc123"));
     expect(code).toBe(0);

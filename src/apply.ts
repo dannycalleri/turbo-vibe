@@ -146,8 +146,8 @@ async function accessOnAccount(
   outputs: Readonly<Record<string, unknown>>,
   io: Io,
 ): Promise<boolean> {
-  if (typeof outputs.access_on_account === "boolean")
-    return outputs.access_on_account;
+  if (outputs.access_on_account === false) return false;
+  // An apply that failed before creating the service token still saved access_on_account = true.
   if (typeof outputs.access_client_id === "string") return true;
   const reaches = async (path: string) => {
     try {
