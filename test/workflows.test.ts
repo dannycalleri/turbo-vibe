@@ -618,9 +618,10 @@ describe("the staging run's summary", () => {
     );
     expect(named.env).toEqual({
       PROMOTE_FROM_STAGING: "${{ vars.TURBO_VIBE_PROMOTE_FROM_STAGING }}",
+      EVENT: "${{ github.event_name }}",
     });
     expect(named.run).toContain(
-      'if [ "$PROMOTE_FROM_STAGING" = "true" ]; then',
+      'if [ "$PROMOTE_FROM_STAGING" = "true" ] && [ "$EVENT" = "push" ]; then',
     );
     expect(named.run).toContain("approve this run's **production** job.");
     expect(named.run).toContain(
@@ -659,7 +660,7 @@ describe("require-reviewer", () => {
     expect(named.env.CONFIRM_BUILD).toBe("${{ inputs.confirm-build }}");
     expect(named.run).toContain('if [ "$build_id" = "$(echo "$CONFIRM_BUILD"');
     expect(named.run).toContain(
-      "Approve the production job of that build's Staging run.",
+      "Approve the production job of that build's Staging run, or run **Deploy to production**",
     );
   });
 });

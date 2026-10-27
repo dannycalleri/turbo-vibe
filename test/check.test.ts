@@ -1186,6 +1186,27 @@ describe("against recorded fakes", () => {
       ).toEqual(["ok", "ok"]);
     });
 
+    it("says when it cannot read the variable, instead of passing it over", async () => {
+      repo("production", [], []);
+      server.use(
+        http.get(
+          "https://api.github.com/repos/acme/app/actions/variables/TURBO_VIBE_PROMOTE_FROM_STAGING",
+          () => HttpResponse.json({ message: "Forbidden" }, { status: 403 }),
+        ),
+      );
+      const findings = await github({
+        ...context(container, githubEnv),
+        environment: "production" as const,
+      });
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "warn",
+          message:
+            "production has no required reviewer, and the repository variable TURBO_VIBE_PROMOTE_FROM_STAGING cannot be read (HTTP 403)",
+        }),
+      );
+    });
+
     it("names a build secret the repository lacks", async () => {
       repo("production", ["required_reviewers"], []);
       server.use(
