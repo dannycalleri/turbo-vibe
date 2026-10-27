@@ -154,7 +154,7 @@ jobs:
           if [ "$build_id" = "$(echo "$CONFIRM_BUILD" | tr -d '[:space:]')" ]; then
             echo "Build \`$build_id\` could not be chosen; see the log of the step that chooses it. Production is unchanged." >> "$GITHUB_STEP_SUMMARY"
           elif [ "$REQUIRE_REVIEWER" = "true" ]; then
-            echo "A newer build, \`$build_id\`, passed staging, so this run's build is not promoted. Approve the production job of that build's Staging run." >> "$GITHUB_STEP_SUMMARY"
+            echo "A newer build, \`$build_id\`, passed staging, so this run's build is not promoted. Approve the production job of that build's Staging run, or run **Deploy to production** with confirm-build set to \`$build_id\`." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "The build ready to promote is \`$build_id\`. Run **Deploy to production** again with confirm-build set to \`$build_id\`." >> "$GITHUB_STEP_SUMMARY"
           fi

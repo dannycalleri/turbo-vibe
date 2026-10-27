@@ -198,8 +198,9 @@ jobs:
       - name: Name the build to promote
         env:
           PROMOTE_FROM_STAGING: ${{ vars.TURBO_VIBE_PROMOTE_FROM_STAGING }}
+          EVENT: ${{ github.event_name }}
         run: |
-          if [ "$PROMOTE_FROM_STAGING" = "true" ]; then
+          if [ "$PROMOTE_FROM_STAGING" = "true" ] && [ "$EVENT" = "push" ]; then
             echo "Build \`$BUILD_ID\` passed staging. To promote it, approve this run's **production** job." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Build \`$BUILD_ID\` passed staging. To promote it, run **Deploy to production** with confirm-build \`$BUILD_ID\`." >> "$GITHUB_STEP_SUMMARY"

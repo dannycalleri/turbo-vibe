@@ -290,17 +290,23 @@ export const github: Check = async (context) => {
     findings.push(
       reviewed
         ? ok("github", "production requires a reviewer's approval")
-        : variable?.body?.value === "true"
-          ? fail(
+        : variable && variable.status !== 200 && variable.status !== 404
+          ? warn(
               "github",
-              `${promoteFromStaging} is true but production has no required reviewer, so every Staging run's production job stops before deploying`,
-              `add a reviewer in Settings → Environments → production, or delete the repository variable ${promoteFromStaging}`,
+              `production has no required reviewer, and the repository variable ${promoteFromStaging} cannot be read (HTTP ${variable.status})`,
+              `use a GITHUB_TOKEN that can read Actions variables, or add a reviewer in Settings → Environments → production`,
             )
-          : warn(
-              "github",
-              "production has no required reviewers, so the typed build-ID confirmation is the only safeguard before promotion",
-              "add required reviewers in Settings → Environments → production; GitHub offers them on public repositories, and on private ones only with GitHub Enterprise",
-            ),
+          : variable?.body?.value === "true"
+            ? fail(
+                "github",
+                `${promoteFromStaging} is true but production has no required reviewer, so every Staging run's production job stops before deploying`,
+                `add a reviewer in Settings → Environments → production, or delete the repository variable ${promoteFromStaging}`,
+              )
+            : warn(
+                "github",
+                "production has no required reviewers, so the typed build-ID confirmation is the only safeguard before promotion",
+                "add required reviewers in Settings → Environments → production; GitHub offers them on public repositories, and on private ones only with GitHub Enterprise",
+              ),
     );
   }
   const secrets = await getJson<{ secrets?: { name: string }[] }>(
