@@ -64,6 +64,8 @@ jobs:
   describe:
     name: Show the build to promote
     runs-on: ubuntu-latest
+    outputs:
+      build-id: ${{ steps.describe.outputs.build-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -95,6 +97,7 @@ jobs:
           chmod +x "$bin/turbo-vibe"
           echo "$bin" >> "$GITHUB_PATH"
       - name: Show the build to promote
+        id: describe
         env:
           GH_TOKEN: ${{ github.token }}
           CONFIRM_BUILD: ${{ inputs.confirm-build }}
@@ -162,7 +165,9 @@ jobs:
         id: choose
         run: |
           confirmed=$(echo "$CONFIRM_BUILD" | tr -d '[:space:]')
-          if [ -z "$confirmed" ] && [ "$REVIEWED" = "true" ]; then
+          if [ -z "$confirmed" ] && [ "$REVIEWED" = "true" ] && [ -n "$DESCRIBED" ]; then
+            build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose --confirm "$DESCRIBED" --newest)
+          elif [ -z "$confirmed" ] && [ "$REVIEWED" = "true" ]; then
             build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose)
           else
             build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose --confirm "$CONFIRM_BUILD" ${NEWEST:+--newest})
@@ -185,6 +190,7 @@ jobs:
           CONFIRM_BUILD: ${{ inputs.confirm-build }}
           NEWEST: ${{ inputs.require-reviewer && 'yes' || '' }}
           REVIEWED: ${{ steps.reviewer.outputs.reviewed }}
+          DESCRIBED: ${{ needs.describe.outputs.build-id }}
       - name: Name the build to confirm
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -203,12 +209,17 @@ jobs:
           REQUIRE_REVIEWER: ${{ inputs.require-reviewer }}
           CONFIRM_BUILD: ${{ inputs.confirm-build }}
           REVIEWED: ${{ steps.reviewer.outputs.reviewed }}
+          DESCRIBED: ${{ needs.describe.outputs.build-id }}
         if: failure() && steps.choose.outcome == 'failure'
         run: |
           build_id=$(turbo-vibe --config "$CONFIG" promote --env production --choose) || exit 0
           confirmed=$(echo "$CONFIRM_BUILD" | tr -d '[:space:]')
           if [ "$build_id" = "$confirmed" ]; then
             echo "Build \`$build_id\` could not be chosen; see the log of the step that chooses it. Production is unchanged." >> "$GITHUB_STEP_SUMMARY"
+          elif [ -z "$confirmed" ] && [ "$REVIEWED" = "true" ] && [ -n "$DESCRIBED" ] && [ "$build_id" = "$DESCRIBED" ]; then
+            echo "Build \`$DESCRIBED\`, which this run was approved for, could not be chosen; see the log of the step that chooses it. Production is unchanged." >> "$GITHUB_STEP_SUMMARY"
+          elif [ -z "$confirmed" ] && [ "$REVIEWED" = "true" ] && [ -n "$DESCRIBED" ]; then
+            echo "A newer build, \`$build_id\`, passed staging while this run waited, so the approved build \`$DESCRIBED\` is not promoted. Production is unchanged. Run **Deploy to production** again to promote the newest build, or with confirm-build set to \`$DESCRIBED\` to promote the one approved." >> "$GITHUB_STEP_SUMMARY"
           elif [ "$REQUIRE_REVIEWER" = "true" ]; then
             echo "A newer build, \`$build_id\`, passed staging, so this run's build is not promoted. Approve the production job of that build's Staging run, or run **Deploy to production** with confirm-build set to \`$build_id\`." >> "$GITHUB_STEP_SUMMARY"
           elif [ -z "$confirmed" ] && [ "$REVIEWED" = "unknown" ]; then
@@ -231,7 +242,8 @@ jobs:
           tofu_wrapper: false
       - name: Check that a rollback crosses no migration
         run: |
-          if turbo-vibe migrate --help | grep -q -- '--check'; then
+          help=$(turbo-vibe migrate --help)
+          if [[ "$help" == *--check* ]]; then
             turbo-vibe --config "$CONFIG" migrate --env production --check
           else
             echo "This commit's CLI cannot check migrations before apply; migrate still refuses a crossed migration after apply."

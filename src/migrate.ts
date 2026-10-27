@@ -109,12 +109,12 @@ export async function migrateDatabase(
     await admin.end();
   }
   const crossed = await crossedMigrations(endpoint, connection, workdir, io);
-  if (crossed !== undefined) {
-    io.stderr(
-      typeof crossed === "string"
-        ? `cannot read the applied migrations: ${crossed}\n`
-        : `${crossedMessage(crossed)}. Nothing was migrated\n`,
+  if (typeof crossed === "string")
+    io.stdout(
+      `warn  cannot read the applied migrations (${crossed}); supabase db push compares them itself\n`,
     );
+  else if (crossed !== undefined) {
+    io.stderr(`${crossedMessage(crossed)}. Nothing was migrated\n`);
     return 1;
   }
   return io.run(

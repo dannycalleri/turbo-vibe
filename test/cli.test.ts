@@ -624,6 +624,34 @@ services:
     });
   });
 
+  it("warns and still pushes when it cannot read the applied migrations, since db push compares them itself", async () => {
+    const runner = vi.fn<Runner>(async () => 0);
+    const { code, stdout } = await run(
+      ["migrate", "--env", "staging"],
+      { "turbo-vibe.yaml": withDb },
+      env,
+      runner,
+      status("ACTIVE_HEALTHY"),
+      {
+        capture: async () => ({ code: 0, stdout: outputs }),
+        sql: () => ({
+          execute: async () => {},
+          query: async () => {
+            throw new Error("permission denied for schema supabase_migrations");
+          },
+          end: async () => {},
+        }),
+      },
+    );
+    expect(code).toBe(0);
+    expect(stdout).toContain(
+      "warn  cannot read the applied migrations (permission denied for schema supabase_migrations); supabase db push compares them itself\n",
+    );
+    expect(runner.mock.calls.some(([, args]) => args.includes("push"))).toBe(
+      true,
+    );
+  });
+
   it("does nothing for a project without a database", async () => {
     const runner = vi.fn<Runner>(async () => 0);
     const { code, stdout } = await run(

@@ -68,6 +68,19 @@ describe("stagingBuilds", () => {
     );
   });
 
+  it("leaves out a commit whose latest staging deployment failed", async () => {
+    const { io: fake } = io(
+      answering([
+        deployment("b", "FAILURE", "2026-10-26T13:00:00Z"),
+        deployment("b", "SUCCESS", "2026-10-26T12:00:00Z"),
+        deployment("a", "SUCCESS", "2026-10-25T12:00:00Z"),
+      ]),
+    );
+    expect(await stagingBuilds(fake)).toEqual([
+      expect.objectContaining({ sha: sha("a") }),
+    ]);
+  });
+
   it("finds an empty list when nothing passed", async () => {
     const { io: fake } = io(answering([]));
     expect(await stagingBuilds(fake)).toEqual([]);
@@ -143,6 +156,14 @@ describe("describePromotion", () => {
   });
 
   it("leaves the decision to the build records when GitHub lists nothing", () => {
+    expect(
+      describePromotion(builds, sha("f"), {
+        subject: "fix: long ago",
+        committedAt: "2026-09-01T09:00:00Z",
+      }),
+    ).toContain(
+      `Promoting \`${sha("f")}\` (fix: long ago), committed at 2026-09-01T09:00:00Z. GitHub lists no passing staging deployment for it among the latest ones.`,
+    );
     expect(describePromotion(builds, sha("f"))).toContain(
       `GitHub lists no passing staging deployment for \`${sha("f")}\``,
     );
