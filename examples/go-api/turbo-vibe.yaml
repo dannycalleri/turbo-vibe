@@ -3,7 +3,11 @@ version: 1
 project: tv-example
 domain: example.turbovibe.ai
 environments:
-  staging: { hostname: staging-example.turbovibe.ai }
+  staging:
+    hostname: staging-example.turbovibe.ai
+    access: { emails: [daniele.calleri@gmail.com] }
+  production:
+    access: { emails: [daniele.calleri@gmail.com] }
 services:
   api:
     kind: backend
