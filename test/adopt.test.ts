@@ -203,7 +203,7 @@ describe("the adoption guidance", () => {
   it("states the backend contract the deploy checks", () => {
     expect(guidance).toContain(`GET ${healthPath}`);
     expect(guidance).toContain(
-      `last \`EXPOSE\` in the Dockerfile's final stage, else to ${defaultBackendPort}`,
+      `in the Dockerfile's final stage, or in the stage it builds on, else to ${defaultBackendPort}`,
     );
     expect(guidance).toContain(`ARG ${buildIdVariable}`);
     expect(guidance).toContain(`ENV ${buildIdVariable}=$${buildIdVariable}`);

@@ -61,7 +61,7 @@ A backend is served under `/api/` and a frontend under `/`.
 | `container.instance_type` | `lite`, `basic`, `standard-1` … `standard-4` | `lite` | The Cloudflare container size. |
 | `container.sleep_after` | duration such as `30s`, `5m`, `1h` | `5m` | Idle time before the container sleeps. |
 | `container.max_instances` | integer ≥ 1 | `1` | How many container instances may run. |
-| `container.port` | integer from 1 to 65535 | the Dockerfile's `EXPOSE`, else `8080` | The port the server listens on. Without it, the kit reads the first TCP port of the last `EXPOSE` in the Dockerfile's final stage. The kit also gives the port as `PORT`. |
+| `container.port` | integer from 1 to 65535 | the Dockerfile's `EXPOSE`, else `8080` | The port the server listens on. Without it, the kit reads the TCP port of the last `EXPOSE` that has one in the Dockerfile's final stage, or in the stage it builds on. The kit also gives the port as `PORT`. |
 | `container.instance_from` | `query:<parameter>` or `header:<name>` | none | Route each request to the instance named by that query parameter or header; requests without it reach the `default` instance. |
 
 ### `kind: frontend`

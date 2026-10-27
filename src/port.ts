@@ -19,16 +19,24 @@ function instructions(dockerfile: string): string[] {
 }
 
 export function exposedPort(dockerfile: string): number | undefined {
+  const stages = new Map<string, number | undefined>();
+  let stage: string | undefined;
   let port: number | undefined;
   for (const line of instructions(dockerfile)) {
     const [keyword = "", ...args] = line.split(/\s+/);
     const instruction = keyword.toUpperCase();
-    if (instruction === "FROM") port = undefined;
+    if (instruction === "FROM") {
+      if (stage) stages.set(stage, port);
+      const [base = "", as, name] = args.filter((arg) => !arg.startsWith("--"));
+      port = stages.get(base.toLowerCase());
+      stage = as?.toUpperCase() === "AS" ? name?.toLowerCase() : undefined;
+      continue;
+    }
     if (instruction !== "EXPOSE") continue;
     const tcp = args
       .map((arg) => /^(\d+)(\/tcp)?$/i.exec(arg)?.[1])
       .find((match) => match !== undefined);
-    port = tcp ? Number(tcp) : undefined;
+    if (tcp) port = Number(tcp);
   }
   return port;
 }
@@ -44,7 +52,12 @@ export async function backendPort(
     resolve(configDir, backend.build.dockerfile),
     "utf8",
   ).catch(() => undefined);
-  const exposed = dockerfile ? exposedPort(dockerfile) : undefined;
+  if (dockerfile === undefined)
+    return {
+      port: defaultBackendPort,
+      source: `the default; cannot read ${backend.build.dockerfile}`,
+    };
+  const exposed = exposedPort(dockerfile);
   if (exposed) {
     return { port: exposed, source: `EXPOSE in ${backend.build.dockerfile}` };
   }

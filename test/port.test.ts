@@ -20,9 +20,19 @@ describe("exposedPort", () => {
     ["a variable", "FROM node\nEXPOSE $PORT\n", undefined],
     ["a UDP port only", "FROM node\nEXPOSE 53/udp\n", undefined],
     [
-      "a last EXPOSE without a TCP port",
+      "an earlier TCP port past a later UDP-only EXPOSE",
       "FROM node\nEXPOSE 3000\nEXPOSE 53/udp\n",
-      undefined,
+      3000,
+    ],
+    [
+      "the port of the stage the final stage builds on",
+      "FROM node AS base\nEXPOSE 3000\nFROM base\nRUN true\n",
+      3000,
+    ],
+    [
+      "a later EXPOSE over the inherited one",
+      "FROM node AS base\nEXPOSE 3000\nFROM --platform=linux/amd64 base AS app\nEXPOSE 4000\n",
+      4000,
     ],
     ["a comment", "FROM node\n# EXPOSE 3000\n", undefined],
     ["no EXPOSE", "FROM node\n", undefined],
@@ -62,11 +72,14 @@ describe("backendPort", () => {
     });
   });
 
-  it("falls back to 8080 without EXPOSE or without a Dockerfile", async () => {
-    const fallback = { port: 8080, source: "the default" };
-    expect(await backendPort(backend(), await folder("FROM node\n"))).toEqual(
-      fallback,
-    );
-    expect(await backendPort(backend(), await folder())).toEqual(fallback);
+  it("falls back to 8080 without EXPOSE, and says when it cannot read the Dockerfile", async () => {
+    expect(await backendPort(backend(), await folder("FROM node\n"))).toEqual({
+      port: 8080,
+      source: "the default",
+    });
+    expect(await backendPort(backend(), await folder())).toEqual({
+      port: 8080,
+      source: "the default; cannot read Dockerfile",
+    });
   });
 });
