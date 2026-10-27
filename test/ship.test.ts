@@ -37,18 +37,28 @@ function github({
   listing = deployments,
   listed = true,
   newRun = true,
+  runs: initialRuns = 1,
+  repository = true,
 }: {
   signedIn?: boolean;
   listing?: string;
   listed?: boolean;
   newRun?: boolean;
+  runs?: number;
+  repository?: boolean;
 } = {}) {
-  let runs = 0;
+  let runs = initialRuns;
   const capture = vi.fn<Capturer>(async (_command, args) => {
     if (args[0] === "auth")
       return signedIn
         ? { code: 0, stdout: "" }
         : { code: 1, stdout: "", stderr: "not logged in\n" };
+    if (args[0] === "repo")
+      return repository
+        ? { code: 0, stdout: "acme/app\n" }
+        : { code: 1, stdout: "", stderr: "not a git repository\n" };
+    if (args[0] === "api" && args[1] === "user")
+      return { code: 0, stdout: "ada\n" };
     if (args[0] === "api")
       return listed
         ? { code: 0, stdout: listing }
@@ -60,7 +70,16 @@ function github({
     if (args[0] === "run")
       return {
         code: 0,
-        stdout: `${100 + runs} https://github.com/acme/app/actions/runs/${100 + runs}\n`,
+        stdout: JSON.stringify(
+          runs === 0
+            ? []
+            : [
+                {
+                  databaseId: 100 + runs,
+                  url: `https://github.com/acme/app/actions/runs/${100 + runs}`,
+                },
+              ],
+        ),
       };
     return { code: 1, stdout: "" };
   });
@@ -94,6 +113,76 @@ async function ship(
 }
 
 describe("turbo-vibe ship", () => {
+  it("lists runs it dispatched itself, in this folder's repository, and never reports a run without an ID", async () => {
+    const gh = github({ runs: 0, newRun: false });
+    const { code, stdout } = await ship(["--build-id", newest], gh);
+    expect(code).toBe(0);
+    expect(stdout).toContain("find the run under production.yml");
+    expect(stdout).not.toContain("null");
+    const listing = gh.capture.mock.calls.find(([, args]) => args[0] === "run");
+    expect(listing?.[1]).toEqual(
+      expect.arrayContaining([
+        "--repo",
+        "acme/app",
+        "--event",
+        "workflow_dispatch",
+        "--user",
+        "ada",
+      ]),
+    );
+  });
+
+  it("names a rollback without a terminal, and passes --allow-deletions on", async () => {
+    const gh = github();
+    const { code, stdout } = await ship(
+      ["--build-id", older, "--allow-deletions"],
+      gh,
+    );
+    expect(code).toBe(0);
+    expect(stdout).toContain(
+      `this is a rollback: ${older.slice(0, 12)} is older than the newest build ${newest.slice(0, 12)}\n`,
+    );
+    expect(gh.started()).toEqual([
+      `workflow run production.yml --repo acme/app -f confirm-build=${older} -f allow-deletions=true`,
+    ]);
+  });
+
+  it("stops when it cannot tell the folder's repository, and starts nothing", async () => {
+    const gh = github({ repository: false });
+    const { code, stderr } = await ship(["--build-id", newest], gh);
+    expect(code).toBe(1);
+    expect(stderr).toContain(
+      "cannot tell this folder's GitHub repository or your GitHub login",
+    );
+    expect(gh.started()).toEqual([]);
+  });
+
+  it("refuses an empty --build-id instead of ignoring it", async () => {
+    const gh = github();
+    const { code, stderr } = await ship(["--build-id", ""], gh);
+    expect(code).toBe(1);
+    expect(stderr).toBe('"" is not a full commit SHA\n');
+    expect(gh.capture).not.toHaveBeenCalled();
+  });
+
+  it("lists builds of this folder's repository even when GITHUB_REPOSITORY names another", async () => {
+    const gh = github();
+    await run(
+      ["ship", "--build-id", newest],
+      { "turbo-vibe.yaml": project },
+      { GITHUB_REPOSITORY: "acme/other" },
+      undefined,
+      undefined,
+      { capture: gh.capture },
+    );
+    const graphql = gh.capture.mock.calls.find(
+      ([, args]) => args[0] === "api" && args[1] === "graphql",
+    );
+    expect(graphql?.[1]).toEqual(
+      expect.arrayContaining(["owner=acme", "name=app"]),
+    );
+  });
+
   it("starts Deploy to production with the newest build by default, and prints the run", async () => {
     const gh = github();
     const { code, stdout, asked } = await ship([], gh, {
@@ -106,10 +195,10 @@ describe("turbo-vibe ship", () => {
       older,
     ]);
     expect(gh.started()).toEqual([
-      `workflow run production.yml -f confirm-build=${newest}`,
+      `workflow run production.yml --repo acme/app -f confirm-build=${newest}`,
     ]);
     expect(stdout).toContain(
-      `started Deploy to production with ${newest}: https://github.com/acme/app/actions/runs/101\n`,
+      `started Deploy to production with ${newest}: https://github.com/acme/app/actions/runs/102\n`,
     );
     expect(stdout).toContain(
       "A required reviewer of the production environment approves it there",
@@ -120,14 +209,14 @@ describe("turbo-vibe ship", () => {
     const gh = github();
     const { code, asked } = await ship([], gh, {
       "Which build": older,
-      "Roll production back": true,
+      "Roll production back?": true,
     });
     expect(code).toBe(0);
     expect(asked.map((question) => question.message)).toContain(
-      `Roll production back to ${older.slice(0, 12)}, older than the newest build ${newest.slice(0, 12)}?`,
+      `Roll production back? ${older.slice(0, 12)} is older than the newest build ${newest.slice(0, 12)}.`,
     );
     expect(gh.started()).toEqual([
-      `workflow run production.yml -f confirm-build=${older}`,
+      `workflow run production.yml --repo acme/app -f confirm-build=${older}`,
     ]);
   });
 
@@ -169,7 +258,7 @@ describe("turbo-vibe ship", () => {
       `GitHub lists no passing staging deployment for ${unlisted.slice(0, 12)}; the run checks the build records and stops unless it passed\n`,
     );
     expect(gh.started()).toEqual([
-      `workflow run production.yml -f confirm-build=${unlisted}`,
+      `workflow run production.yml --repo acme/app -f confirm-build=${unlisted}`,
     ]);
   });
 
@@ -209,7 +298,7 @@ describe("turbo-vibe ship", () => {
     const given = github();
     expect((await ship(["--build-id", older], given)).code).toBe(0);
     expect(given.started()).toEqual([
-      `workflow run production.yml -f confirm-build=${older}`,
+      `workflow run production.yml --repo acme/app -f confirm-build=${older}`,
     ]);
   });
 

@@ -1,33 +1,59 @@
+import { isBuildId } from "./builds.js";
 import type { Io } from "./io.js";
 import { githubSignedIn } from "./setup.js";
-import { type StagingBuild, stagingBuilds } from "./staging-builds.js";
+import {
+  currentRepository,
+  type StagingBuild,
+  stagingBuilds,
+} from "./staging-builds.js";
 
 const short = (sha: string) => sha.slice(0, 12);
 
-async function latestRun(
-  workflow: string,
-  io: Io,
-): Promise<{ id: string; url: string } | undefined> {
-  const listed = await io
-    .capture(
-      "gh",
-      [
-        "run",
-        "list",
-        "--workflow",
-        workflow,
-        "--limit",
-        "1",
-        "--json",
-        "databaseId,url",
-        "--jq",
-        '.[0] | "\\(.databaseId) \\(.url)"',
-      ],
-      { cwd: io.cwd, env: io.env, quiet: true },
-    )
+interface Run {
+  databaseId: number;
+  url: string;
+}
+
+async function gh(args: readonly string[], io: Io) {
+  return io
+    .capture("gh", args, { cwd: io.cwd, env: io.env, quiet: true })
     .catch(() => undefined);
-  const [id, url] = listed?.code === 0 ? listed.stdout.trim().split(" ") : [];
-  return id && url ? { id, url } : undefined;
+}
+
+async function latestRun(
+  repo: string,
+  workflow: string,
+  login: string,
+  io: Io,
+): Promise<Run | undefined> {
+  const listed = await gh(
+    [
+      "run",
+      "list",
+      "--repo",
+      repo,
+      "--workflow",
+      workflow,
+      "--event",
+      "workflow_dispatch",
+      "--user",
+      login,
+      "--limit",
+      "1",
+      "--json",
+      "databaseId,url",
+    ],
+    io,
+  );
+  if (listed?.code !== 0) return undefined;
+  try {
+    const [run] = JSON.parse(listed.stdout) as Partial<Run>[];
+    return typeof run?.databaseId === "number" && typeof run.url === "string"
+      ? { databaseId: run.databaseId, url: run.url }
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function choose(
@@ -51,10 +77,14 @@ async function choose(
 }
 
 export async function ship(
-  { buildId, workflow }: { buildId?: string; workflow: string },
+  {
+    buildId,
+    workflow,
+    allowDeletions = false,
+  }: { buildId?: string; workflow: string; allowDeletions?: boolean },
   io: Io,
 ): Promise<number> {
-  if (buildId !== undefined && !/^[0-9a-f]{40}$/.test(buildId)) {
+  if (buildId !== undefined && !isBuildId(buildId)) {
     io.stderr(`${JSON.stringify(buildId)} is not a full commit SHA\n`);
     return 1;
   }
@@ -68,7 +98,18 @@ export async function ship(
     );
     return 1;
   }
-  const listed = await stagingBuilds(io);
+  const [repo, user] = await Promise.all([
+    currentRepository(io).catch(() => undefined),
+    gh(["api", "user", "--jq", ".login"], io),
+  ]);
+  const login = user?.code === 0 ? user.stdout.trim() : "";
+  if (!repo || !login) {
+    io.stderr(
+      "cannot tell this folder's GitHub repository or your GitHub login: run ship in a clone of the project, with gh signed in\n",
+    );
+    return 1;
+  }
+  const listed = await stagingBuilds(io, repo);
   if (!Array.isArray(listed) && buildId === undefined) {
     io.stderr(`cannot list the builds that passed staging: ${listed.error}\n`);
     return 1;
@@ -93,22 +134,37 @@ export async function ship(
     io.stdout(
       `GitHub lists no passing staging deployment for ${short(chosen)}; the run checks the build records and stops unless it passed\n`,
     );
+  const rollback =
+    index > 0 && newest
+      ? `${short(chosen)} is older than the newest build ${short(newest.sha)}`
+      : undefined;
   if (io.prompts) {
-    const question =
-      index > 0 && newest
-        ? `Roll production back to ${short(chosen)}, older than the newest build ${short(newest.sha)}?`
-        : `Start Deploy to production with ${short(chosen)}?`;
-    const go = await io.prompts.confirm(question);
+    const go = await io.prompts.confirm(
+      rollback
+        ? `Roll production back? ${rollback}.`
+        : `Start Deploy to production with ${short(chosen)}?`,
+    );
     if (go === undefined) return 130;
     if (!go) {
       io.stdout("nothing started\n");
       return 0;
     }
+  } else if (rollback) {
+    io.stdout(`this is a rollback: ${rollback}\n`);
   }
-  const before = await latestRun(workflow, io);
+  const before = await latestRun(repo, workflow, login, io);
   const started = await io.capture(
     "gh",
-    ["workflow", "run", workflow, "-f", `confirm-build=${chosen}`],
+    [
+      "workflow",
+      "run",
+      workflow,
+      "--repo",
+      repo,
+      "-f",
+      `confirm-build=${chosen}`,
+      ...(allowDeletions ? ["-f", "allow-deletions=true"] : []),
+    ],
     { cwd: io.cwd, env: io.env },
   );
   if (started.code !== 0) {
@@ -117,10 +173,10 @@ export async function ship(
     );
     return 1;
   }
-  let run: { id: string; url: string } | undefined;
+  let run: Run | undefined;
   for (let attempt = 0; attempt < 10; attempt++) {
-    run = await latestRun(workflow, io);
-    if (run && run.id !== before?.id) break;
+    run = await latestRun(repo, workflow, login, io);
+    if (run && run.databaseId !== before?.databaseId) break;
     run = undefined;
     await io.sleep(2_000);
   }

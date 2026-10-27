@@ -38,7 +38,7 @@ The details behind the [README](../README.md): what each command does, how a rel
 
 **`promote --choose`** prints the build it would promote and changes nothing. `promote --build-id <id>` promotes exactly that build, and refuses it unless it passed on staging. `promote --confirm <id>` chooses `<id>` when it passed staging, an older build being a rollback; with `--newest`, it refuses unless `<id>` is the newest build that passed.
 
-**`ship`** is for a person at a terminal. It lists the last ten builds that passed staging, with the person's own signed-in `gh`, lets them choose one (the newest by default), asks to confirm and says when the build is a rollback, and starts the **Deploy to production** workflow with that build's ID. It prints the run's URL, where a required reviewer, if production has one, approves it. It never deploys anything itself. Without a terminal it needs `--build-id <sha>`; `--workflow <file>` names a production workflow other than `production.yml`.
+**`ship`** is for a person at a terminal. It lists the last ten builds that passed staging, with the person's own signed-in `gh`, lets them choose one (the newest by default), asks to confirm and says when the build is a rollback, and starts the **Deploy to production** workflow with that build's ID. It prints the run's URL, where a required reviewer, if production has one, approves it. It never deploys anything itself. Without a terminal it needs `--build-id <sha>`, and says when that build is a rollback. `--allow-deletions` passes `allow-deletions` to the run. `--workflow <file>` names a production workflow other than `production.yml`. It lists builds and starts the run in the repository of the folder it runs in.
 
 ## Build once, promote the same build
 

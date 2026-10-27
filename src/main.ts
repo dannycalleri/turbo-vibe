@@ -330,17 +330,30 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
       "the production workflow to start",
       "production.yml",
     )
-    .action(async (options: { buildId?: string; workflow: string }) => {
-      const project = await loadProject();
-      if (project)
-        exitCode = await ship(
-          {
-            workflow: options.workflow,
-            ...(options.buildId ? { buildId: options.buildId } : {}),
-          },
-          io,
-        );
-    });
+    .option(
+      "--allow-deletions",
+      "let the run's apply delete or replace resources",
+    )
+    .action(
+      async (options: {
+        buildId?: string;
+        workflow: string;
+        allowDeletions?: boolean;
+      }) => {
+        const project = await loadProject();
+        if (project)
+          exitCode = await ship(
+            {
+              workflow: options.workflow,
+              ...(options.buildId !== undefined
+                ? { buildId: options.buildId }
+                : {}),
+              ...(options.allowDeletions ? { allowDeletions: true } : {}),
+            },
+            io,
+          );
+      },
+    );
 
   program
     .command("promote")

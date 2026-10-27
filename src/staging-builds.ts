@@ -1,3 +1,4 @@
+import { isBuildId } from "./builds.js";
 import type { Io } from "./io.js";
 
 export interface StagingBuild {
@@ -20,8 +21,7 @@ const query = `query($owner: String!, $name: String!) {
   }
 }`;
 
-async function repository(io: Io): Promise<string | undefined> {
-  if (io.env.GITHUB_REPOSITORY) return io.env.GITHUB_REPOSITORY;
+export async function currentRepository(io: Io): Promise<string | undefined> {
   const viewed = await io.capture(
     "gh",
     ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
@@ -30,10 +30,15 @@ async function repository(io: Io): Promise<string | undefined> {
   return viewed.code === 0 ? viewed.stdout.trim() || undefined : undefined;
 }
 
+async function repository(io: Io): Promise<string | undefined> {
+  return io.env.GITHUB_REPOSITORY || currentRepository(io);
+}
+
 export async function stagingBuilds(
   io: Io,
+  repo: string | undefined = undefined,
 ): Promise<StagingBuild[] | { error: string }> {
-  const repo = await repository(io).catch(() => undefined);
+  repo ??= await repository(io).catch(() => undefined);
   const [owner, name] = repo?.split("/") ?? [];
   if (!owner || !name)
     return { error: "cannot tell which GitHub repository this is" };
@@ -92,7 +97,7 @@ export async function commitOf(
   io: Io,
   sha: string,
 ): Promise<Commit | undefined> {
-  if (!/^[0-9a-f]{40}$/.test(sha)) return undefined;
+  if (!isBuildId(sha)) return undefined;
   const repo = await repository(io).catch(() => undefined);
   if (!repo) return undefined;
   const answer = await io

@@ -7,6 +7,7 @@ import {
   BuildStore,
   buildsBucket,
   choosePromotion,
+  isBuildId,
   type Outputs,
 } from "./builds.js";
 import type { Config, EnvironmentName } from "./config/schema.js";
@@ -432,7 +433,7 @@ export async function promote(
     return 0;
   }
   const confirm = typed?.trim();
-  if (confirm && !/^[0-9a-f]{40}$/.test(confirm)) {
+  if (confirm && !isBuildId(confirm)) {
     io.stderr(
       `${JSON.stringify(confirm)} is not a full commit SHA; production is unchanged\n`,
     );
@@ -460,7 +461,7 @@ export async function promote(
     return 1;
   }
   // The ID reaches the workflow's outputs and its checkout of that commit, so a record cannot inject anything there.
-  if (!/^[0-9a-f]{40}$/.test(chosen.buildId)) {
+  if (!isBuildId(chosen.buildId)) {
     io.stderr(
       `the build record names ${JSON.stringify(chosen.buildId)} as its build, which is not a full commit SHA; production is unchanged\n`,
     );
