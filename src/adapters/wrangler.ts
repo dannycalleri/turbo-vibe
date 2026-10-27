@@ -41,19 +41,31 @@ export function routingModule(backend: Backend, buildId: string): string {
 
 export const healthModule = `export async function health(container, url, path, strict, buildId) {
   let status;
+  let body;
   try {
     const response = await container.fetch(new Request(new URL(path, url)));
-    await response.body?.cancel();
     status = response.status;
+    if (response.headers.get("content-type")?.includes("json"))
+      body = await response.text();
+    else await response.body?.cancel();
   } catch (error) {
     return Response.json({ error: \`\${path}: \${error}\` }, { status: 503 });
   }
-  if (strict ? status >= 200 && status < 300 : status < 500)
-    return Response.json({ build_id: buildId });
-  return Response.json(
-    { error: \`\${path} answered HTTP \${status}\` },
-    { status: 503 },
-  );
+  if (!(strict ? status >= 200 && status < 300 : status < 500))
+    return Response.json(
+      { error: \`\${path} answered HTTP \${status}\` },
+      { status: 502 },
+    );
+  let reported;
+  try {
+    reported = JSON.parse(body).build_id;
+  } catch {}
+  if (typeof reported === "string" && reported !== buildId)
+    return Response.json(
+      { error: \`\${path} reports build \${reported}\` },
+      { status: 503 },
+    );
+  return Response.json({ build_id: buildId });
 }
 `;
 

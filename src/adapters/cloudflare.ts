@@ -94,20 +94,37 @@ const field = (name: string) => async (response: Response) => {
 const passes = (status: number, strict: boolean) =>
   strict ? status >= 200 && status < 300 : status < 500;
 
+async function reportedBuild(response: Response): Promise<unknown> {
+  if (!response.headers.get("content-type")?.includes("json")) {
+    await response.body?.cancel();
+    return undefined;
+  }
+  return (
+    (await response.json().catch(() => undefined)) as
+      | { build_id?: unknown }
+      | undefined
+  )?.build_id;
+}
+
 async function probeContainer(
   url: string,
   strict: boolean,
+  buildId: string,
   { fetch, sleep }: DeployContext["io"],
 ): Promise<string | undefined> {
   let problem = `${url} not checked`;
   for (let attempt = 1; attempt <= 10; attempt++) {
     try {
       const response = await fetch(url, {
+        redirect: "manual",
         signal: AbortSignal.timeout(10_000),
       });
-      await response.body?.cancel();
-      if (passes(response.status, strict)) return undefined;
-      problem = `${url} answered HTTP ${response.status}`;
+      const reported = await reportedBuild(response);
+      if (!passes(response.status, strict))
+        problem = `${url} answered HTTP ${response.status}`;
+      else if (typeof reported === "string" && reported !== buildId)
+        problem = `${url} reports build ${reported}`;
+      else return undefined;
     } catch (error) {
       problem = `${url} unreachable: ${error instanceof Error ? error.message : String(error)}`;
     }
@@ -179,6 +196,7 @@ async function meetsContract(
     const problem = await probeContainer(
       `http://127.0.0.1:${port}${path}`,
       strict,
+      context.buildId,
       io,
     );
     if (problem) {
