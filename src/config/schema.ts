@@ -52,6 +52,14 @@ const backend = z.strictObject({
       (paths) => new Set(paths).size === paths.length,
       "must not list a path twice",
     )
+    .refine(
+      (paths) => !paths.some((path) => /\/\.{1,2}\//.test(path)),
+      "must not hold a . or .. segment",
+    )
+    .refine(
+      (paths) => !paths.some((path) => path.startsWith("/_turbo-vibe/")),
+      "must not claim /_turbo-vibe/, which the kit answers itself",
+    )
     .optional(),
   build: z.strictObject({
     dockerfile: z.string().min(1),

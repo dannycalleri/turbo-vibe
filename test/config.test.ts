@@ -404,6 +404,12 @@ services:
     ["api", "`services.api.paths.0` must start and end with /, such as /api/"],
     ["/api", "`services.api.paths.0` must start and end with /, such as /api/"],
     ["/api/, /api/", "`services.api.paths` must not list a path twice"],
+    ["/../", "`services.api.paths` must not hold a . or .. segment"],
+    ["/v1/./", "`services.api.paths` must not hold a . or .. segment"],
+    [
+      "/_turbo-vibe/",
+      "`services.api.paths` must not claim /_turbo-vibe/, which the kit answers itself",
+    ],
   ])("refuses the backend paths %s", (path, message) => {
     expect(
       problems(
@@ -413,6 +419,29 @@ services:
         ),
       ),
     ).toEqual([{ line: 8, message }]);
+  });
+
+  it("keeps the sign-in callback under /api/ when no backend answers it", () => {
+    const frontendOnly = `version: 1
+project: acme
+domain: acme.example.com
+services:
+  web:
+    kind: frontend
+    target: vercel-nextjs
+    build: { command: "next build" }
+  auth:
+    kind: identity
+    target: workos
+`;
+    expect(parseConfig(frontendOnly).ok).toBe(true);
+    expect(problems(`${frontendOnly}    callback_path: /callback\n`)).toEqual([
+      {
+        line: 12,
+        message:
+          "service `auth` has callback_path /callback; without a backend, the app answers the callback under /api/",
+      },
+    ]);
   });
 
   it("refuses / for a backend that shares its hostname with a frontend", () => {

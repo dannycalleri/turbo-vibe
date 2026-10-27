@@ -103,7 +103,7 @@ These need more than one field, or the list of adapters, so the JSON Schema cann
 - **Targets match kinds.** A service's target must exist and run that kind of service.
 - **One of each, for databases and sign-in.** A project has at most one `database` and one `identity` service.
 - **No two services at one path.** A project has at most one backend, and two frontends would both be served at `/`.
-- **`paths`.** A backend with `/` in its `paths` takes the whole hostname, so no frontend may share it. A sign-in `callback_path` must start with one of the backend's `paths`.
+- **`paths`.** A backend with `/` in its `paths` takes the whole hostname, so no frontend may share it. A sign-in `callback_path` must start with one of the backend's `paths`, or with `/api/` when the project has no backend. The schema also refuses a path with a `.` or `..` segment, and one under `/_turbo-vibe/`, which the kit answers itself.
 - **`serve_with`** names a backend service, and only `cloudflare-static` takes it.
 - **`not_found`** applies only to `cloudflare-static`.
 - **`build.output` and `build.root`.** `cloudflare-static` and `vercel-static` need `build.output`; `vercel-nextjs` builds its own output, so it takes `build.root` and refuses `build.output`; the other frontend targets refuse `build.root`.
