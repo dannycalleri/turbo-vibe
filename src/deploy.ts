@@ -428,7 +428,7 @@ export async function promote(
         : undefined;
     io.stdout(`${describePromotion(builds, buildId, commit)}\n`);
     const described = buildId ?? listed[0]?.sha;
-    if (described && /^[0-9a-f]{40}$/.test(described) && io.env.GITHUB_OUTPUT)
+    if (described && isBuildId(described) && io.env.GITHUB_OUTPUT)
       await appendFile(io.env.GITHUB_OUTPUT, `build-id=${described}\n`);
     return 0;
   }
