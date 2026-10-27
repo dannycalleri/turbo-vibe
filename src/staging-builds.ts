@@ -69,9 +69,11 @@ export async function stagingBuilds(
     return { error: "GitHub answered with something other than JSON" };
   }
   const builds: StagingBuild[] = [];
+  const seen = new Set<string>();
   for (const node of nodes) {
+    if (seen.has(node.commitOid)) continue;
+    seen.add(node.commitOid);
     if (node.latestStatus?.state !== "SUCCESS") continue;
-    if (builds.some((build) => build.sha === node.commitOid)) continue;
     builds.push({
       sha: node.commitOid,
       subject: node.commit?.messageHeadline ?? "",
@@ -136,6 +138,8 @@ export function describePromotion(
   }
   const index = builds.findIndex((build) => build.sha === buildId);
   const build = builds[index];
+  if (!build && commit)
+    return `Promoting \`${buildId}\` (${commit.subject}), committed at ${commit.committedAt}. GitHub lists no passing staging deployment for it among the latest ones. ${records}, and stops unless the build passed.`;
   if (!build)
     return `GitHub lists no passing staging deployment for \`${buildId}\`. ${records}, and stops unless the build passed.`;
   const rollback =

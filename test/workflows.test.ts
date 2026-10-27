@@ -91,9 +91,7 @@ describe("the production workflow", () => {
     const check = steps.findIndex((step: { run?: string }) =>
       step.run?.includes("migrate --env production --check"),
     );
-    expect(steps[check].run).toContain(
-      "if turbo-vibe migrate --help | grep -q -- '--check'; then",
-    );
+    expect(steps[check].run).toContain('if [[ "$help" == *--check* ]]; then');
     expect(check).toBeGreaterThan(
       steps.findIndex((step: { with?: { ref?: string } }) => step.with?.ref),
     );
@@ -589,6 +587,11 @@ describe("confirm-build", () => {
     );
     expect(choose.env.CONFIRM_BUILD).toBe("${{ inputs.confirm-build }}");
     expect(choose.env.REVIEWED).toBe("${{ steps.reviewer.outputs.reviewed }}");
+    expect(choose.env.DESCRIBED).toBe("${{ needs.describe.outputs.build-id }}");
+    expect(choose.run).toContain('--choose --confirm "$DESCRIBED" --newest');
+    expect(promote.jobs.describe.outputs).toEqual({
+      "build-id": "${{ steps.describe.outputs.build-id }}",
+    });
     const named = steps.find((step: { run?: string }) =>
       step.run?.includes("--choose) || exit 0"),
     );
@@ -714,6 +717,10 @@ describe("require-reviewer", () => {
     expect(named.env.REQUIRE_REVIEWER).toBe("${{ inputs.require-reviewer }}");
     expect(named.env.CONFIRM_BUILD).toBe("${{ inputs.confirm-build }}");
     expect(named.env.REVIEWED).toBe("${{ steps.reviewer.outputs.reviewed }}");
+    expect(named.env.DESCRIBED).toBe("${{ needs.describe.outputs.build-id }}");
+    expect(named.run).toContain(
+      "passed staging while this run waited, so the approved build",
+    );
     expect(named.run).toContain(
       'elif [ -z "$confirmed" ] && [ "$REVIEWED" = "unknown" ]; then',
     );

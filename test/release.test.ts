@@ -1,4 +1,5 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { healthModule } from "../src/adapters/wrangler.js";
@@ -1451,15 +1452,20 @@ describe("promote", () => {
         }),
       }));
       const fetch = vi.fn<typeof globalThis.fetch>();
+      const outputs = join(
+        await mkdtemp(join(tmpdir(), "turbo-vibe-output-")),
+        "output",
+      );
       const { code, stdout } = await run(
         ["promote", "--env", "production", "--describe", "--build-id", older],
         { "turbo-vibe.yaml": project },
-        { GITHUB_REPOSITORY: "acme/app" },
+        { GITHUB_REPOSITORY: "acme/app", GITHUB_OUTPUT: outputs },
         runner(),
         fetch,
         { capture },
       );
       expect(code).toBe(0);
+      expect(await readFile(outputs, "utf8")).toBe(`build-id=${older}\n`);
       expect(stdout).toBe(
         `Promoting \`${older}\` (fix: older), which passed staging at 2026-10-01T10:05:00Z. This is a rollback: the newest build is \`abc1230000000000000000000000000000000000\` (feat: newest), which passed staging at 2026-10-08T10:05:00Z.\n`,
       );

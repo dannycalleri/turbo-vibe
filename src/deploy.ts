@@ -1,3 +1,4 @@
+import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { adapterFor, adapters } from "./adapters/index.js";
 import type { ServiceContext } from "./adapters/types.js";
@@ -419,11 +420,15 @@ export async function promote(
   }
   if (describe) {
     const builds = await stagingBuilds(io);
+    const listed = Array.isArray(builds) ? builds : [];
     const commit =
-      !Array.isArray(builds) && buildId
+      buildId && !listed.some((build) => build.sha === buildId)
         ? await commitOf(io, buildId)
         : undefined;
     io.stdout(`${describePromotion(builds, buildId, commit)}\n`);
+    const described = buildId ?? listed[0]?.sha;
+    if (described && /^[0-9a-f]{40}$/.test(described) && io.env.GITHUB_OUTPUT)
+      await appendFile(io.env.GITHUB_OUTPUT, `build-id=${described}\n`);
     return 0;
   }
   const confirm = typed?.trim();
