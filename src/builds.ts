@@ -3,6 +3,8 @@ import type { Io } from "./io.js";
 
 export type Outputs = Readonly<Record<string, string>>;
 
+export const isBuildId = (id: string) => /^[0-9a-f]{40}$/.test(id);
+
 export interface BuildRecord {
   buildId: string;
   createdAt: string;
