@@ -13,6 +13,7 @@ import {
 } from "../adapters/index.js";
 import {
   backendPaths,
+  backendPrefix,
   serviceVariables,
   stateSecrets,
   supabaseOrganization,
@@ -447,6 +448,15 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
       problems.push({
         path: ["services", identity, "callback_path"],
         message: `service \`${identity}\` has callback_path ${other.callback_path}, which backend \`${name}\` does not answer; put it under ${paths.join(" or ")}`,
+      });
+    }
+  } else {
+    for (const [identity, other] of Object.entries(config.services)) {
+      if (other.kind !== "identity") continue;
+      if (other.callback_path.startsWith(backendPrefix)) continue;
+      problems.push({
+        path: ["services", identity, "callback_path"],
+        message: `service \`${identity}\` has callback_path ${other.callback_path}; without a backend, the app answers the callback under ${backendPrefix}`,
       });
     }
   }

@@ -131,7 +131,7 @@ export function previewUrls(
       return [`https://${hostOf(hosts, service)}/`];
     if (service.kind !== "backend") return [];
     const host = hostOf(hosts, service);
-    // A backend with no page on its hostname is routed only under /api/, so its root reaches no origin and Cloudflare answers 522.
+    // A backend's paths may leave its hostname's root unrouted, where Cloudflare answers 522; every backend answers its health path.
     return [
       pages.has(host) ? `https://${host}/` : `https://${host}${kitHealthPath}`,
     ];
