@@ -141,7 +141,7 @@ Vercel Authentication has no list of addresses. These people get in:
 - a Vercel user whose access request a member approved;
 - anyone with a shareable link that a member created.
 
-Thus on Vercel, `access.emails` names the people who must get in. Give each listed person a Vercel account and a place in the team. The kit never invites anybody. On the Hobby plan, the team has one member, and only one outside person can get in, through an access request.
+Thus on Vercel, `access.emails` names the people who must get in. Give each listed person a Vercel account and a place in the team: `setup --list` names this step. `check` reads the team's members with `VERCEL_API_TOKEN`, and fails for each listed address that no member has, whatever its case, with the fix to invite it in Vercel → Team Settings → Members. When every address is a member, it says that every member of the team can open the environment. When Vercel does not list the members, it warns and names the HTTP status. A person who has only requested access, or not yet accepted an invitation, does not count. Only team members count: on Hobby, `check` fails for the outside person whose access request a member approved, and that failure is expected. The kit never invites anybody. On the Hobby plan, the team has one member, and only one outside person can get in, through an access request.
 
 A frontend on `vercel-static` or `vercel-nextjs` beside a backend on a Cloudflare target cannot be private yet: the page calls the backend from another origin, and validation refuses `access` for that layout.
 
