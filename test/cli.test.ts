@@ -1119,11 +1119,12 @@ describe("smoke on a private environment", () => {
     config: Config,
     outputs: Record<string, unknown>,
     env: Record<string, string> = {},
+    health = () => Response.json({ build_id: buildId }),
   ) {
     const cwd = await mkdtemp(join(tmpdir(), "turbo-vibe-"));
     const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
       String(url).endsWith("/_turbo-vibe/health")
-        ? Response.json({ build_id: buildId })
+        ? health()
         : new Response(buildId),
     );
     let stdout = "";
@@ -1157,6 +1158,19 @@ describe("smoke on a private environment", () => {
     );
     return { code, stdout, stderr, fetch, headers };
   }
+
+  it("sends the person to the Worker's logs when the private health answer holds no reason", async () => {
+    const { code, stderr } = await smokeWith(
+      privately(project),
+      { access_on_account: false },
+      {},
+      () => Response.json({ build_id: buildId }, { status: 502 }),
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain(
+      "https://acme.example.com/_turbo-vibe/health answered HTTP 502: a private environment keeps the reason out of this public answer; read it in the Worker's logs (`wrangler tail acme-api-production`, or Workers & Pages → acme-api-production → Logs)",
+    );
+  });
 
   it("passes Vercel's protection with the secret of the environment's own project", async () => {
     const { code, headers } = await smokeWith(site, {

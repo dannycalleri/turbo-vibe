@@ -40,7 +40,12 @@ export function routingModule(backend: Backend, buildId: string): string {
 `;
 }
 
-export const healthModule = `export async function health(container, url, path, strict, buildId) {
+export const healthModule = `export async function health(container, url, path, strict, buildId, quiet = false) {
+  const failed = (error, status) => {
+    if (!quiet) return Response.json({ error }, { status });
+    console.error(\`\${url}: \${error}\`);
+    return Response.json({ build_id: buildId }, { status });
+  };
   let status;
   let body;
   try {
@@ -50,13 +55,10 @@ export const healthModule = `export async function health(container, url, path, 
       body = await response.text();
     else await response.body?.cancel();
   } catch (error) {
-    return Response.json({ error: \`\${path}: \${error}\` }, { status: 503 });
+    return failed(\`\${path}: \${error}\`, 503);
   }
   if (!(strict ? status >= 200 && status < 300 : status < 500))
-    return Response.json(
-      { error: \`\${path} answered HTTP \${status}\` },
-      { status: 502 },
-    );
+    return failed(\`\${path} answered HTTP \${status}\`, 502);
   let reported;
   try {
     reported = JSON.parse(body).build_id;
@@ -115,6 +117,7 @@ export function workerEntry(
   buildId: string,
   secretNames: readonly string[] = [],
   privateOrigins?: readonly string[],
+  quiet = false,
 ): string {
   const sleepAfter = backend.container?.sleep_after ?? "5m";
   const probe = backend.container?.health;
@@ -147,7 +150,7 @@ ${
     : ""
 }    if (new URL(request.url).pathname === ${JSON.stringify(kitHealthPath)}) {
       const plain = new Request(new URL("/", request.url));
-      return health(getContainer(env.BACKEND, instanceName(plain)), request.url, ${JSON.stringify(probe ?? "/")}, ${probe !== undefined}, ${JSON.stringify(buildId)});
+      return health(getContainer(env.BACKEND, instanceName(plain)), request.url, ${JSON.stringify(probe ?? "/")}, ${probe !== undefined}, ${JSON.stringify(buildId)}${quiet ? ", true" : ""});
     }
     return getContainer(env.BACKEND, instanceName(request)).fetch(request);
   },
@@ -164,6 +167,7 @@ export type WorkerSpec = {
   assets?: string;
   notFound?: "spa" | "404-page";
   privateOrigins?: readonly string[];
+  quietHealth?: boolean;
 } & ({ backend?: undefined } | { backend: Backend; port: number });
 
 export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
@@ -236,6 +240,7 @@ export async function writeWorker(
         spec.buildId,
         spec.secretNames,
         spec.privateOrigins,
+        spec.quietHealth,
       ),
     );
     await writeFile(join(dir, "health.js"), healthModule);
