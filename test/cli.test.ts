@@ -954,6 +954,24 @@ describe("turbo-vibe apply on a private staging", () => {
     expect(await access(cwd)).not.toHaveProperty("on_account");
   });
 
+  it("asks Cloudflare nothing about Access for a private project whose hostnames Vercel serves", async () => {
+    const fetch = reachable("/zones/zone456");
+    const { code } = await run(
+      ["apply", "--env", "staging"],
+      {
+        "turbo-vibe.yaml":
+          "version: 1\nproject: acme\ndomain: acme.example.com\nenvironments:\n  staging:\n    access: { emails: [ada@example.com] }\nservices:\n  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n",
+      },
+      { ...env, VERCEL_API_TOKEN: "vercel-s3cr3t", VERCEL_TEAM_ID: "team_123" },
+      vi.fn<Runner>(async () => 0),
+      fetch,
+    );
+    expect(code).toBe(0);
+    expect(
+      fetch.mock.calls.filter(([url]) => String(url).includes("/access/apps")),
+    ).toEqual([]);
+  });
+
   it("puts a new environment on the account when its 1.0 token reaches Access there only, as a new preview of a 1.0 staging", async () => {
     const { code, cwd } = await applyWith({}, reachable("/accounts/acc123"));
     expect(code).toBe(0);
@@ -1082,15 +1100,15 @@ describe("smoke on a private environment", () => {
     if (!result.ok) throw new Error(JSON.stringify(result.problems));
     return result.config;
   };
-  const privately = (config: Config): Config => ({
-    ...config,
-    environments: { production: { access: { emails: ["ada@example.com"] } } },
-  });
-  // Built by hand: the validator does not accept `access` with a Vercel target yet.
-  const site = privately(
+  const privately = (yaml: string) =>
     parsed(
-      "version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n",
-    ),
+      yaml.replace(
+        "services:",
+        "environments:\n  production:\n    access: { emails: [ada@example.com] }\nservices:",
+      ),
+    );
+  const site = privately(
+    "version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n",
   );
   const bypass = {
     "acme-web-production": "production-bypass-s3cr3t",
@@ -1178,7 +1196,7 @@ describe("smoke on a private environment", () => {
 
   it("masks the Access service token of an environment made private with turbo-vibe 1.0", async () => {
     const { code, stdout, stderr, headers } = await smokeWith(
-      privately(parsed(project)),
+      privately(project),
       {
         access_client_id: "client.access",
         access_client_secret: "client-s3cr3t",
@@ -1204,16 +1222,12 @@ describe("smoke on a private environment", () => {
 });
 
 describe("the bypass secret of a private Vercel project", () => {
-  // Built by hand: the validator does not accept `access` with a Vercel target yet.
-  const site: Config = (() => {
+  const site = (() => {
     const result = parseConfig(
-      "version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n",
+      "version: 1\nproject: acme\ndomain: acme.example.com\nenvironments:\n  staging:\n    access: { emails: [ada@example.com] }\nservices:\n  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n",
     );
     if (!result.ok) throw new Error(JSON.stringify(result.problems));
-    return {
-      ...result.config,
-      environments: { staging: { access: { emails: ["ada@example.com"] } } },
-    };
+    return result.config;
   })();
   const credentials = {
     TURBO_VIBE_STATE_BUCKET: "tv-state",

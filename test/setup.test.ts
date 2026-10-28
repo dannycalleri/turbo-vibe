@@ -2146,6 +2146,15 @@ describe("setup --list", () => {
     );
   });
 
+  it("names no Zero Trust step for a private project whose hostnames Vercel serves", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml":
+        "version: 1\nproject: acme\ndomain: acme.example.com\nenvironments:\n  staging:\n    access: { emails: [ada@example.com] }\nservices:\n  web:\n    kind: frontend\n    target: vercel-nextjs\n    build: { command: x }\n",
+    });
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain("Zero Trust");
+  });
+
   it("names the accounts, plans and person steps for the project's targets, and changes nothing", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     const runner = vi.fn(async () => 0);

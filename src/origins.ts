@@ -1,5 +1,7 @@
 import { adapters } from "./adapters/index.js";
 import {
+  type Access,
+  accessFor,
   type Config,
   type EnvironmentName,
   isPreview,
@@ -26,6 +28,17 @@ export function hostnameFor(
   return environment === "production"
     ? config.domain
     : `${environment}.${config.domain}`;
+}
+
+export function cloudflareAccessFor(
+  config: Config,
+  environment: EnvironmentName,
+): Access | undefined {
+  return Object.values(config.services).some((service) =>
+    service.target.startsWith("cloudflare-"),
+  )
+    ? accessFor(config, environment)
+    : undefined;
 }
 
 export function analyticsFor(

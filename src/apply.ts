@@ -10,7 +10,6 @@ import {
   type TofuPlan,
 } from "./changes.js";
 import {
-  accessFor,
   type Config,
   type EnvironmentName,
   isPreview,
@@ -24,6 +23,7 @@ import {
   rootModule,
 } from "./infrastructure.js";
 import type { Io } from "./io.js";
+import { cloudflareAccessFor } from "./origins.js";
 import { appPublicValues, appSecretValues } from "./secrets.js";
 
 export function missingVariables(names: Iterable<string>, io: Io): boolean {
@@ -215,7 +215,7 @@ async function prepare(
   const identity = Object.values(config.services).some(
     (service) => service.kind === "identity",
   );
-  const access = accessFor(config, environment) !== undefined;
+  const access = cloudflareAccessFor(config, environment) !== undefined;
   const outputs =
     identity || access ? await currentOutputs(dir, io) : undefined;
   if ((identity || access) && !outputs) {
