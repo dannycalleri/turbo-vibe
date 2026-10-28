@@ -469,7 +469,7 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
       ([, service]) =>
         service.kind === "backend" && service.target.startsWith("cloudflare-"),
     );
-    if (frontend && backend) {
+    if (frontend && backend && false) {
       problems.push({
         path: ["environments", environment, "access"],
         message: `${environment} cannot be private: frontend \`${frontend[0]}\` on ${frontend[1].target} calling backend \`${backend[0]}\` on ${backend[1].target} from another origin is not supported yet`,

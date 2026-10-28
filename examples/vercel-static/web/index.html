@@ -9,6 +9,8 @@
     <h1>turbo-vibe on Vercel</h1>
     <p>Page build: <code id="page">__BUILD_ID__</code></p>
     <p>API build: <code id="api">loading…</code> from <code id="origin">…</code></p>
+    <p>API build with a preflight: <code id="preflighted">loading…</code></p>
+    <p><a id="sign-in" hidden>Sign in to the API</a></p>
     <script>
       fetch("/_turbo-vibe/config.json", { cache: "no-store" })
         .then((response) => response.json())
@@ -18,7 +20,18 @@
         })
         .then((response) => response.json())
         .then((body) => { document.getElementById("api").textContent = body.build_id; })
-        .catch((error) => { document.getElementById("api").textContent = `unavailable (${error.message})`; });
+        .catch((error) => {
+          document.getElementById("api").textContent = `unavailable (${error.message})`;
+          const link = document.getElementById("sign-in");
+          link.href = `${document.getElementById("origin").textContent}/_turbo-vibe/sign-in?return=${encodeURIComponent(location.href)}`;
+          link.hidden = false;
+        });
+      fetch("/_turbo-vibe/config.json", { cache: "no-store" })
+        .then((response) => response.json())
+        .then(({ apiUrl }) => fetch(`${apiUrl}/api/health`, { credentials: "include", cache: "no-store", headers: { "Content-Type": "application/json" } }))
+        .then((response) => response.json())
+        .then((body) => { document.getElementById("preflighted").textContent = body.build_id; })
+        .catch((error) => { document.getElementById("preflighted").textContent = `unavailable (${error.message})`; });
     </script>
   </body>
 </html>

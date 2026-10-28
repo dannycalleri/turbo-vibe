@@ -7,6 +7,7 @@ environments:
   staging:
     hostname: staging-vercel-example.turbovibe.ai
     api_hostname: api-staging-vercel-example.turbovibe.ai
+    access: { emails: [daniele.calleri@gmail.com] }
   production:
     api_hostname: api-vercel-example.turbovibe.ai
 services:

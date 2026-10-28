@@ -96,6 +96,11 @@ export class Backend extends Container {
 
 export default {
   fetch(request, env) {
+    if (new URL(request.url).pathname === "/_turbo-vibe/sign-in") {
+      const target = new URL(new URL(request.url).searchParams.get("return") ?? "https://invalid");
+      if (target.protocol !== "https:" || !target.hostname.endsWith(".turbovibe.ai")) return new Response("bad return", { status: 400 });
+      return new Response(null, { status: 302, headers: { Location: target.href, "Cache-Control": "no-store" } });
+    }
     if (new URL(request.url).pathname === ${JSON.stringify(kitHealthPath)}) {
       const plain = new Request(new URL("/", request.url));
       return health(getContainer(env.BACKEND, instanceName(plain)), request.url, ${JSON.stringify(probe ?? "/")}, ${probe !== undefined}, ${JSON.stringify(buildId)});
