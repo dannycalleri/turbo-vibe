@@ -9,7 +9,7 @@ const root = join(import.meta.dirname, "..", "..");
 type Entry = { version: string; dev?: boolean; optional?: boolean };
 
 it("installs, with `npm ci` in the unpacked tarball, exactly the tree npm-shrinkwrap.json pins, and runs", async () => {
-  execFileSync("pnpm", ["build"], { cwd: root, stdio: "ignore" });
+  execFileSync("npm", ["run", "build"], { cwd: root, stdio: "ignore" });
   const dir = await mkdtemp(join(tmpdir(), "turbo-vibe-package-"));
   const tarball = execFileSync(
     "npm",

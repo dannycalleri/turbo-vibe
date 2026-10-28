@@ -415,29 +415,6 @@
         "node": ">=16"
       }
     },
-    "node_modules/@emnapi/core": {
-      "version": "1.11.3",
-      "resolved": "https://registry.npmjs.org/@emnapi/core/-/core-1.11.3.tgz",
-      "integrity": "sha512-zLpS5asjEb7lq8jYLq37N6XKaE41DIexlY1rF/z4/tIl3wo13Sqm28fRyfIsKZD+NZ8mM5RoKkpW/rBcuoSZSg==",
-      "license": "MIT",
-      "optional": true,
-      "peer": true,
-      "dependencies": {
-        "@emnapi/wasi-threads": "1.2.3",
-        "tslib": "^2.4.0"
-      }
-    },
-    "node_modules/@emnapi/runtime": {
-      "version": "1.11.3",
-      "resolved": "https://registry.npmjs.org/@emnapi/runtime/-/runtime-1.11.3.tgz",
-      "integrity": "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==",
-      "license": "MIT",
-      "optional": true,
-      "peer": true,
-      "dependencies": {
-        "tslib": "^2.4.0"
-      }
-    },
     "node_modules/@emnapi/wasi-threads": {
       "version": "1.2.3",
       "resolved": "https://registry.npmjs.org/@emnapi/wasi-threads/-/wasi-threads-1.2.3.tgz",
@@ -3105,6 +3082,7 @@
       "integrity": "sha512-ldVPDCzj7fsaGZrLB0NuHuTvJcsNasysBAqMolr/cgxrLd1xbqxIr3XJiPnHHJUCxj5sNF1vnRj9aWnrVh5Jcg==",
       "dev": true,
       "license": "MIT",
+      "peer": true,
       "dependencies": {
         "undici-types": "~8.9.0"
       }
@@ -5409,18 +5387,6 @@
       "resolved": "https://registry.npmjs.org/graceful-fs/-/graceful-fs-4.2.11.tgz",
       "integrity": "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==",
       "license": "ISC"
-    },
-    "node_modules/graphql": {
-      "version": "16.14.2",
-      "resolved": "https://registry.npmjs.org/graphql/-/graphql-16.14.2.tgz",
-      "integrity": "sha512-Chq1s4CY7jmh8gO2qvLIJyfCDIN+EHLFW/9iShnp1z8FjBQMoodWP1kDC36VAMXXIvAjj4ARa7ntfAV2BrjsbA==",
-      "dev": true,
-      "license": "MIT",
-      "optional": true,
-      "peer": true,
-      "engines": {
-        "node": "^12.22.0 || ^14.16.0 || ^16.0.0 || >=17.0.0"
-      }
     },
     "node_modules/headers-polyfill": {
       "version": "5.0.1",
@@ -8109,53 +8075,6 @@
         "@types/estree": "^1.0.0"
       }
     },
-    "node_modules/vitest/node_modules/msw": {
-      "version": "2.15.0",
-      "resolved": "https://registry.npmjs.org/msw/-/msw-2.15.0.tgz",
-      "integrity": "sha512-2wQAmKkQKxRuXvYJxVhPGG0wZNBQyD06oJvxqw90XqLvptdqxdlHrFUfEteKkpaNORX3Xzc+HtEl/q0nfmN2wQ==",
-      "dev": true,
-      "hasInstallScript": true,
-      "license": "MIT",
-      "optional": true,
-      "peer": true,
-      "dependencies": {
-        "@inquirer/confirm": "^6.0.11",
-        "@mswjs/interceptors": "^0.41.3",
-        "@open-draft/deferred-promise": "^3.0.0",
-        "@types/statuses": "^2.0.6",
-        "cookie": "^1.1.1",
-        "graphql": "^16.13.2",
-        "headers-polyfill": "^5.0.1",
-        "is-node-process": "^1.2.0",
-        "outvariant": "^1.4.3",
-        "path-to-regexp": "^6.3.0",
-        "picocolors": "^1.1.1",
-        "rettime": "^0.11.11",
-        "statuses": "^2.0.2",
-        "strict-event-emitter": "^0.5.1",
-        "tough-cookie": "^6.0.1",
-        "type-fest": "^5.5.0",
-        "until-async": "^3.0.2",
-        "yargs": "^17.7.2"
-      },
-      "bin": {
-        "msw": "cli/index.js"
-      },
-      "engines": {
-        "node": ">=18"
-      },
-      "funding": {
-        "url": "https://github.com/sponsors/mswjs"
-      },
-      "peerDependencies": {
-        "typescript": ">= 4.8.x"
-      },
-      "peerDependenciesMeta": {
-        "typescript": {
-          "optional": true
-        }
-      }
-    },
     "node_modules/vitest/node_modules/path-to-regexp": {
       "version": "6.3.0",
       "resolved": "https://registry.npmjs.org/path-to-regexp/-/path-to-regexp-6.3.0.tgz",
@@ -8329,6 +8248,7 @@
       "integrity": "sha512-8MadBuffZ5NdpLwZjUmsqT5QlaKXq4gjgT6wzcKeynZTICNXyePhc+5QVoKiK7+MMhFTLNrRO2KXLlpk8Q6BkA==",
       "hasInstallScript": true,
       "license": "Apache-2.0",
+      "peer": true,
       "bin": {
         "workerd": "bin/workerd"
       },

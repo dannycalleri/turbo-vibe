@@ -3,16 +3,16 @@
 check: lint typecheck test
 
 lint:
-	pnpm exec biome ci .
+	npx --no biome ci .
 
 typecheck:
-	pnpm exec tsc --noEmit
+	npx --no tsc --noEmit
 
 test:
-	pnpm exec vitest run
+	npx --no vitest run
 
 build:
-	pnpm build
+	npm run build
 
 .PHONY: compatibility
 compatibility: build
@@ -22,13 +22,6 @@ compatibility: build
 schema: build
 	mkdir -p schema
 	node dist/cli.js schema > schema/turbo-vibe.schema.json
-
-.PHONY: shrinkwrap
-shrinkwrap:
-	@tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/turbo-vibe-shrinkwrap.XXXXXX"); trap 'rm -rf "$$tmp"' EXIT; \
-	cp package.json "$$tmp/" && \
-	(cd "$$tmp" && npm install --package-lock-only --omit=dev --ignore-scripts --prefer-dedupe --no-audit --no-fund >/dev/null) && \
-	cp "$$tmp/package-lock.json" npm-shrinkwrap.json
 
 TOFU_IMAGE := ghcr.io/opentofu/opentofu:1.13.1
 
@@ -49,7 +42,7 @@ ACTIONLINT_IMAGE := rhysd/actionlint:1.7.12
 integration: validate-infra lint-workflows integration-tests dry-run-example
 
 integration-tests:
-	pnpm exec vitest run --config vitest.integration.config.ts
+	npx --no vitest run --config vitest.integration.config.ts
 
 lint-workflows:
 	@if command -v actionlint >/dev/null; then actionlint; \
