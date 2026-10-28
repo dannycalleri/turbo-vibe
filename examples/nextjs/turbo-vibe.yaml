@@ -4,7 +4,11 @@ project: tv-next
 domain: next-example.turbovibe.ai
 previews: true
 environments:
-  staging: { hostname: staging-next-example.turbovibe.ai }
+  staging:
+    hostname: staging-next-example.turbovibe.ai
+    access: { emails: [daniele.calleri@gmail.com] }
+  production:
+    access: { emails: [daniele.calleri@gmail.com] }
 services:
   web:
     kind: frontend
