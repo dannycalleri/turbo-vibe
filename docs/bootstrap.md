@@ -77,6 +77,7 @@ It does the zone and bucket work through a token named `turbo-vibe-<project>-set
    Permissions: scoped to the one team that owns the projects.
 
    `setup` asks for it once, finds the team from it, and asks you to choose only when the token sees more than one.
+3. For a private environment (`access.emails`): give each listed person a Vercel account and a place in the team, in Team Settings → Members. Vercel lets in the team's members, not a list of addresses, so every member of the team can open the environment too. On **Hobby** the team has one member, and only one outside person can get in, through an access request that a member approves. `check` fails for each listed address outside the team, also for that outside person on Hobby, which is expected.
 
 ## 6. The application's own values (projects that declare `secrets`, `public` or `build.secrets`)
 
