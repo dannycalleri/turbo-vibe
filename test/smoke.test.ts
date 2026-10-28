@@ -44,6 +44,27 @@ describe("judge", () => {
       message: `${url} answered HTTP 502`,
     });
   });
+  it("says where the reason is when a private environment's Worker keeps it out of the answer", () => {
+    expect(
+      judge(
+        url,
+        "abc",
+        { status: 502, buildId: undefined },
+        "read it in the Worker's logs",
+      ),
+    ).toEqual({
+      ok: false,
+      message: `${url} answered HTTP 502: read it in the Worker's logs`,
+    });
+    expect(
+      judge(
+        url,
+        "abc",
+        { status: 502, buildId: undefined, reason: "/ answered HTTP 500" },
+        "read it in the Worker's logs",
+      ).message,
+    ).toBe(`${url} answered HTTP 502: / answered HTTP 500`);
+  });
 });
 
 describe("checkBuildId", () => {

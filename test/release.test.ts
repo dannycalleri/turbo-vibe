@@ -1773,8 +1773,12 @@ describe("runtime secrets", () => {
     expect(await readFile(join(workerDir, "guard.js"), "utf8")).toBe(
       guardModule,
     );
-    expect(await readFile(join(workerDir, "worker.js"), "utf8")).toContain(
+    const entry = await readFile(join(workerDir, "worker.js"), "utf8");
+    expect(entry).toContain(
       'return signIn(request, ["https://staging.acme.example.com"]);',
+    );
+    expect(entry).toContain(
+      '"abc1230000000000000000000000000000000000", true);',
     );
   });
 

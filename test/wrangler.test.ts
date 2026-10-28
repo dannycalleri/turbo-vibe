@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   guardModule,
   healthModule,
@@ -226,6 +226,15 @@ describe("workerEntry", () => {
     );
   });
 
+  it("hides the health reason in the Worker entry of a private environment", () => {
+    expect(workerEntry(backend, 8080, buildId, [], undefined, true)).toContain(
+      `${JSON.stringify(buildId)}, true);`,
+    );
+    expect(workerEntry(backend, 8080, buildId)).toContain(
+      `${JSON.stringify(buildId)});`,
+    );
+  });
+
   it("sleeps after the configured idle time, five minutes by default", () => {
     expect(workerEntry(backend, 8080, buildId)).toContain('sleepAfter = "5m"');
     expect(
@@ -245,6 +254,7 @@ describe("the generated health module", () => {
     path: string,
     strict: boolean,
     buildId: string,
+    quiet?: boolean,
   ) => Promise<Response>;
 
   async function load(): Promise<Health> {
@@ -295,6 +305,54 @@ describe("the generated health module", () => {
       status: 200,
       body: { build_id: "abc123" },
       requests: ["https://staging.acme.example.com/"],
+    });
+  });
+
+  describe("on a private environment, whose health path stays public", () => {
+    const failing = {
+      fetch: async () =>
+        new Response("database db.internal:5432 refused", {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        }),
+    };
+    const crashing = {
+      fetch: async () => {
+        throw new Error("connect ECONNREFUSED 10.0.0.7:8080");
+      },
+    };
+
+    it.each([
+      ["an app error", failing, 502, "/ answered HTTP 500"],
+      ["a container that cannot be reached", crashing, 503, "10.0.0.7"],
+    ])(
+      "answers %s with the build ID and the status only, and logs the reason",
+      async (_case, container, status, logged) => {
+        const log = vi.spyOn(console, "error").mockImplementation(() => {});
+        const response = await (await load())(
+          container,
+          "https://staging.acme.example.com/_turbo-vibe/health",
+          "/",
+          false,
+          "abc123",
+          true,
+        );
+        expect(response.status).toBe(status);
+        expect(await response.json()).toEqual({ build_id: "abc123" });
+        expect(String(log.mock.calls[0]?.[0])).toContain(logged);
+        log.mockRestore();
+      },
+    );
+
+    it("keeps the reason in the answer of a public environment", async () => {
+      const response = await (await load())(
+        failing,
+        "https://staging.acme.example.com/_turbo-vibe/health",
+        "/",
+        false,
+        "abc123",
+      );
+      expect(await response.json()).toEqual({ error: "/ answered HTTP 500" });
     });
   });
 

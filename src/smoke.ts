@@ -11,12 +11,14 @@ export function judge(
   url: string,
   expected: string,
   observed: Observation,
+  withoutReason?: string,
 ): SmokeResult {
   if ("error" in observed) {
     return { ok: false, message: `${url} unreachable: ${observed.error}` };
   }
   if (observed.status < 200 || observed.status > 299) {
-    const reason = observed.reason ? `: ${observed.reason}` : "";
+    const said = observed.reason ?? withoutReason;
+    const reason = said ? `: ${said}` : "";
     return {
       ok: false,
       message: `${url} answered HTTP ${observed.status}${reason}`,
@@ -36,6 +38,7 @@ export interface Probe {
   headers?: Readonly<Record<string, string>>;
   read: (response: Response) => Promise<string | undefined>;
   reason?: (response: Response) => Promise<string | undefined>;
+  withoutReason?: string;
 }
 
 export async function checkBuildId(
@@ -71,7 +74,7 @@ export async function checkBuildId(
         error: error instanceof Error ? error.message : String(error),
       };
     }
-    result = judge(probe.url, expected, observed);
+    result = judge(probe.url, expected, observed, probe.withoutReason);
     // A service still starting answers 503, and one still switching over reports the previous build: both may use the longer allowance.
     const switching =
       "status" in observed &&

@@ -346,6 +346,9 @@ export const cloudflareContainer: Adapter = {
       port: port.port,
       secretNames: context.secretNames,
       ...(origins ? { privateOrigins: origins } : {}),
+      ...(accessFor(context.config, context.environment)
+        ? { quietHealth: true }
+        : {}),
       ...(image ? { image } : {}),
       ...(assets ? { assets } : {}),
       ...(notFound ? { notFound } : {}),
@@ -401,6 +404,11 @@ export const cloudflareContainer: Adapter = {
         url: `https://${context.hostname}${kitHealthPath}`,
         read: field("build_id"),
         reason: field("error"),
+        ...(accessFor(context.config, context.environment)
+          ? {
+              withoutReason: `a private environment keeps the reason out of this public answer; read it in the Worker's logs (\`wrangler tail ${workerName(context)}\`, or Workers & Pages → ${workerName(context)} → Logs)`,
+            }
+          : {}),
         ...(context.headers ? { headers: context.headers } : {}),
       },
       context.buildId,
