@@ -18,7 +18,9 @@ import {
 
 type Backend = Extract<DeployContext["service"], { kind: "backend" }>;
 
-function signInOrigins(context: ServiceContext): readonly string[] | undefined {
+function privateOrigins(
+  context: ServiceContext,
+): readonly string[] | undefined {
   if (!accessFor(context.config, context.environment)) return undefined;
   return context.allowedOrigins;
 }
@@ -297,7 +299,7 @@ export const cloudflareContainer: Adapter = {
             ? []
             : [`${context.hostname}${kitHealthPath}`]),
           // Without the final *, the route misses every URL with a query string.
-          ...(signInOrigins(context)
+          ...(privateOrigins(context)
             ? [`${context.hostname}${signInPath}*`]
             : []),
         ];
@@ -335,7 +337,7 @@ export const cloudflareContainer: Adapter = {
     const assets = frontend ? context.assetsDirs[frontend] : undefined;
     const served = frontend ? context.config.services[frontend] : undefined;
     const notFound = served?.kind === "frontend" ? served.not_found : undefined;
-    const origins = signInOrigins(context);
+    const origins = privateOrigins(context);
     const file = await writeWorker(join(context.workDir, name), {
       name,
       buildId: context.buildId,
@@ -343,7 +345,7 @@ export const cloudflareContainer: Adapter = {
       backend: context.service,
       port: port.port,
       secretNames: context.secretNames,
-      ...(origins ? { signInOrigins: origins } : {}),
+      ...(origins ? { privateOrigins: origins } : {}),
       ...(image ? { image } : {}),
       ...(assets ? { assets } : {}),
       ...(notFound ? { notFound } : {}),

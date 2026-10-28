@@ -86,22 +86,16 @@ ${services}`;
     },
   );
 
-  it("refuses, for now, a private environment whose Vercel page calls a backend on Cloudflare from another origin", () => {
+  it("accepts a private environment whose Vercel page calls a backend on Cloudflare from another origin", () => {
     expect(
-      problems(
+      parseConfig(
         privateStaging(`${vercel("vercel-static")}  api:
     kind: backend
     target: cloudflare-container
     build: { dockerfile: Dockerfile }
 `),
-      ),
-    ).toEqual([
-      {
-        line: 6,
-        message:
-          "staging cannot be private: frontend `web` on vercel-static calling backend `api` on cloudflare-container from another origin is not supported yet",
-      },
-    ]);
+      ).ok,
+    ).toBe(true);
   });
 
   it("counts visits only where a cloudflare-static frontend serves the pages", () => {

@@ -483,14 +483,13 @@ describe("access", () => {
     });
   });
 
-  const crossOrigin = config(
-    `${api}  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n`,
+  const vercelWeb =
+    "  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n";
+  const crossOrigin = config(`${api}${vercelWeb}`);
+  const privateCrossOrigin = config(
+    `${api}${vercelWeb}`,
+    "environments:\n  staging:\n    access: { emails: [ada@example.com] }\n",
   );
-  // Built by hand: the validator does not accept `access` on this layout yet.
-  const privateCrossOrigin: Config = {
-    ...crossOrigin,
-    environments: { staging: { access: { emails: ["ada@example.com"] } } },
-  };
 
   it("lets the preflight of a page on another origin through Access", () => {
     expect(

@@ -88,12 +88,33 @@ export const signInModule = `export function signIn(request, origins) {
 }
 `;
 
+// Access lets every preflight through, from any site, so none may reach the container.
+export const guardModule = `export function guard(request, origins) {
+  const origin = request.headers.get("Origin");
+  const allowed = origin !== null && origins.includes(origin);
+  if (request.method === "OPTIONS") {
+    const headers = new Headers({ Vary: "Origin" });
+    if (allowed) {
+      headers.set("Access-Control-Allow-Origin", origin);
+      headers.set("Access-Control-Allow-Credentials", "true");
+      const method = request.headers.get("Access-Control-Request-Method");
+      if (method) headers.set("Access-Control-Allow-Methods", method);
+      const asked = request.headers.get("Access-Control-Request-Headers");
+      if (asked) headers.set("Access-Control-Allow-Headers", asked);
+    }
+    return new Response(null, { status: 204, headers });
+  }
+  if (origin !== null && !allowed && request.method !== "GET" && request.method !== "HEAD")
+    return new Response("origin not allowed\\n", { status: 403 });
+}
+`;
+
 export function workerEntry(
   backend: Backend,
   port: number,
   buildId: string,
   secretNames: readonly string[] = [],
-  signInOrigins?: readonly string[],
+  privateOrigins?: readonly string[],
 ): string {
   const sleepAfter = backend.container?.sleep_after ?? "5m";
   const probe = backend.container?.health;
@@ -103,7 +124,7 @@ export function workerEntry(
   return `import { Container, getContainer } from ${JSON.stringify(containersModule)};
 import { health } from "./health.js";
 import { instanceName } from "./routing.js";
-${signInOrigins ? `import { signIn } from "./sign-in.js";\n` : ""}
+${privateOrigins ? `import { guard } from "./guard.js";\nimport { signIn } from "./sign-in.js";\n` : ""}
 export class Backend extends Container {
   defaultPort = ${port};
   sleepAfter = ${JSON.stringify(sleepAfter)};
@@ -117,9 +138,11 @@ export class Backend extends Container {
 export default {
   fetch(request, env) {
 ${
-  signInOrigins
-    ? `    if (new URL(request.url).pathname === ${JSON.stringify(signInPath)})
-      return signIn(request, ${JSON.stringify(signInOrigins)});
+  privateOrigins
+    ? `    const refused = guard(request, ${JSON.stringify(privateOrigins)});
+    if (refused) return refused;
+    if (new URL(request.url).pathname === ${JSON.stringify(signInPath)})
+      return signIn(request, ${JSON.stringify(privateOrigins)});
 `
     : ""
 }    if (new URL(request.url).pathname === ${JSON.stringify(kitHealthPath)}) {
@@ -140,7 +163,7 @@ export type WorkerSpec = {
   configDir: string;
   assets?: string;
   notFound?: "spa" | "404-page";
-  signInOrigins?: readonly string[];
+  privateOrigins?: readonly string[];
 } & ({ backend?: undefined } | { backend: Backend; port: number });
 
 export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
@@ -212,12 +235,14 @@ export async function writeWorker(
         spec.port,
         spec.buildId,
         spec.secretNames,
-        spec.signInOrigins,
+        spec.privateOrigins,
       ),
     );
     await writeFile(join(dir, "health.js"), healthModule);
-    if (spec.signInOrigins)
+    if (spec.privateOrigins) {
+      await writeFile(join(dir, "guard.js"), guardModule);
       await writeFile(join(dir, "sign-in.js"), signInModule);
+    }
     await writeFile(
       join(dir, "routing.js"),
       routingModule(spec.backend, spec.buildId),
