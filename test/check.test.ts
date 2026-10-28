@@ -1038,6 +1038,114 @@ describe("against recorded fakes", () => {
         "fail",
       );
     });
+
+    describe("on a private environment", () => {
+      const privateContext = (emails: string) => {
+        const parsed = parseConfig(
+          `version: 1\nproject: acme\ndomain: app.turbovibe.ai\nenvironments:\n  staging:\n    access: { emails: [${emails}] }\nservices:\n${vercelSite}`,
+        );
+        if (!parsed.ok) throw new Error(JSON.stringify(parsed.problems));
+        return { ...context(vercelSite, vercelEnv), config: parsed.config };
+      };
+      const membersUrl = "https://api.vercel.com/v3/teams/team_1/members";
+      const pages = (
+        ...pages: { email: string; confirmed?: boolean }[][]
+      ): URL[] => {
+        const seen: URL[] = [];
+        server.use(
+          http.get(membersUrl, ({ request }) => {
+            const url = new URL(request.url);
+            seen.push(url);
+            const index = Number(url.searchParams.get("until") ?? 0);
+            return HttpResponse.json({
+              members: pages[index],
+              pagination: {
+                count: pages[index]?.length,
+                hasNext: index + 1 < pages.length,
+                next: index + 1 < pages.length ? index + 1 : null,
+              },
+            });
+          }),
+        );
+        return seen;
+      };
+
+      it("fails for each listed address outside the team, and names where to invite it", async () => {
+        team(200, "pro");
+        pages([{ email: "ada@example.com" }]);
+        const findings = await vercel(
+          privateContext("ada@example.com, bob@example.com"),
+        );
+        expect(findings.slice(1)).toEqual([
+          fail(
+            "vercel",
+            "bob@example.com is in staging's access but not a member of the Vercel team, so Vercel will not let them open staging",
+            "invite bob@example.com in Vercel → Team Settings → Members",
+          ),
+        ]);
+      });
+
+      it("says every member can open the environment when every address is in the team, whatever its case", async () => {
+        team(200, "pro");
+        pages([{ email: "Ada@Example.com" }, { email: "carol@example.com" }]);
+        expect(
+          (await vercel(privateContext("ada@example.com"))).slice(1),
+        ).toEqual([
+          ok(
+            "vercel",
+            "every address in staging's access is a member of the Vercel team; every member of the team can open staging",
+          ),
+        ]);
+      });
+
+      it("reads every page of members", async () => {
+        team(200, "pro");
+        const seen = pages(
+          [{ email: "ada@example.com" }],
+          [{ email: "bob@example.com" }],
+        );
+        const findings = await vercel(
+          privateContext("ada@example.com, bob@example.com"),
+        );
+        expect(findings[1]?.severity).toBe("ok");
+        expect(seen.map((url) => url.searchParams.get("until"))).toEqual([
+          null,
+          "1",
+        ]);
+      });
+
+      it("does not count a person who only requested access", async () => {
+        team(200, "pro");
+        pages([{ email: "bob@example.com", confirmed: false }]);
+        expect(
+          (await vercel(privateContext("bob@example.com")))[1],
+        ).toMatchObject({
+          severity: "fail",
+          message: expect.stringMatching(/^bob@example.com/),
+        });
+      });
+
+      it("warns and names the status when Vercel does not list the members", async () => {
+        team(200, "pro");
+        server.use(
+          http.get(membersUrl, () => new HttpResponse(null, { status: 403 })),
+        );
+        expect((await vercel(privateContext("ada@example.com")))[1]).toEqual(
+          warn(
+            "vercel",
+            "could not read the members of the Vercel team (HTTP 403), so check cannot tell who can open staging",
+            "confirm in Vercel → Team Settings → Members that each address in staging's access is a member",
+          ),
+        );
+      });
+
+      it("reads no members for a public environment", async () => {
+        team(200, "pro");
+        const seen = pages([]);
+        expect(await vercel(context(vercelSite, vercelEnv))).toHaveLength(1);
+        expect(seen).toEqual([]);
+      });
+    });
   });
 
   describe("github", () => {

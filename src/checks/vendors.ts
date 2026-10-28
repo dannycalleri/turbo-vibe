@@ -1,3 +1,4 @@
+import { accessFor } from "../config/schema.js";
 import { promoteFromStaging } from "../contract.js";
 import { environmentSecrets } from "../deploy.js";
 import { appPublic, buildSecrets } from "../secrets.js";
@@ -183,7 +184,7 @@ export const workos: Check = async (context) => {
 };
 
 export const vercel: Check = async (context) => {
-  const { config, io } = context;
+  const { config, environment, io } = context;
   if (
     !Object.values(config.services).some((service) =>
       service.target.startsWith("vercel-"),
@@ -218,25 +219,76 @@ export const vercel: Check = async (context) => {
     ];
   }
   const plan = team.body?.billing?.plan;
-  if (!plan) {
-    return [
-      warn(
-        "vercel",
-        "could not read the team's plan",
-        "confirm the plan in Vercel → Team Settings → Billing; Hobby forbids commercial use",
-      ),
-    ];
-  }
   return [
-    plan === "hobby"
+    !plan
       ? warn(
           "vercel",
-          "the team is on Hobby, which forbids commercial use",
-          "upgrade the team to Pro for a commercial project",
+          "could not read the team's plan",
+          "confirm the plan in Vercel → Team Settings → Billing; Hobby forbids commercial use",
         )
-      : ok("vercel", `the team is on the ${plan} plan`),
+      : plan === "hobby"
+        ? warn(
+            "vercel",
+            "the team is on Hobby, which forbids commercial use",
+            "upgrade the team to Pro for a commercial project",
+          )
+        : ok("vercel", `the team is on the ${plan} plan`),
+    ...(await teamMembers(context, accessFor(config, environment)?.emails)),
   ];
 };
+
+async function teamMembers(
+  context: CheckContext,
+  emails: readonly string[] | undefined,
+): Promise<Finding[]> {
+  if (!emails) return [];
+  const { environment, io } = context;
+  const members = new Set<string>();
+  for (let until: number | undefined; ; ) {
+    const url = new URL(
+      `https://api.vercel.com/v3/teams/${io.env.VERCEL_TEAM_ID}/members`,
+    );
+    url.searchParams.set("limit", "100");
+    if (until !== undefined) url.searchParams.set("until", String(until));
+    const page = await getJson<{
+      members?: { email?: string; confirmed?: boolean }[];
+      pagination?: { hasNext?: boolean; next?: number | null };
+    }>(context, url.toString(), io.env.VERCEL_API_TOKEN);
+    if (page.status !== 200) {
+      return [
+        warn(
+          "vercel",
+          `could not read the members of the Vercel team (HTTP ${page.status}), so check cannot tell who can open ${environment}`,
+          `confirm in Vercel → Team Settings → Members that each address in ${environment}'s access is a member`,
+        ),
+      ];
+    }
+    for (const member of page.body?.members ?? []) {
+      // An unconfirmed member has not joined yet (an access request or an open invite), and Vercel does not let them in.
+      if (member.email && member.confirmed !== false)
+        members.add(member.email.toLowerCase());
+    }
+    const next = page.body?.pagination?.next;
+    if (!page.body?.pagination?.hasNext || typeof next !== "number") break;
+    if (next === until) break;
+    until = next;
+  }
+  const outside = emails.filter((email) => !members.has(email.toLowerCase()));
+  if (outside.length === 0)
+    return [
+      ok(
+        "vercel",
+        `every address in ${environment}'s access is a member of the Vercel team; every member of the team can open ${environment}`,
+      ),
+    ];
+  return outside.map((email) =>
+    fail(
+      "vercel",
+      `${email} is in ${environment}'s access but not a member of the Vercel team, so Vercel will not let them open ${environment}`,
+      `invite ${email} in Vercel → Team Settings → Members`,
+    ),
+  );
+}
 
 export const github: Check = async (context) => {
   const { config, environment, io } = context;
