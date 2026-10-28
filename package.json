@@ -73,6 +73,9 @@
   "overrides": {
     "@vercel/oidc": {
       "jose": "5.9.6"
+    },
+    "@vitest/mocker": {
+      "msw": "$msw"
     }
   },
   "volta": {
