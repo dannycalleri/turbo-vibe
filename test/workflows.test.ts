@@ -499,6 +499,7 @@ describe("the preview workflow", () => {
     ).toEqual([
       "examples/python-api/turbo-vibe.yaml",
       "examples/vercel-static/turbo-vibe.yaml",
+      "examples/nextjs/turbo-vibe.yaml",
     ]);
   });
 });

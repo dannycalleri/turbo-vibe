@@ -24,3 +24,10 @@ jobs:
       config: examples/vercel-static/turbo-vibe.yaml
       use-local-cli: true
     secrets: inherit
+
+  nextjs-example:
+    uses: ./.github/workflows/preview.yml
+    with:
+      config: examples/nextjs/turbo-vibe.yaml
+      use-local-cli: true
+    secrets: inherit
