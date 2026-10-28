@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { adapterFor } from "../src/adapters/index.js";
 import { loadConfigFile, parseConfig } from "../src/config/load.js";
@@ -480,6 +481,50 @@ describe("access", () => {
       name: "acme-preview-feature-x",
       domains: ["feature-x-staging.acme.example.com"],
     });
+  });
+
+  it("lets the preflight of a page on another origin through Access", () => {
+    const site = config(
+      `${api}  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n`,
+    );
+    // Built by hand: the validator does not accept `access` on this layout yet.
+    const privateSite: Config = {
+      ...site,
+      environments: { staging: { access: { emails: ["ada@example.com"] } } },
+    };
+    expect(
+      rootModule(privateSite, "staging", {}).module.cloudflare?.access,
+    ).toMatchObject({
+      domains: ["api.staging.acme.example.com"],
+      preflight_bypass: true,
+    });
+  });
+
+  it("keeps Access in front of every preflight on a single origin", () => {
+    const site = config(
+      `${api}${web()}`,
+      "environments:\n  staging:\n    access: { emails: [ada@example.com] }\n",
+    );
+    expect(
+      rootModule(site, "staging", {}).module.cloudflare?.access,
+    ).not.toHaveProperty("preflight_bypass");
+  });
+
+  it("keeps the Access cookie of every application to its own site, out of reach of scripts", async () => {
+    const module = await readFile(
+      new URL("../infra/cloudflare/main.tf", import.meta.url),
+      "utf8",
+    );
+    const applications = module
+      .split(/^resource /m)
+      .filter((block) =>
+        block.startsWith('"cloudflare_zero_trust_access_application"'),
+      );
+    expect(applications).toHaveLength(3);
+    for (const application of applications) {
+      expect(application).toMatch(/same_site_cookie_attribute\s+= "lax"/);
+      expect(application).toMatch(/http_only_cookie_attribute\s+= true/);
+    }
   });
 
   it("leaves an environment without access public", () => {
