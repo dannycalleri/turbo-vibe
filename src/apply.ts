@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -9,6 +10,7 @@ import {
   type TofuPlan,
 } from "./changes.js";
 import {
+  accessFor,
   type Config,
   type EnvironmentName,
   isPreview,
@@ -16,11 +18,12 @@ import {
 import { discoverRedirectUris } from "./identity.js";
 import {
   branchedDatabases,
+  bypassVariable,
+  privateVercelProjects,
   requiredSecrets,
   rootModule,
 } from "./infrastructure.js";
 import type { Io } from "./io.js";
-import { accessFor } from "./origins.js";
 import { appPublicValues, appSecretValues } from "./secrets.js";
 
 export function missingVariables(names: Iterable<string>, io: Io): boolean {
@@ -28,6 +31,102 @@ export function missingVariables(names: Iterable<string>, io: Io): boolean {
   if (missing.length === 0) return false;
   io.stderr(`missing environment variables: ${missing.join(", ")}\n`);
   return true;
+}
+
+type Env = Readonly<Record<string, string | undefined>>;
+
+// GitHub masks only its own secrets, and these come from the state; the logs of a public repository are public.
+export function maskCredentials(
+  outputs: Readonly<Record<string, unknown>> | undefined,
+  chosen: readonly string[],
+  io: Io,
+): void {
+  if (io.env.GITHUB_ACTIONS !== "true") return;
+  const bypass = outputs?.vercel_protection_bypass;
+  const credentials = new Set([
+    outputs?.access_client_secret,
+    ...(bypass && typeof bypass === "object" ? Object.values(bypass) : []),
+    ...chosen,
+  ]);
+  for (const value of credentials)
+    if (typeof value === "string" && value) io.stdout(`::add-mask::${value}\n`);
+}
+
+const secretCharacters =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+interface TofuState {
+  values?: {
+    root_module?: {
+      child_modules?: {
+        address?: string;
+        resources?: { type?: string; index?: unknown; values?: unknown }[];
+      }[];
+    };
+  };
+}
+
+// From the state, not the outputs: an apply that stopped part of the way keeps a bypass that no output lists yet.
+async function bypassSecretsInState(
+  dir: string,
+  io: Io,
+): Promise<Record<string, string> | undefined> {
+  const shown = await io.capture("tofu", ["show", "-json"], {
+    cwd: dir,
+    env: io.env,
+  });
+  if (shown.code !== 0) return undefined;
+  const state = JSON.parse(shown.stdout || "{}") as TofuState;
+  const vercel = state.values?.root_module?.child_modules?.find(
+    (module) => module.address === "module.vercel",
+  );
+  return Object.fromEntries(
+    (vercel?.resources ?? []).flatMap((resource) => {
+      const secret = (resource.values as { secret?: unknown } | undefined)
+        ?.secret;
+      return resource.type === "vercel_project_protection_bypass" &&
+        typeof resource.index === "string" &&
+        typeof secret === "string"
+        ? [[resource.index, secret]]
+        : [];
+    }),
+  );
+}
+
+// OpenTofu prints a bypass's ID, which holds its secret: each secret is chosen, and masked, before OpenTofu runs.
+async function tofuEnv(
+  config: Config,
+  environment: EnvironmentName,
+  dir: string,
+  outputs: Readonly<Record<string, unknown>> | undefined,
+  io: Io,
+): Promise<Env | undefined> {
+  const vercel = Object.values(config.services).some((service) =>
+    service.target.startsWith("vercel-"),
+  );
+  const known = vercel ? await bypassSecretsInState(dir, io) : {};
+  if (!known) {
+    io.stderr(`cannot read the current ${environment} state\n`);
+    return undefined;
+  }
+  const secrets = Object.fromEntries(
+    privateVercelProjects(config, environment).map((project) => [
+      project,
+      known[project] ??
+        Array.from(
+          { length: 32 },
+          () => secretCharacters[randomInt(secretCharacters.length)],
+        ).join(""),
+    ]),
+  );
+  maskCredentials(
+    outputs,
+    [...Object.values(known), ...Object.values(secrets)],
+    io,
+  );
+  return Object.keys(secrets).length > 0
+    ? { ...io.env, [`TF_VAR_${bypassVariable}`]: JSON.stringify(secrets) }
+    : io.env;
 }
 
 async function writeRoot(
@@ -104,7 +203,7 @@ async function prepare(
   config: Config,
   environment: EnvironmentName,
   io: Io,
-): Promise<{ dir: string } | { code: number }> {
+): Promise<{ dir: string; env: Env } | { code: number }> {
   if (missingVariables(requiredSecrets(config), io)) return { code: 1 };
   const parentRefs = await parentProjectRefs(config, environment, io);
   if (typeof parentRefs === "string") {
@@ -117,12 +216,15 @@ async function prepare(
     (service) => service.kind === "identity",
   );
   const access = accessFor(config, environment) !== undefined;
-  if (identity || access) {
-    const outputs = await currentOutputs(dir, io);
-    if (!outputs) {
-      io.stderr(`cannot read the current ${environment} outputs\n`);
-      return { code: 1 };
-    }
+  const outputs =
+    identity || access ? await currentOutputs(dir, io) : undefined;
+  if ((identity || access) && !outputs) {
+    io.stderr(`cannot read the current ${environment} outputs\n`);
+    return { code: 1 };
+  }
+  const env = await tofuEnv(config, environment, dir, outputs, io);
+  if (!env) return { code: 1 };
+  if (outputs) {
     let managed: Record<string, string[]> = {};
     if (identity) {
       try {
@@ -137,7 +239,7 @@ async function prepare(
     const onAccount = access && (await accessOnAccount(outputs, io));
     await writeRoot(config, environment, io, managed, parentRefs, onAccount);
   }
-  return { dir };
+  return { dir, env };
 }
 
 // Made private with turbo-vibe 1.0, an environment keeps its Access resources on the account, so upgrading deletes
@@ -172,11 +274,12 @@ async function planChanges(
   io: Io,
   dir: string,
   planFile: string,
+  env: Env,
 ): Promise<Change[] | number> {
   const planned = await io.capture(
     "tofu",
     ["plan", "-input=false", "-json", `-out=${planFile}`],
-    { cwd: dir, env: io.env },
+    { cwd: dir, env },
   );
   for (const message of diagnostics(planned.stdout)) {
     io.stderr(`${message}\n`);
@@ -208,6 +311,7 @@ export async function plan(
       io,
       prepared.dir,
       planFile,
+      prepared.env,
     );
     if (typeof changes === "number") return changes;
     io.stdout(`${formatChanges(environment, changes)}\n`);
@@ -237,6 +341,7 @@ export async function apply(
       io,
       prepared.dir,
       planFile,
+      prepared.env,
     );
     if (typeof changes === "number") return changes;
     io.stdout(`${formatChanges(environment, changes)}\n`);
@@ -255,7 +360,7 @@ export async function apply(
     }
     return await io.run("tofu", ["apply", "-input=false", planFile], {
       cwd: prepared.dir,
-      env: io.env,
+      env: prepared.env,
     });
   } finally {
     await rm(planFile, { force: true });
@@ -283,9 +388,17 @@ export async function destroy(
     typeof parentRefs === "string" ? {} : parentRefs,
   );
   if (code !== 0) return code;
+  const env = await tofuEnv(
+    config,
+    environment,
+    dir,
+    await currentOutputs(dir, io),
+    io,
+  );
+  if (!env) return 1;
   return io.run("tofu", ["destroy", "-input=false", "-auto-approve"], {
     cwd: dir,
-    env: io.env,
+    env,
   });
 }
 

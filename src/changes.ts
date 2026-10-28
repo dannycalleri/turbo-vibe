@@ -77,6 +77,10 @@ export function owners(
     for (const [project, settings] of Object.entries(vercel?.projects ?? {})) {
       own(key("module.vercel.vercel_project.this", project), service);
       own(key("module.vercel.vercel_project_domain.this", project), service);
+      own(
+        key("module.vercel.vercel_project_protection_bypass.this", project),
+        service,
+      );
       for (const variable of Object.keys(settings.environment)) {
         own(
           key(

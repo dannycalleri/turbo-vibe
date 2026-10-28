@@ -279,6 +279,55 @@ describe("vercel-static", () => {
     });
   });
 
+  // Built by hand: the validator does not accept `access` with a Vercel target yet.
+  const privateSite: Config = {
+    ...site,
+    environments: { staging: { access: { emails: ["ada@example.com"] } } },
+  };
+
+  it("puts every project of a private environment behind Vercel Authentication, and outputs the bypass secrets", () => {
+    const root = rootModule(privateSite, "staging", {});
+    expect(root.module.vercel?.projects).toEqual({
+      "acme-web-staging": {
+        domain: "staging.acme.example.com",
+        environment: {},
+        private: true,
+      },
+    });
+    expect(root.output?.vercel_protection_bypass).toEqual({
+      value: "${module.vercel.protection_bypass}",
+      sensitive: true,
+    });
+    expect(root.module.vercel?.bypass_secrets).toBe(
+      "${var.vercel_protection_bypass}",
+    );
+    expect(root.variable).toEqual({
+      vercel_protection_bypass: {
+        type: "map(string)",
+        sensitive: true,
+        default: {},
+      },
+    });
+  });
+
+  it("leaves the project of a public environment on Standard Protection, with no bypass", () => {
+    const root = rootModule(privateSite, "production", {});
+    expect(root.module.vercel?.projects).toEqual({
+      "acme-web-production": { domain: "acme.example.com", environment: {} },
+    });
+    expect(root.output).not.toHaveProperty("vercel_protection_bypass");
+    expect(root.module.vercel).not.toHaveProperty("bypass_secrets");
+    expect(root).not.toHaveProperty("variable");
+  });
+
+  it("makes the project of a preview private when staging is", () => {
+    const root = rootModule(privateSite, "preview-feature-x", {});
+    expect(root.module.vercel?.projects).toMatchObject({
+      "acme-web-preview-feature-x": { private: true },
+    });
+    expect(root.output).toHaveProperty("vercel_protection_bypass");
+  });
+
   it("needs the Vercel token and team, and the Cloudflare zone for DNS, to apply", () => {
     expect(requiredSecrets(site)).toEqual(
       expect.arrayContaining([

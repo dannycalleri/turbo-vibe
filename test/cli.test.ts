@@ -2,8 +2,10 @@ import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apply } from "../src/apply.js";
+import { apply, destroy } from "../src/apply.js";
 import { parseConfig } from "../src/config/load.js";
+import type { Config } from "../src/config/schema.js";
+import { smoke } from "../src/deploy.js";
 import type { Runner } from "../src/run.js";
 import { project, run } from "./harness.js";
 
@@ -1070,5 +1072,285 @@ describe("turbo-vibe apply with identity", () => {
     expect(stderr).toBe("WorkOS answered HTTP 401 listing redirect URIs\n");
     expect(runner.mock.calls.map(([, args]) => args[0])).toEqual(["init"]);
     expect(stderr).not.toContain("s3cr3t");
+  });
+});
+
+describe("smoke on a private environment", () => {
+  const buildId = "abc1230000000000000000000000000000000000";
+  const parsed = (yaml: string): Config => {
+    const result = parseConfig(yaml);
+    if (!result.ok) throw new Error(JSON.stringify(result.problems));
+    return result.config;
+  };
+  const privately = (config: Config): Config => ({
+    ...config,
+    environments: { production: { access: { emails: ["ada@example.com"] } } },
+  });
+  // Built by hand: the validator does not accept `access` with a Vercel target yet.
+  const site = privately(
+    parsed(
+      "version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n",
+    ),
+  );
+  const bypass = {
+    "acme-web-production": "production-bypass-s3cr3t",
+    "acme-web-staging": "staging-bypass-s3cr3t",
+  };
+
+  async function smokeWith(
+    config: Config,
+    outputs: Record<string, unknown>,
+    env: Record<string, string> = {},
+  ) {
+    const cwd = await mkdtemp(join(tmpdir(), "turbo-vibe-"));
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
+      String(url).endsWith("/_turbo-vibe/health")
+        ? Response.json({ build_id: buildId })
+        : new Response(buildId),
+    );
+    let stdout = "";
+    let stderr = "";
+    const code = await smoke(config, "production", buildId, {
+      cwd,
+      env,
+      run: async () => 0,
+      capture: async () => ({
+        code: 0,
+        stdout: JSON.stringify(
+          Object.fromEntries(
+            Object.entries(outputs).map(([name, value]) => [name, { value }]),
+          ),
+        ),
+      }),
+      fetch,
+      sleep: async () => {},
+      sql: () => {
+        throw new Error("no database");
+      },
+      stdout: (text) => {
+        stdout += text;
+      },
+      stderr: (text) => {
+        stderr += text;
+      },
+    });
+    const headers = fetch.mock.calls.map(
+      ([, init]) => new Headers(init?.headers),
+    );
+    return { code, stdout, stderr, fetch, headers };
+  }
+
+  it("passes Vercel's protection with the secret of the environment's own project", async () => {
+    const { code, headers } = await smokeWith(site, {
+      vercel_protection_bypass: bypass,
+    });
+    expect(code).toBe(0);
+    expect(headers.map((h) => h.get("x-vercel-protection-bypass"))).toEqual([
+      "production-bypass-s3cr3t",
+    ]);
+  });
+
+  it("fails before any request, naming apply, when the outputs hold no secret for the project", async () => {
+    const { code, stderr, fetch } = await smokeWith(site, {
+      vercel_protection_bypass: { "acme-web-staging": "staging-bypass-s3cr3t" },
+    });
+    expect(code).toBe(1);
+    expect(stderr).toBe(
+      "FAIL web: no protection bypass for the Vercel project of web in production; run apply first\n",
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("masks every bypass secret first in GitHub Actions, and prints none", async () => {
+    const { code, stdout, stderr } = await smokeWith(
+      site,
+      { vercel_protection_bypass: bypass },
+      { GITHUB_ACTIONS: "true" },
+    );
+    expect(code).toBe(0);
+    const lines = stdout.split("\n");
+    expect(lines.slice(0, 2)).toEqual([
+      "::add-mask::production-bypass-s3cr3t",
+      "::add-mask::staging-bypass-s3cr3t",
+    ]);
+    expect(lines.slice(2).join("\n") + stderr).not.toContain("s3cr3t");
+  });
+
+  it("masks the Access service token of an environment made private with turbo-vibe 1.0", async () => {
+    const { code, stdout, stderr, headers } = await smokeWith(
+      privately(parsed(project)),
+      {
+        access_client_id: "client.access",
+        access_client_secret: "client-s3cr3t",
+      },
+      { GITHUB_ACTIONS: "true" },
+    );
+    expect(code).toBe(0);
+    expect(headers[0]?.get("cf-access-client-secret")).toBe("client-s3cr3t");
+    expect(stdout.split("\n")[0]).toBe("::add-mask::client-s3cr3t");
+    expect(stdout.split("\n").slice(1).join("\n") + stderr).not.toContain(
+      "s3cr3t",
+    );
+  });
+
+  it("writes no mask outside GitHub Actions, and prints no secret", async () => {
+    const { code, stdout, stderr } = await smokeWith(site, {
+      vercel_protection_bypass: bypass,
+    });
+    expect(code).toBe(0);
+    expect(stdout).not.toContain("::add-mask::");
+    expect(stdout + stderr).not.toContain("s3cr3t");
+  });
+});
+
+describe("the bypass secret of a private Vercel project", () => {
+  // Built by hand: the validator does not accept `access` with a Vercel target yet.
+  const site: Config = (() => {
+    const result = parseConfig(
+      "version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n",
+    );
+    if (!result.ok) throw new Error(JSON.stringify(result.problems));
+    return {
+      ...result.config,
+      environments: { staging: { access: { emails: ["ada@example.com"] } } },
+    };
+  })();
+  const credentials = {
+    TURBO_VIBE_STATE_BUCKET: "tv-state",
+    AWS_ACCESS_KEY_ID: "key-id",
+    AWS_SECRET_ACCESS_KEY: "s3cr3t-key",
+    CLOUDFLARE_ACCOUNT_ID: "acc123",
+    CLOUDFLARE_ZONE_ID: "zone456",
+    CLOUDFLARE_API_TOKEN: "s3cr3t-token",
+    VERCEL_API_TOKEN: "vercel-s3cr3t",
+    VERCEL_TEAM_ID: "team_123",
+  };
+
+  // The fake OpenTofu prints each bypass's ID as the real one does, the project's ID then the secret: those in the
+  // state (refreshed or destroyed), and those it receives (created).
+  async function tofu(
+    command: typeof apply | typeof destroy,
+    environment: string,
+    state: Record<string, string>,
+    extra: Record<string, string> = {},
+  ) {
+    const cwd = await mkdtemp(join(tmpdir(), "turbo-vibe-"));
+    const log: string[] = [];
+    const passed: Record<string, string>[] = [];
+    const runner = vi.fn<Runner>(async (_command, args, options) => {
+      if (args[0] === "apply" || args[0] === "destroy") {
+        const received = JSON.parse(
+          options.env?.TF_VAR_vercel_protection_bypass ?? "{}",
+        ) as Record<string, string>;
+        passed.push(received);
+        for (const secret of new Set([
+          ...Object.values(state),
+          ...Object.values(received),
+        ]))
+          log.push(`[id=prj_1/${secret}]`);
+      }
+      return 0;
+    });
+    const code = await command(site, environment as "staging", {
+      cwd,
+      env: { ...credentials, ...extra },
+      run: runner,
+      capture: async (_command, args) => ({
+        code: 0,
+        stdout:
+          args[0] === "show" && args.length === 2
+            ? JSON.stringify({
+                values: {
+                  root_module: {
+                    child_modules: [
+                      {
+                        address: "module.vercel",
+                        resources: Object.entries(state).map(
+                          ([project, secret]) => ({
+                            type: "vercel_project_protection_bypass",
+                            index: project,
+                            values: { secret },
+                          }),
+                        ),
+                      },
+                    ],
+                  },
+                },
+              })
+            : args[0] === "show"
+              ? JSON.stringify({ resource_changes: [] })
+              : "{}",
+      }),
+      fetch: vi.fn(),
+      sleep: async () => {},
+      sql: () => ({
+        execute: async () => {},
+        query: async () => [],
+        end: async () => {},
+      }),
+      stdout: (text) => log.push(...text.trimEnd().split("\n")),
+      stderr: (text) => log.push(...text.trimEnd().split("\n")),
+    });
+    const firstId = log.findIndex((line) => line.startsWith("[id="));
+    const maskedFirst = (secret: string) => {
+      const mask = log.indexOf(`::add-mask::${secret}`);
+      return mask >= 0 && mask < firstId;
+    };
+    return { code, log, passed, maskedFirst };
+  }
+
+  it("chooses a new 32-character secret, and masks it in GitHub Actions before OpenTofu prints it", async () => {
+    const { code, passed, maskedFirst } = await tofu(
+      apply,
+      "staging",
+      {},
+      { GITHUB_ACTIONS: "true" },
+    );
+    expect(code).toBe(0);
+    const secret = passed[0]?.["acme-web-staging"] ?? "";
+    expect(secret).toMatch(/^[A-Za-z0-9]{32}$/);
+    expect(maskedFirst(secret)).toBe(true);
+  });
+
+  it("keeps and masks the secret in the state, also one that no output lists yet after an apply that stopped part of the way", async () => {
+    const { passed, maskedFirst } = await tofu(
+      apply,
+      "staging",
+      { "acme-web-staging": "kept-bypass-s3cr3t" },
+      { GITHUB_ACTIONS: "true" },
+    );
+    expect(passed).toEqual([{ "acme-web-staging": "kept-bypass-s3cr3t" }]);
+    expect(maskedFirst("kept-bypass-s3cr3t")).toBe(true);
+  });
+
+  it("masks the secret of a preview before OpenTofu destroys it", async () => {
+    const { code, passed, maskedFirst } = await tofu(
+      destroy,
+      "preview-login",
+      { "acme-web-preview-login": "preview-bypass-s3cr3t" },
+      { GITHUB_ACTIONS: "true" },
+    );
+    expect(code).toBe(0);
+    expect(passed).toEqual([
+      { "acme-web-preview-login": "preview-bypass-s3cr3t" },
+    ]);
+    expect(maskedFirst("preview-bypass-s3cr3t")).toBe(true);
+  });
+
+  it("masks the secret of a bypass that apply deletes, when access goes away", async () => {
+    const { passed, maskedFirst } = await tofu(
+      apply,
+      "production",
+      { "acme-web-production": "old-bypass-s3cr3t" },
+      { GITHUB_ACTIONS: "true" },
+    );
+    expect(passed).toEqual([{}]);
+    expect(maskedFirst("old-bypass-s3cr3t")).toBe(true);
+  });
+
+  it("writes no mask outside GitHub Actions", async () => {
+    const { log, passed } = await tofu(apply, "staging", {});
+    expect(passed[0]?.["acme-web-staging"]).toMatch(/^[A-Za-z0-9]{32}$/);
+    expect(log.some((line) => line.startsWith("::add-mask::"))).toBe(false);
   });
 });

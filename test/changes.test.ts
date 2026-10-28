@@ -88,6 +88,10 @@ describe("summarize", () => {
           "site",
         ],
         [
+          'module.vercel.vercel_project_protection_bypass.this["acme-site-staging"]',
+          "site",
+        ],
+        [
           'module.vercel.vercel_project_environment_variable.this["acme-site-staging/TURBO_VIBE_API_URL"]',
           "site",
         ],
