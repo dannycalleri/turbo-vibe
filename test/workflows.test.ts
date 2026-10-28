@@ -410,13 +410,13 @@ describe("secrets", () => {
 });
 
 describe("the preview workflow", () => {
-  const sameRepository =
-    "github.event.pull_request.head.repo.full_name == github.repository";
+  const withSecrets =
+    "github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'";
 
-  it("gives a fork's pull request no preview, says why, and touches no secret", async () => {
+  it("gives a fork's pull request, or a run Dependabot starts, no preview, says why, and touches no secret", async () => {
     const { fork } = (await workflow("preview.yml")).jobs;
     expect(fork.if).toBe(
-      "github.event.pull_request.head.repo.full_name != github.repository",
+      "github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]'",
     );
     expect(fork.steps[0].run).toContain(
       "Previews are only created for pull requests from branches of this repository",
@@ -453,12 +453,8 @@ describe("the preview workflow", () => {
 
   it("deploys a branch's preview while the pull request is open, and removes it when it closes", async () => {
     const { deploy, remove } = (await workflow("preview.yml")).jobs;
-    expect(deploy.if).toBe(
-      `${sameRepository} && github.event.action != 'closed'`,
-    );
-    expect(remove.if).toBe(
-      `${sameRepository} && github.event.action == 'closed'`,
-    );
+    expect(deploy.if).toBe(`${withSecrets} && github.event.action != 'closed'`);
+    expect(remove.if).toBe(`${withSecrets} && github.event.action == 'closed'`);
     const runs = (job: { steps: { run?: string }[] }) =>
       job.steps.map((step) => step.run ?? "").join("\n");
     expect(runs(deploy)).toContain(
