@@ -49,7 +49,7 @@ An open-source kit that deploys a project's services from one `turbo-vibe.yaml`.
 
 ## Conventions
 
-- TypeScript strict on Node 24, ESM, `.js` suffixes in relative imports. `package.json` pins Node 24.12.0 for Volta and `packageManager` to that Node's npm; change dependencies with that npm, because another npm version writes the lockfile differently.
+- TypeScript strict on Node 24, ESM, `.js` suffixes in relative imports. One npm version writes and reads `npm-shrinkwrap.json`, because another npm version can write the file differently or refuse it: `package.json` pins it as `packageManager` (Dependabot reads it) and as `volta.npm` (with Node 24.12.0), and every workflow runs `npm ci` on the file through `npx --yes "npm@$NPM_VERSION"`, with `NPM_VERSION` equal to that version (a test enforces it). Adopters' own Node and npm stay as they are. To move npm, change all three together.
 - npm is the only package manager: `npm-shrinkwrap.json` is the only lockfile, used by `npm install`/`npm ci` here and shipped in the package, so adopters install the tree the tests ran on (dev entries are skipped). Dependabot updates it directly. A test fails when it no longer matches `package.json`, or when another lockfile appears. `.npmrc` sets `save-exact` (direct dependencies pinned to exact versions) and `ignore-scripts` (no dependency's install script runs); Biome's `noUndeclaredDependencies` stops imports of packages that npm's flat `node_modules` would otherwise allow.
 - Nothing external (network, child processes) runs before the config validates. Child processes go through `io.run` (output streamed) or `io.capture` (stdout returned); Postgres goes through `io.sql`. Tests fake them.
 - Never print secret values; print names.

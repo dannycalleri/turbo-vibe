@@ -54,6 +54,7 @@ on:
 env:
   TURBO_VIBE_CLI: "@turbo-vibe/cli@1.1.0" # x-release-please-version
   NODE_VERSION: "24"
+  NPM_VERSION: "11.19.1"
   TOFU_VERSION: "1.13.1"
   CONFIG: ${{ inputs.config }}
 
@@ -81,15 +82,15 @@ jobs:
           bin="$RUNNER_TEMP/turbo-vibe-bin"
           mkdir -p "$bin"
           if [ "$USE_LOCAL_CLI" = "true" ]; then
-            npm ci
+            npx --yes "npm@$NPM_VERSION" ci
             npm run build
             printf '#!/bin/sh\nexec node "%s/dist/cli.js" "$@"\n' "$GITHUB_WORKSPACE" > "$bin/turbo-vibe"
           else
-            # npx treats the package's npm-shrinkwrap.json as advice; `npm ci` in the unpacked package follows it exactly.
+            # npx treats the package's npm-shrinkwrap.json as advice; `npm ci` in the unpacked package follows it exactly, run with the npm that writes the file, because another npm version can refuse it.
             cli="$RUNNER_TEMP/turbo-vibe-cli"
             mkdir -p "$cli"
             (cd "$cli" && npm pack "$TURBO_VIBE_CLI" --silent >/dev/null && tar xzf ./*.tgz)
-            (cd "$cli/package" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund)
+            (cd "$cli/package" && npx --yes "npm@$NPM_VERSION" ci --omit=dev --ignore-scripts --no-audit --no-fund)
             printf '#!/bin/sh\nexec node "%s/package/dist/cli.js" "$@"\n' "$cli" > "$bin/turbo-vibe"
           fi
           chmod +x "$bin/turbo-vibe"
@@ -144,15 +145,15 @@ jobs:
           bin="$RUNNER_TEMP/turbo-vibe-bin"
           mkdir -p "$bin"
           if [ "$USE_LOCAL_CLI" = "true" ]; then
-            npm ci
+            npx --yes "npm@$NPM_VERSION" ci
             npm run build
             printf '#!/bin/sh\nexec node "%s/dist/cli.js" "$@"\n' "$GITHUB_WORKSPACE" > "$bin/turbo-vibe"
           else
-            # npx treats the package's npm-shrinkwrap.json as advice; `npm ci` in the unpacked package follows it exactly.
+            # npx treats the package's npm-shrinkwrap.json as advice; `npm ci` in the unpacked package follows it exactly, run with the npm that writes the file, because another npm version can refuse it.
             cli="$RUNNER_TEMP/turbo-vibe-cli"
             mkdir -p "$cli"
             (cd "$cli" && npm pack "$TURBO_VIBE_CLI" --silent >/dev/null && tar xzf ./*.tgz)
-            (cd "$cli/package" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund)
+            (cd "$cli/package" && npx --yes "npm@$NPM_VERSION" ci --omit=dev --ignore-scripts --no-audit --no-fund)
             printf '#!/bin/sh\nexec node "%s/package/dist/cli.js" "$@"\n' "$cli" > "$bin/turbo-vibe"
           fi
           chmod +x "$bin/turbo-vibe"
@@ -231,7 +232,7 @@ jobs:
           persist-credentials: false
       - name: Rebuild the CLI from the chosen commit
         if: inputs.use-local-cli
-        run: npm ci && npm run build
+        run: npx --yes "npm@$NPM_VERSION" ci && npm run build
       - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}

@@ -14,6 +14,9 @@ on:
 permissions:
   contents: read
 
+env:
+  NPM_VERSION: "11.19.1"
+
 jobs:
   check:
     name: Kit gate
@@ -30,7 +33,7 @@ jobs:
         with:
           tofu_version: "1.13.1"
           tofu_wrapper: false
-      - run: npm ci
+      - run: npx --yes "npm@$NPM_VERSION" ci
       - run: make check
       - run: make validate-infra lint-workflows integration-tests
 
