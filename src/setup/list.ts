@@ -1,5 +1,5 @@
 import { needsZeroTrust, zeroTrustPage } from "../checks/cloudflare.js";
-import type { Config } from "../config/schema.js";
+import { accessFor, type Config, environmentNames } from "../config/schema.js";
 import { promoteFromStaging } from "../contract.js";
 import { environmentSecrets } from "../deploy.js";
 import { appPublic, appSecrets, buildSecrets } from "../secrets.js";
@@ -62,6 +62,12 @@ export function setupSteps(
     ...(needsZeroTrust(config)
       ? [
           `If Zero Trust is not on yet, enable it once for the private environments: open ${zeroTrustPage}, choose a team name and the Free plan (it asks for payment details but does not charge); the checks at the end of setup say whether it is on`,
+        ]
+      : []),
+    ...(vercel &&
+    environmentNames.some((environment) => accessFor(config, environment))
+      ? [
+          "Give each person listed in a private environment's `access` a Vercel account and a place in the Vercel team: Vercel lets in the team's members, not a list of addresses. On Hobby the team has one member, so only one outside person can get in, through an access request that a member approves; `turbo-vibe check` names every listed address outside the team",
         ]
       : []),
     "If setup adds the zone to Cloudflare, set the zone's nameservers at your registrar when it prints them; that moves DNS for the whole zone",

@@ -2146,13 +2146,28 @@ describe("setup --list", () => {
     );
   });
 
-  it("names no Zero Trust step for a private project whose hostnames Vercel serves", async () => {
+  const nextjs = (environments: string) =>
+    `version: 1\nproject: acme\ndomain: acme.example.com\n${environments}services:\n  web:\n    kind: frontend\n    target: vercel-nextjs\n    build: { command: x }\n`;
+  const teamStep =
+    "Give each person listed in a private environment's `access` a Vercel account and a place in the Vercel team: Vercel lets in the team's members, not a list of addresses. On Hobby the team has one member, so only one outside person can get in, through an access request that a member approves; `turbo-vibe check` names every listed address outside the team";
+
+  it("names the Vercel team step, and no Zero Trust step, for a private project whose hostnames Vercel serves", async () => {
     const result = await run(["setup", "--list"], {
-      "turbo-vibe.yaml":
-        "version: 1\nproject: acme\ndomain: acme.example.com\nenvironments:\n  staging:\n    access: { emails: [ada@example.com] }\nservices:\n  web:\n    kind: frontend\n    target: vercel-nextjs\n    build: { command: x }\n",
+      "turbo-vibe.yaml": nextjs(
+        "environments:\n  staging:\n    access: { emails: [ada@example.com] }\n",
+      ),
     });
     expect(result.code).toBe(0);
+    expect(result.stdout).toContain(teamStep);
     expect(result.stdout).not.toContain("Zero Trust");
+  });
+
+  it("names no Vercel team step for a public project", async () => {
+    const result = await run(["setup", "--list"], {
+      "turbo-vibe.yaml": nextjs(""),
+    });
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain("place in the Vercel team");
   });
 
   it("names the accounts, plans and person steps for the project's targets, and changes nothing", async () => {
