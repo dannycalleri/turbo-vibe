@@ -28,11 +28,12 @@ variable "always_use_https" {
 
 variable "access" {
   type = object({
-    name         = string
-    domains      = list(string)
-    emails       = list(string)
-    public_paths = list(string)
-    on_account   = optional(bool, false)
+    name             = string
+    domains          = list(string)
+    emails           = list(string)
+    public_paths     = list(string)
+    on_account       = optional(bool, false)
+    preflight_bypass = optional(bool, false)
   })
   default = null
 }

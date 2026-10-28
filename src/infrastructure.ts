@@ -230,6 +230,9 @@ export function rootModule(
         emails: access.emails,
         public_paths: [buildIdPath, kitHealthPath],
         ...(accessOnAccount ? { on_account: true } : {}),
+        ...(layout(config, environment).crossOrigin
+          ? { preflight_bypass: true }
+          : {}),
       };
       root.output = {
         ...root.output,

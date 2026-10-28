@@ -114,12 +114,15 @@ resource "cloudflare_zero_trust_access_policy" "smoke" {
 resource "cloudflare_zero_trust_access_application" "this" {
   count = local.access_on_account ? 1 : 0
 
-  account_id       = var.account_id
-  name             = var.access.name
-  type             = "self_hosted"
-  domain           = var.access.domains[0]
-  destinations     = [for domain in var.access.domains : { type = "public", uri = domain }]
-  session_duration = "24h"
+  account_id                 = var.account_id
+  name                       = var.access.name
+  type                       = "self_hosted"
+  domain                     = var.access.domains[0]
+  destinations               = [for domain in var.access.domains : { type = "public", uri = domain }]
+  session_duration           = "24h"
+  options_preflight_bypass   = var.access.preflight_bypass
+  same_site_cookie_attribute = "lax"
+  http_only_cookie_attribute = true
   policies = [
     { id = cloudflare_zero_trust_access_policy.smoke[0].id, precedence = 1 },
     { id = cloudflare_zero_trust_access_policy.people[0].id, precedence = 2 },
@@ -130,12 +133,15 @@ resource "cloudflare_zero_trust_access_application" "this" {
 resource "cloudflare_zero_trust_access_application" "zone" {
   count = local.access_on_zone ? 1 : 0
 
-  zone_id          = var.zone_id
-  name             = var.access.name
-  type             = "self_hosted"
-  domain           = var.access.domains[0]
-  destinations     = [for domain in var.access.domains : { type = "public", uri = domain }]
-  session_duration = "24h"
+  zone_id                    = var.zone_id
+  name                       = var.access.name
+  type                       = "self_hosted"
+  domain                     = var.access.domains[0]
+  destinations               = [for domain in var.access.domains : { type = "public", uri = domain }]
+  session_duration           = "24h"
+  options_preflight_bypass   = var.access.preflight_bypass
+  same_site_cookie_attribute = "lax"
+  http_only_cookie_attribute = true
   policies = [{
     name       = "${var.access.name} people"
     decision   = "allow"
@@ -157,6 +163,8 @@ resource "cloudflare_zero_trust_access_application" "probes" {
       for path in var.access.public_paths : { type = "public", uri = "${domain}${path}" }
     ]
   ])
+  same_site_cookie_attribute = "lax"
+  http_only_cookie_attribute = true
   policies = [{
     name       = "${var.access.name} smoke"
     decision   = "bypass"
