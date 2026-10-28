@@ -289,7 +289,7 @@ export const cloudflareContainer: Adapter = {
           ...(paths.some((path) => kitHealthPath.startsWith(path))
             ? []
             : [`${context.hostname}${kitHealthPath}`]),
-          `${context.hostname}/_turbo-vibe/sign-in`,
+          `${context.hostname}/_turbo-vibe/sign-in*`,
         ];
     return {
       cloudflare: {
