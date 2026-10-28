@@ -1,7 +1,8 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
-import { checkBuildId } from "../smoke.js";
+import { accessFor } from "../config/schema.js";
+import { checkBuildId, type SmokeResult } from "../smoke.js";
 import {
   recordedOrBuilt,
   runBuildCommand,
@@ -13,6 +14,7 @@ import type {
   DeployContext,
   DeployResult,
   ServiceContext,
+  SmokeContext,
 } from "./types.js";
 import { buildIdPath, runtimeConfigPath } from "./wrangler.js";
 
@@ -130,10 +132,25 @@ async function storeSecrets(
   return 0;
 }
 
-function smoke(context: Parameters<NonNullable<Adapter["smoke"]>>[0]) {
+async function smoke(context: SmokeContext): Promise<SmokeResult> {
+  let headers: Record<string, string> | undefined;
+  if (accessFor(context.config, context.environment)) {
+    const secret = (
+      context.outputs?.vercel_protection_bypass as
+        | Record<string, unknown>
+        | undefined
+    )?.[vercelProject(context)];
+    if (typeof secret !== "string")
+      return {
+        ok: false,
+        message: `no protection bypass for the Vercel project of ${context.name} in ${context.environment}; run apply first`,
+      };
+    headers = { "x-vercel-protection-bypass": secret };
+  }
   return checkBuildId(
     {
       url: `https://${context.hostname}${buildIdPath}`,
+      ...(headers ? { headers } : {}),
       read: async (response) => (await response.text()).trim(),
     },
     context.buildId,

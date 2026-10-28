@@ -2,7 +2,7 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { adapterFor, adapters } from "./adapters/index.js";
 import type { ServiceContext } from "./adapters/types.js";
-import { missingVariables, readOutputs } from "./apply.js";
+import { maskCredentials, missingVariables, readOutputs } from "./apply.js";
 import {
   BuildStore,
   buildsBucket,
@@ -10,7 +10,11 @@ import {
   isBuildId,
   type Outputs,
 } from "./builds.js";
-import type { Config, EnvironmentName } from "./config/schema.js";
+import {
+  accessFor,
+  type Config,
+  type EnvironmentName,
+} from "./config/schema.js";
 import { stateSecrets } from "./contract.js";
 import {
   type Connection,
@@ -20,7 +24,6 @@ import {
 import { requiredSecrets } from "./infrastructure.js";
 import type { Io } from "./io.js";
 import {
-  accessFor,
   analyticsFor,
   callbackUrl,
   hostOf,
@@ -526,20 +529,27 @@ function analyticsTokenMissing(
   return true;
 }
 
-// Only an environment made private with turbo-vibe 1.0 has a service token: newer ones let the probes through.
-async function accessHeaders(
+async function privateOutputs(
   config: Config,
   environment: EnvironmentName,
   io: Io,
-): Promise<Record<string, string> | undefined | null> {
+): Promise<Record<string, unknown> | undefined | null> {
   if (!accessFor(config, environment)) return undefined;
   const outputs = await readOutputs(config, environment, io);
   if (!outputs) {
     io.stderr(`cannot read the current ${environment} outputs\n`);
     return null;
   }
-  const id = outputs.access_client_id;
-  const secret = outputs.access_client_secret;
+  maskCredentials(outputs, [], io);
+  return outputs;
+}
+
+// Only an environment made private with turbo-vibe 1.0 has a service token: newer ones let the probes through.
+function accessHeaders(
+  outputs: Readonly<Record<string, unknown>> | undefined,
+): Record<string, string> | undefined {
+  const id = outputs?.access_client_id;
+  const secret = outputs?.access_client_secret;
   if (typeof id !== "string" || typeof secret !== "string") return undefined;
   return { "cf-access-client-id": id, "cf-access-client-secret": secret };
 }
@@ -552,8 +562,9 @@ export async function smoke(
 ): Promise<number> {
   const records = environment === "staging";
   if (records && missingVariables(stateSecrets, io)) return 1;
-  const headers = await accessHeaders(config, environment, io);
-  if (headers === null) return 1;
+  const outputs = await privateOutputs(config, environment, io);
+  if (outputs === null) return 1;
+  const headers = accessHeaders(outputs);
   let failed = false;
   for (const context of contexts(config, environment)) {
     const adapter = adapterFor(context.service.target);
@@ -563,6 +574,7 @@ export async function smoke(
       buildId,
       io,
       ...(headers ? { headers } : {}),
+      ...(outputs ? { outputs } : {}),
     });
     (result.ok ? io.stdout : io.stderr)(
       `${result.ok ? "ok" : "FAIL"} ${context.name}: ${result.message}\n`,

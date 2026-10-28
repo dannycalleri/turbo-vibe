@@ -9,12 +9,13 @@ import type {
 } from "./adapters/types.js";
 import { buildIdPath, kitHealthPath } from "./adapters/wrangler.js";
 import {
+  accessFor,
   type Config,
   type EnvironmentName,
   isPreview,
 } from "./config/schema.js";
 import { stateSecrets, supabaseOrganization } from "./contract.js";
-import { accessFor, analyticsFor, hostOf, layout } from "./origins.js";
+import { analyticsFor, hostOf, layout } from "./origins.js";
 
 const cloudflareModule = fileURLToPath(
   new URL("../infra/cloudflare", import.meta.url),
@@ -119,7 +120,23 @@ type S3Backend = Record<string, unknown> & { key: string };
 export interface RootModule {
   terraform: { backend: { s3: S3Backend } };
   module: Record<string, { source: string } & Record<string, unknown>>;
+  variable?: Record<
+    string,
+    { type: string; sensitive: boolean; default: Record<string, never> }
+  >;
   output?: Record<string, { value: string; sensitive?: boolean }>;
+}
+
+export const bypassVariable = "vercel_protection_bypass";
+
+export function privateVercelProjects(
+  config: Config,
+  environment: EnvironmentName,
+): string[] {
+  if (!accessFor(config, environment)) return [];
+  return Object.keys(
+    composeInfrastructure(config, environment).vercel?.projects ?? {},
+  );
 }
 
 export interface BranchedDatabase {
@@ -246,14 +263,34 @@ export function rootModule(
     };
   }
   if (infrastructure.vercel) {
+    const access = accessFor(config, environment);
     root.module.vercel = {
       source: vercelModule,
       team_id: env.VERCEL_TEAM_ID,
-      ...infrastructure.vercel,
+      projects: access
+        ? Object.fromEntries(
+            Object.entries(infrastructure.vercel.projects).map(
+              ([name, project]) => [name, { ...project, private: true }],
+            ),
+          )
+        : infrastructure.vercel.projects,
+      ...(access ? { bypass_secrets: `\${var.${bypassVariable}}` } : {}),
     };
+    if (access)
+      root.variable = {
+        [bypassVariable]: { type: "map(string)", sensitive: true, default: {} },
+      };
     root.output = {
       ...root.output,
       vercel_project_ids: { value: `\${module.vercel.project_ids}` },
+      ...(access
+        ? {
+            vercel_protection_bypass: {
+              value: `\${module.vercel.protection_bypass}`,
+              sensitive: true,
+            },
+          }
+        : {}),
     };
   }
   for (const [name, inputs] of Object.entries(infrastructure.workos ?? {})) {

@@ -1,11 +1,12 @@
 import { adapterFor } from "../adapters/index.js";
 import {
+  accessFor,
   type Config,
   type EnvironmentName,
   environmentNames,
   isPreview,
 } from "../config/schema.js";
-import { accessFor, analyticsFor } from "../origins.js";
+import { analyticsFor } from "../origins.js";
 import type { Check, CheckContext, Finding } from "./types.js";
 import { fail, missing, ok, warn } from "./types.js";
 

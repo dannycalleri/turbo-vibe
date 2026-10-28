@@ -3,6 +3,20 @@ resource "vercel_project" "this" {
 
   team_id = var.team_id
   name    = each.key
+
+  # Written down for a public project too, or removing `access` would leave "All Deployments" on.
+  vercel_authentication = {
+    deployment_type = each.value.private ? "all_deployments" : "standard_protection_new"
+  }
+}
+
+resource "vercel_project_protection_bypass" "this" {
+  for_each = { for name, settings in var.projects : name => settings if settings.private }
+
+  team_id    = var.team_id
+  project_id = vercel_project.this[each.key].id
+  note       = "turbo-vibe smoke test"
+  secret     = var.bypass_secrets[each.key]
 }
 
 resource "vercel_project_domain" "this" {

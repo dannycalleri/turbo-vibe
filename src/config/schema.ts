@@ -186,3 +186,12 @@ export const configSchema = z.strictObject({
 export type Config = z.infer<typeof configSchema>;
 export type Access = z.infer<typeof access>;
 export type Service = Config["services"][string];
+
+// A preview is guarded like staging, whose code it runs before merge.
+export function accessFor(
+  config: Config,
+  environment: EnvironmentName,
+): Access | undefined {
+  return config.environments?.[isPreview(environment) ? "staging" : environment]
+    ?.access;
+}

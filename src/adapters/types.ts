@@ -49,6 +49,7 @@ export interface DeployResult {
 export interface SmokeContext extends ServiceContext {
   buildId: string;
   headers?: Readonly<Record<string, string>>;
+  outputs?: Readonly<Record<string, unknown>>;
   io: Io;
 }
 
@@ -61,7 +62,7 @@ export interface CloudflareInputs {
 export interface VercelInputs {
   projects: Record<
     string,
-    { domain: string; environment: Record<string, string> }
+    { domain: string; environment: Record<string, string>; private?: true }
   >;
 }
 
