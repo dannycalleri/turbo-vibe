@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   healthModule,
   routingModule,
+  signInModule,
   workerEntry,
   wranglerConfig,
 } from "../src/adapters/wrangler.js";
@@ -209,6 +210,21 @@ describe("workerEntry", () => {
     expect(instanceName(plain)).toBe("default@abc123000000");
   });
 
+  it("answers the sign-in path only when it is given the page's origins", () => {
+    expect(workerEntry(backend, 8080, buildId)).not.toContain("sign-in");
+    const entry = workerEntry(
+      backend,
+      8080,
+      buildId,
+      [],
+      ["https://staging.example.com"],
+    );
+    expect(entry).toContain('import { signIn } from "./sign-in.js";');
+    expect(entry).toContain(
+      'return signIn(request, ["https://staging.example.com"]);',
+    );
+  });
+
   it("sleeps after the configured idle time, five minutes by default", () => {
     expect(workerEntry(backend, 8080, buildId)).toContain('sleepAfter = "5m"');
     expect(
@@ -360,6 +376,51 @@ describe("the generated health module", () => {
     expect(await response.json()).toEqual({
       error: "/: Error: the container is not running",
     });
+  });
+});
+
+describe("the generated sign-in module", () => {
+  const page = "https://staging.example.com";
+
+  async function signIn(value?: string): Promise<Response> {
+    const module = await import(
+      `data:text/javascript,${encodeURIComponent(signInModule)}`
+    );
+    const url = new URL("https://api.staging.example.com/_turbo-vibe/sign-in");
+    if (value !== undefined) url.searchParams.set("return", value);
+    return module.signIn(new Request(url), [page]);
+  }
+
+  it("sends the person back to a page of the environment, and nothing caches the answer", async () => {
+    const response = await signIn(`${page}/orders?id=7`);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(`${page}/orders?id=7`);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it.each([
+    ["another origin", "https://evil.example/"],
+    ["an allowed origin followed by another domain", `${page}.evil.example/`],
+    ["an allowed origin before @", `${page}@evil.example/`],
+    ["a scheme-relative URL", "//evil.example/"],
+    ["backslashes", "https:\\\\evil.example/"],
+    ["http with an allowed host", "http://staging.example.com/"],
+    ["a script", "javascript:alert(1)"],
+    ["no URL at all", ""],
+  ])("refuses %s", async (_case, value) => {
+    const response = await signIn(value);
+    expect(response.status).toBe(400);
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("refuses a request without return", async () => {
+    expect((await signIn()).status).toBe(400);
+  });
+
+  it("never lets a line break in return add a header", async () => {
+    const response = await signIn(`${page}/\r\nSet-Cookie: a=b`);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("location")).toBe(`${page}/Set-Cookie:%20a=b`);
   });
 });
 

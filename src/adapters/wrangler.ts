@@ -20,6 +20,7 @@ const containersModule = fileURLToPath(
 export const compatibilityDate = "2026-10-01";
 export const buildIdPath = "/_turbo-vibe/build-id";
 export const kitHealthPath = "/_turbo-vibe/health";
+export const signInPath = "/_turbo-vibe/sign-in";
 export const runtimeConfigPath = "/_turbo-vibe/config.json";
 
 // With several instances, Cloudflare's rollout can leave a long-lived instance on the old image for minutes after it reports completion; an instance named after the build starts on the new image, so the switch is immediate.
@@ -69,11 +70,30 @@ export const healthModule = `export async function health(container, url, path, 
 }
 `;
 
+// Behind Access, so only a signed-in person reaches it.
+export const signInModule = `export function signIn(request, origins) {
+  let target;
+  try {
+    target = new URL(new URL(request.url).searchParams.get("return"));
+  } catch {}
+  if (!target || target.protocol !== "https:" || !origins.includes(target.origin))
+    return new Response("return must be a page of this environment\\n", {
+      status: 400,
+      headers: { "Cache-Control": "no-store" },
+    });
+  return new Response(null, {
+    status: 302,
+    headers: { Location: target.href, "Cache-Control": "no-store" },
+  });
+}
+`;
+
 export function workerEntry(
   backend: Backend,
   port: number,
   buildId: string,
   secretNames: readonly string[] = [],
+  signInOrigins?: readonly string[],
 ): string {
   const sleepAfter = backend.container?.sleep_after ?? "5m";
   const probe = backend.container?.health;
@@ -83,7 +103,7 @@ export function workerEntry(
   return `import { Container, getContainer } from ${JSON.stringify(containersModule)};
 import { health } from "./health.js";
 import { instanceName } from "./routing.js";
-
+${signInOrigins ? `import { signIn } from "./sign-in.js";\n` : ""}
 export class Backend extends Container {
   defaultPort = ${port};
   sleepAfter = ${JSON.stringify(sleepAfter)};
@@ -96,7 +116,13 @@ export class Backend extends Container {
 
 export default {
   fetch(request, env) {
-    if (new URL(request.url).pathname === ${JSON.stringify(kitHealthPath)}) {
+${
+  signInOrigins
+    ? `    if (new URL(request.url).pathname === ${JSON.stringify(signInPath)})
+      return signIn(request, ${JSON.stringify(signInOrigins)});
+`
+    : ""
+}    if (new URL(request.url).pathname === ${JSON.stringify(kitHealthPath)}) {
       const plain = new Request(new URL("/", request.url));
       return health(getContainer(env.BACKEND, instanceName(plain)), request.url, ${JSON.stringify(probe ?? "/")}, ${probe !== undefined}, ${JSON.stringify(buildId)});
     }
@@ -114,6 +140,7 @@ export type WorkerSpec = {
   configDir: string;
   assets?: string;
   notFound?: "spa" | "404-page";
+  signInOrigins?: readonly string[];
 } & ({ backend?: undefined } | { backend: Backend; port: number });
 
 export function wranglerConfig(spec: WorkerSpec): Record<string, unknown> {
@@ -180,9 +207,17 @@ export async function writeWorker(
   if (spec.backend) {
     await writeFile(
       join(dir, "worker.js"),
-      workerEntry(spec.backend, spec.port, spec.buildId, spec.secretNames),
+      workerEntry(
+        spec.backend,
+        spec.port,
+        spec.buildId,
+        spec.secretNames,
+        spec.signInOrigins,
+      ),
     );
     await writeFile(join(dir, "health.js"), healthModule);
+    if (spec.signInOrigins)
+      await writeFile(join(dir, "sign-in.js"), signInModule);
     await writeFile(
       join(dir, "routing.js"),
       routingModule(spec.backend, spec.buildId),

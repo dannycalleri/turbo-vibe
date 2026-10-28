@@ -483,21 +483,46 @@ describe("access", () => {
     });
   });
 
+  const crossOrigin = config(
+    `${api}  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n`,
+  );
+  // Built by hand: the validator does not accept `access` on this layout yet.
+  const privateCrossOrigin: Config = {
+    ...crossOrigin,
+    environments: { staging: { access: { emails: ["ada@example.com"] } } },
+  };
+
   it("lets the preflight of a page on another origin through Access", () => {
-    const site = config(
-      `${api}  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n`,
-    );
-    // Built by hand: the validator does not accept `access` on this layout yet.
-    const privateSite: Config = {
-      ...site,
-      environments: { staging: { access: { emails: ["ada@example.com"] } } },
-    };
     expect(
-      rootModule(privateSite, "staging", {}).module.cloudflare?.access,
+      rootModule(privateCrossOrigin, "staging", {}).module.cloudflare?.access,
     ).toMatchObject({
       domains: ["api.staging.acme.example.com"],
       preflight_bypass: true,
     });
+  });
+
+  it("routes the sign-in path of a private backend on another origin, with its query, and keeps it behind Access", () => {
+    expect(
+      composeInfrastructure(privateCrossOrigin, "staging").cloudflare?.workers,
+    ).toEqual({
+      "acme-api-staging": {
+        routes: [
+          "api.staging.acme.example.com/api/*",
+          "api.staging.acme.example.com/_turbo-vibe/health",
+          "api.staging.acme.example.com/_turbo-vibe/sign-in*",
+        ],
+      },
+    });
+    expect(
+      rootModule(privateCrossOrigin, "staging", {}).module.cloudflare?.access,
+    ).toMatchObject({
+      public_paths: ["/_turbo-vibe/build-id", "/_turbo-vibe/health"],
+    });
+    expect(
+      composeInfrastructure(crossOrigin, "staging").cloudflare?.workers?.[
+        "acme-api-staging"
+      ]?.routes,
+    ).not.toContain("api.staging.acme.example.com/_turbo-vibe/sign-in*");
   });
 
   it("keeps Access in front of every preflight on a single origin", () => {

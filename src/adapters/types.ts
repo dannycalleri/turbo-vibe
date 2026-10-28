@@ -15,6 +15,7 @@ export interface ServiceContext {
   environment: EnvironmentName;
   hostname: string;
   backendHostname: string;
+  allowedOrigins?: readonly string[];
   managedRedirectUris?: readonly string[];
 }
 
