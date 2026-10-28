@@ -461,22 +461,6 @@ function crossCheck(config: Config, catalog: TargetCatalog): Located[] {
     }
   }
   for (const environment of environmentNames) {
-    if (!config.environments?.[environment]?.access) continue;
-    const frontend = Object.entries(config.services).find(
-      ([, service]) => catalog[service.target]?.crossOrigin,
-    );
-    const backend = Object.entries(config.services).find(
-      ([, service]) =>
-        service.kind === "backend" && service.target.startsWith("cloudflare-"),
-    );
-    if (frontend && backend) {
-      problems.push({
-        path: ["environments", environment, "access"],
-        message: `${environment} cannot be private: frontend \`${frontend[0]}\` on ${frontend[1].target} calling backend \`${backend[0]}\` on ${backend[1].target} from another origin is not supported yet`,
-      });
-    }
-  }
-  for (const environment of environmentNames) {
     if (!config.environments?.[environment]?.analytics) continue;
     const pages = Object.values(config.services).some(
       (service) => service.target === "cloudflare-static",

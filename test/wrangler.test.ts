@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  guardModule,
   healthModule,
   routingModule,
   signInModule,
@@ -421,6 +422,112 @@ describe("the generated sign-in module", () => {
     const response = await signIn(`${page}/\r\nSet-Cookie: a=b`);
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(response.headers.get("location")).toBe(`${page}/Set-Cookie:%20a=b`);
+  });
+});
+
+describe("the generated Worker of a private backend on another origin", () => {
+  const page = "https://staging.example.com";
+  const api = "https://api.staging.example.com/api/orders";
+  const buildId = "abc1230000000000000000000000000000000000";
+
+  async function worker(origins?: string[]) {
+    const dir = await mkdtemp(join(tmpdir(), "turbo-vibe-worker-"));
+    const entry = workerEntry(backend, 8080, buildId, [], origins).replace(
+      /^import \{ Container, getContainer \} from .*$/m,
+      'import { Container, getContainer } from "./containers.mjs";',
+    );
+    const modules = {
+      "containers.mjs":
+        "export class Container {}\nexport const getContainer = (namespace) => namespace;\n",
+      "worker.mjs": entry
+        .replaceAll("./health.js", "./health.mjs")
+        .replaceAll("./routing.js", "./routing.mjs")
+        .replaceAll("./guard.js", "./guard.mjs")
+        .replaceAll("./sign-in.js", "./sign-in.mjs"),
+      "health.mjs": healthModule,
+      "routing.mjs": routingModule(backend, buildId),
+      "guard.mjs": guardModule,
+      "sign-in.mjs": signInModule,
+    };
+    for (const [name, text] of Object.entries(modules))
+      await writeFile(join(dir, name), text);
+    const reached: string[] = [];
+    const container = {
+      fetch: async (request: Request) => {
+        reached.push(request.method);
+        return new Response("from the container");
+      },
+    };
+    const module = (await import(pathToFileURL(join(dir, "worker.mjs")).href))
+      .default as {
+      fetch: (request: Request, env: unknown) => Promise<Response> | Response;
+    };
+    return {
+      reached,
+      send: (method: string, headers: Record<string, string> = {}) =>
+        module.fetch(new Request(api, { method, headers }), {
+          BACKEND: container,
+        }),
+    };
+  }
+
+  it("allows the page's preflight itself, with what the browser asked for", async () => {
+    const { reached, send } = await worker([page]);
+    const response = await send("OPTIONS", {
+      Origin: page,
+      "Access-Control-Request-Method": "PUT",
+      "Access-Control-Request-Headers": "content-type, x-trace",
+    });
+    expect(response.status).toBe(204);
+    expect(Object.fromEntries(response.headers)).toEqual({
+      "access-control-allow-origin": page,
+      "access-control-allow-credentials": "true",
+      "access-control-allow-methods": "PUT",
+      "access-control-allow-headers": "content-type, x-trace",
+      vary: "Origin",
+    });
+    expect(reached).toEqual([]);
+  });
+
+  it.each([
+    [
+      "from another origin",
+      {
+        Origin: "https://evil.example",
+        "Access-Control-Request-Method": "POST",
+      },
+    ],
+    ["without Origin", {}],
+  ])("answers a preflight %s without allowing it", async (_case, headers) => {
+    const { reached, send } = await worker([page]);
+    const response = await send("OPTIONS", headers);
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    expect(reached).toEqual([]);
+  });
+
+  it("refuses a write from another origin, which a page on the same site could send with the cookie", async () => {
+    const { reached, send } = await worker([page]);
+    const response = await send("POST", { Origin: "https://blog.example.com" });
+    expect(response.status).toBe(403);
+    expect(reached).toEqual([]);
+  });
+
+  it("passes a write from the page, and one without Origin, to the container", async () => {
+    const { reached, send } = await worker([page]);
+    expect((await send("POST", { Origin: page })).status).toBe(200);
+    expect((await send("POST")).status).toBe(200);
+    expect((await send("GET", { Origin: "https://evil.example" })).status).toBe(
+      200,
+    );
+    expect(reached).toEqual(["POST", "POST", "GET"]);
+  });
+
+  it("passes OPTIONS and writes to the container in a public environment", async () => {
+    const { reached, send } = await worker();
+    await send("OPTIONS", { Origin: "https://evil.example" });
+    await send("POST", { Origin: "https://evil.example" });
+    expect(reached).toEqual(["OPTIONS", "POST"]);
   });
 });
 

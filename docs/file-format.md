@@ -111,6 +111,5 @@ These need more than one field, or the list of adapters, so the JSON Schema cann
 - **Instance routing.** `instance_from` needs `max_instances` of 3 or more, because during a deploy the previous build's instances still count until they stop, and `max_instances` above 1 needs `instance_from`.
 - **`staging: branch`** needs `plan: paid`.
 - **Previews with a database** need `plan: paid`. `preview deploy` does not fail without it: it prints why there is no preview and exits successfully, so a pull request still passes.
-- **Private environments.** `access` refuses a frontend on `vercel-static` or `vercel-nextjs` beside a backend on a Cloudflare target, because the page calls the backend from another origin: that layout cannot be private yet.
 - **Analytics** needs a `cloudflare-static` frontend, whose pages carry the beacon.
 - **Hostnames.** No two environments share a hostname, nor an environment and an API hostname, and an API hostname must be under the frontend hostname's parent domain, so the browser treats the two as one site and sends the API's sign-in cookie with the frontend's requests.

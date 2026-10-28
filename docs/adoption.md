@@ -51,7 +51,7 @@ services:
 
 Leave out `web` if there is no frontend. If the frontend runs on Vercel (`target: vercel-static`), the backend moves to its own API hostname. In that case, follow the reference's [Static frontends on Vercel](reference.md#static-frontends-on-vercel-beta): set `api_hostname` per environment, make the backend refuse origins other than `ALLOWED_ORIGINS`, and have the page read its API URL from `/_turbo-vibe/config.json`. Add `db` (`target: supabase`) and `auth` (`target: workos`) as described in the [reference](reference.md#databases) when you need them.
 
-To make staging or production private, give it `access: { emails: [you@example.com] }`. On Cloudflare, only the listed people get in, with a one-time code. On Vercel, the members of your Vercel team get in, so each listed person also needs a place in the team. The reference's [Private environments](reference.md#private-environments) says what each gate lets through. A frontend on `vercel-static` or `vercel-nextjs` beside a backend on a Cloudflare target cannot be private yet.
+To make staging or production private, give it `access: { emails: [you@example.com] }`. On Cloudflare, only the listed people get in, with a one-time code. On Vercel, the members of your Vercel team get in, so each listed person also needs a place in the team. The reference's [Private environments](reference.md#private-environments) says what each gate lets through.
 
 Cloudflare's free certificate covers the apex and names one level below it. `staging.myapp.example.com` is two levels below `example.com` and would fail TLS. That is why the example sets `staging-myapp.example.com` instead.
 
