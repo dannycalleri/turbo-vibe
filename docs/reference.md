@@ -109,15 +109,17 @@ A project set up before this setting existed lacks Zone Settings: Edit. Run `set
 
 ## Private environments
 
-An environment with `access.emails` is private. Its hostnames answer only the listed people:
+An environment with `access.emails` is private. You write the list once, and the kit chooses the gate for each hostname: Cloudflare Access for a hostname that Cloudflare serves, and Vercel Authentication for a hostname that Vercel serves ([On Vercel](#on-vercel) below). A preview uses the `access` of staging.
+
+On a hostname that Cloudflare serves, only the listed people get in:
 
 1. A person opens the environment's hostname.
 2. Cloudflare Access asks for an email address, and sends a one-time code to a listed address.
 3. After the person enters the code, the page loads. The session lasts 24 hours.
 
-`apply` creates one Access application on the project's zone for all of the environment's Cloudflare hostnames, with a policy for the people. A second application lets everyone through on the two paths the smoke test reads, `/_turbo-vibe/build-id` and `/_turbo-vibe/health`. Thus on a private environment those two paths are public, and every other path asks for the one-time code. The smoke test needs no Access credential. A preview uses the `access` of staging.
+`apply` creates one Access application on the project's zone for all of the environment's Cloudflare hostnames, with a policy for the people. A second application lets everyone through on the two paths the smoke test reads, `/_turbo-vibe/build-id` and `/_turbo-vibe/health`. Thus on a private environment those two paths are public, and every other path asks for the one-time code. The smoke test needs no Access credential.
 
-Access needs Zero Trust on the account. Enable it once:
+Access needs Zero Trust on the account. A project with no service on a Cloudflare target needs no Zero Trust. Enable it once:
 
 1. Open the [Zero Trust dashboard](https://one.dash.cloudflare.com/).
 2. Choose a team name.
@@ -126,6 +128,40 @@ Access needs Zero Trust on the account. Enable it once:
 `setup --list` names this step for when Zero Trust is not on yet, and `check` fails until it is done. Every CI token that `setup` creates has Access: Apps and Policies: Edit on the project's zone, whether an environment is private or not, so making one private needs no new token. A token created by an older turbo-vibe lacks it: run `setup` once and answer y to "Add missing permissions to the Cloudflare CI tokens?". It adds the permission to the same token, so nothing is stored again. It updates only the environments that run handles: for one that `setup --env` set up, such as `live`, run `setup --env live` and answer y as well. Until then, `apply` fails on the Access resources, and `check` names the missing permission.
 
 An environment that was private with turbo-vibe 1.0 keeps its Access resources on the account: one application, two account policies, and a service token, which `smoke` sends as `CF-Access-Client-Id` and `CF-Access-Client-Secret`. Upgrading changes nothing for it, and its two probe paths stay private. A new preview of such a staging gets the same resources when its CI token reaches Access on the account only. To move the environment to the zone, remove its `access`, run its workflow once with `allow-deletions`, and add `access` again.
+
+### On Vercel
+
+For a private environment, `apply` sets Vercel Authentication on the "All Deployments" scope on each Vercel project of the environment. The scope covers the environment's own hostname too, not only the `*.vercel.app` URLs. It is free on every Vercel plan. A person who is not signed in to Vercel, or who has no access to the project, gets Vercel's sign-in page instead of the app.
+
+For an environment without `access`, `apply` sets Standard Protection, Vercel's default for a new project: the environment's hostname is public, and the generated `*.vercel.app` URLs ask for a Vercel sign-in. Thus a public environment keeps the protection it had.
+
+Vercel Authentication has no list of addresses. These people get in:
+
+- every member of the Vercel team in `VERCEL_TEAM_ID`;
+- a Vercel user whose access request a member approved;
+- anyone with a shareable link that a member created.
+
+Thus on Vercel, `access.emails` names the people who must get in. Give each listed person a Vercel account and a place in the team. The kit never invites anybody. On the Hobby plan, the team has one member, and only one outside person can get in, through an access request.
+
+A frontend on `vercel-static` or `vercel-nextjs` beside a backend on a Cloudflare target cannot be private yet: the page calls the backend from another origin, and validation refuses `access` for that layout.
+
+#### The bypass secret for the smoke test
+
+For a private environment, `apply` also creates a protection bypass for automation on each Vercel project. `apply` chooses its secret, 32 random letters and digits, and keeps it on later runs. It does not let Vercel choose one, because OpenTofu prints each resource's ID and the bypass's ID holds its secret. The secret is in the OpenTofu state, in the environment's state bucket, as the sensitive output `vercel_protection_bypass`, beside the other credentials of the state. `smoke` sends it as `x-vercel-protection-bypass` to read `/_turbo-vibe/build-id`, so the smoke test and promotion work on a private environment. In GitHub Actions, `apply`, `smoke` and a preview's removal mask the secret before OpenTofu or the command writes any other line, so the log shows `***` in its place. When the outputs hold no secret for a project, `smoke` fails and asks for `apply`.
+
+The secret opens every page of the project, not only the build ID. Vercel also gives it to each deployment of the project as `VERCEL_AUTOMATION_BYPASS_SECRET`, so server code of a `vercel-nextjs` app can read it: an app must never return its environment variables. To replace a leaked secret, remove `access` from the environment and add it again, each time through the environment's workflow (the removal with `allow-deletions`). Between the two runs, the environment is public.
+
+### Shutting a person out
+
+A Cloudflare Access session lasts 24 hours, and the kit cannot end one early. To shut a person out at once:
+
+1. When the environment has a Vercel service: remove them from the Vercel team, revoke their approved access request in the Vercel project's settings, and revoke every shareable link of the project that they may hold.
+2. Remove their address from `access.emails`, and apply.
+3. In the [Zero Trust dashboard](https://one.dash.cloudflare.com/), revoke the person's sessions under Users, when the environment has a Cloudflare service.
+
+### Making an environment public again
+
+Removing `access` deletes resources: the Access applications on Cloudflare, and the bypass of each Vercel project, which returns to Standard Protection. `apply` refuses deletions, so run the environment's workflow once with `allow-deletions`, or pass `--allow-deletions` to `apply`.
 
 ### Search engines index only production
 
