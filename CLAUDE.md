@@ -5,14 +5,13 @@ An open-source kit that deploys a project's services from one `turbo-vibe.yaml`.
 ## Commands
 
 - `make check` — the gate for every commit: `biome ci .`, `tsc --noEmit`, `vitest run`.
-- `make build` — runs `pnpm build`, which empties `dist/` and compiles `src/` into it with `tsc -p tsconfig.build.json` (one `.js` per source file, no bundler; the runtime dependencies are installed with the package). `dist/cli.js` keeps the `#!/usr/bin/env node` line of `src/cli.ts`.
+- `make build` — runs `npm run build`, which empties `dist/` and compiles `src/` into it with `tsc -p tsconfig.build.json` (one `.js` per source file, no bundler; the runtime dependencies are installed with the package). `dist/cli.js` keeps the `#!/usr/bin/env node` line of `src/cli.ts`.
 - `make compatibility` — regenerates `COMPATIBILITY.md` (pinned versions per adapter, last live pass) through the hidden `turbo-vibe compatibility` command; a test fails when a pin changed and the file was not regenerated.
-- `make shrinkwrap` — regenerates `npm-shrinkwrap.json`, the published package's pinned dependency tree; a test fails when it no longer matches `package.json` or pins a version `pnpm-lock.yaml` lacks (then update pnpm's lock, or add an npm `overrides` entry, and rerun it).
 - `make schema` — regenerates `schema/turbo-vibe.schema.json` (shipped in the npm package) from the zod schema through the hidden `turbo-vibe schema` command; a test fails when the committed file is stale.
 - `make integration` — `validate-infra`, `lint-workflows` (`actionlint`, local or the pinned Docker image), `integration-tests` (`test/integration/`, against real Postgres in Docker), and `dry-run-example` (a real `wrangler deploy --dry-run` of each example under `examples/` that deploys to Cloudflare, building their images with Docker). Not part of `make check`.
 - `make validate-infra` — `tofu init -backend=false && tofu validate` on every module under `infra/`; uses a local `tofu` if present, otherwise the pinned OpenTofu Docker image.
-- `pnpm exec vitest run test/<file>.test.ts` — one test file.
-- `pnpm exec biome check --write .` — format and fix lint.
+- `npx vitest run test/<file>.test.ts` — one test file.
+- `npx biome check --write .` — format and fix lint.
 
 ## Layout
 
@@ -50,8 +49,8 @@ An open-source kit that deploys a project's services from one `turbo-vibe.yaml`.
 
 ## Conventions
 
-- TypeScript strict on Node 24, ESM, `.js` suffixes in relative imports. `package.json` pins Node 24.12.0 for Volta: `make shrinkwrap` must run with the npm adopters' CI uses (Node 24's npm 11), because a newer npm resolves a different tree.
-- Direct dependencies are pinned to exact versions (`.npmrc` sets `save-exact`); commit `pnpm-lock.yaml`.
+- TypeScript strict on Node 24, ESM, `.js` suffixes in relative imports. `package.json` pins Node 24.12.0 for Volta and `packageManager` to that Node's npm; change dependencies with that npm, because another npm version writes the lockfile differently.
+- npm is the only package manager: `npm-shrinkwrap.json` is the only lockfile, used by `npm install`/`npm ci` here and shipped in the package, so adopters install the tree the tests ran on (dev entries are skipped). Dependabot updates it directly. A test fails when it no longer matches `package.json`, or when another lockfile appears. `.npmrc` sets `save-exact` (direct dependencies pinned to exact versions) and `ignore-scripts` (no dependency's install script runs); Biome's `noUndeclaredDependencies` stops imports of packages that npm's flat `node_modules` would otherwise allow.
 - Nothing external (network, child processes) runs before the config validates. Child processes go through `io.run` (output streamed) or `io.capture` (stdout returned); Postgres goes through `io.sql`. Tests fake them.
 - Never print secret values; print names.
 - Tests fake the outside world through `Io` (`src/io.ts`): `run`, `capture`, `fetch`, `sleep`, `sql`.

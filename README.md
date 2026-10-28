@@ -158,7 +158,7 @@ Moving to another host is a different question: see [Moving between hosts](docs/
 ## Contributing
 
 ```sh
-pnpm install
+npm ci
 make check         # biome ci, tsc --noEmit, vitest run: the gate for every commit
 make integration   # OpenTofu validation, workflow lint, real Postgres, dry runs of the examples; needs Docker
 ```
