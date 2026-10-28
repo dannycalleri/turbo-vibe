@@ -64,44 +64,42 @@ describe("parseConfig", () => {
     });
   });
 
-  it("refuses a private environment when Cloudflare serves no hostname", () => {
-    const source = `version: 1
+  const privateStaging = (services: string) => `version: 1
 project: acme
 domain: acme.example.com
 environments:
   staging:
     access: { emails: [ada@example.com] }
 services:
-  db:
-    kind: database
-    target: supabase
-    region: eu-central-1
-`;
-    expect(problems(source)).toContainEqual({
-      line: 6,
-      message:
-        "staging cannot be private: no service runs on a Cloudflare target, so Cloudflare serves no hostname for Access to guard",
-    });
-  });
-
-  it("refuses a private environment when a service runs outside Cloudflare", () => {
-    const source = `version: 1
-project: acme
-domain: acme.example.com
-environments:
-  staging:
-    access: { emails: [ada@example.com] }
-services:
-  web:
+${services}`;
+  const vercel = (target: string, build = "{ command: x, output: dist }") =>
+    `  web:
     kind: frontend
-    target: vercel-static
-    build: { command: x, output: dist }
+    target: ${target}
+    build: ${build}
 `;
-    expect(problems(source)).toEqual([
+
+  it.each([vercel("vercel-nextjs", "{ command: x }"), vercel("vercel-static")])(
+    "accepts a private environment whose only service runs on Vercel: %s",
+    (services) => {
+      expect(parseConfig(privateStaging(services)).ok).toBe(true);
+    },
+  );
+
+  it("refuses, for now, a private environment whose Vercel page calls a backend on Cloudflare from another origin", () => {
+    expect(
+      problems(
+        privateStaging(`${vercel("vercel-static")}  api:
+    kind: backend
+    target: cloudflare-container
+    build: { dockerfile: Dockerfile }
+`),
+      ),
+    ).toEqual([
       {
         line: 6,
         message:
-          "staging cannot be private while service `web` runs on vercel-static: Cloudflare Access guards only hostnames Cloudflare serves",
+          "staging cannot be private: frontend `web` on vercel-static calling backend `api` on cloudflare-container from another origin is not supported yet",
       },
     ]);
   });

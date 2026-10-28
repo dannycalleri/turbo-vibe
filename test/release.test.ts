@@ -2487,6 +2487,54 @@ services:
       "https://acme.example.com/_turbo-vibe/build-id",
     ]);
   });
+  it("smokes a private production with production's own bypass secret, read from production's outputs", async () => {
+    const bypassOf = (environment: string) => ({
+      vercel_protection_bypass: {
+        value: { [`acme-web-${environment}`]: `${environment}-bypass-s3cr3t` },
+      },
+    });
+    const capture = vi.fn(
+      async (
+        _command: string,
+        _args: readonly string[],
+        { cwd }: { cwd: string },
+      ) => ({
+        code: 0,
+        stdout: JSON.stringify(
+          bypassOf(cwd.endsWith("production") ? "production" : "staging"),
+        ),
+      }),
+    );
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () => new Response("abc1230000000000000000000000000000000000"),
+    );
+    const { code, stdout, stderr } = await run(
+      [
+        "smoke",
+        "--env",
+        "production",
+        "--build-id",
+        "abc1230000000000000000000000000000000000",
+      ],
+      {
+        "turbo-vibe.yaml": site.replace(
+          "services:",
+          "environments:\n  production:\n    access: { emails: [ada@example.com] }\nservices:",
+        ),
+      },
+      vercelEnv,
+      undefined,
+      fetch,
+      { capture },
+    );
+    expect(code).toBe(0);
+    expect(
+      fetch.mock.calls.map(([, init]) =>
+        new Headers(init?.headers).get("x-vercel-protection-bypass"),
+      ),
+    ).toEqual(["production-bypass-s3cr3t"]);
+    expect(stdout + stderr).not.toContain("s3cr3t");
+  });
 });
 
 describe("a Vercel frontend with a Cloudflare backend", () => {

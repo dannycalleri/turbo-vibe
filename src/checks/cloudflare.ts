@@ -6,7 +6,7 @@ import {
   environmentNames,
   isPreview,
 } from "../config/schema.js";
-import { analyticsFor } from "../origins.js";
+import { analyticsFor, cloudflareAccessFor } from "../origins.js";
 import type { Check, CheckContext, Finding } from "./types.js";
 import { fail, missing, ok, warn } from "./types.js";
 
@@ -43,8 +43,10 @@ export const updatePermissionsQuestion =
 
 const accessPermission = "Access: Apps and Policies Write";
 
-export function hasPrivateEnvironment(config: Config): boolean {
-  return environmentNames.some((environment) => accessFor(config, environment));
+export function needsZeroTrust(config: Config): boolean {
+  return environmentNames.some((environment) =>
+    cloudflareAccessFor(config, environment),
+  );
 }
 
 export const zoneScoped: ReadonlySet<string> = new Set([
@@ -290,7 +292,7 @@ export const cloudflare: Check = async (context) => {
       : accessScope === "account" && io.env.CLOUDFLARE_ACCOUNT_ID
         ? `/accounts/${io.env.CLOUDFLARE_ACCOUNT_ID}/access/apps`
         : undefined;
-  if (appsPath && accessFor(config, context.environment)) {
+  if (appsPath && cloudflareAccessFor(config, context.environment)) {
     const apps = await get<unknown[]>(context, appsPath);
     findings.push(
       apps.body?.success

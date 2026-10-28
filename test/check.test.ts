@@ -513,6 +513,25 @@ describe("against recorded fakes", () => {
       ]);
     });
 
+    it("asks for no Zero Trust when Vercel serves every hostname", async () => {
+      const vercelSite =
+        "  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n";
+      const parsed = parseConfig(
+        `version: 1\nproject: acme\ndomain: app.turbovibe.ai\nenvironments:\n  staging:\n    access: { emails: [ada@example.com] }\nservices:\n${vercelSite}`,
+      );
+      if (!parsed.ok) throw new Error(JSON.stringify(parsed.problems));
+      cloudflareApi({ permissions: granted });
+      zeroTrust(false);
+      const findings = await cloudflare({
+        ...context(vercelSite, cloudflareEnv),
+        config: parsed.config,
+      });
+      expect(findings.every((finding) => finding.severity === "ok")).toBe(true);
+      expect(
+        findings.filter((finding) => /Zero Trust|Access/.test(finding.message)),
+      ).toEqual([]);
+    });
+
     it("sends the person to enable Zero Trust when Access is unavailable", async () => {
       cloudflareApi({ permissions: granted });
       zeroTrust(false);

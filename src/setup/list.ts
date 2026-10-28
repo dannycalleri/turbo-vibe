@@ -1,4 +1,4 @@
-import { hasPrivateEnvironment, zeroTrustPage } from "../checks/cloudflare.js";
+import { needsZeroTrust, zeroTrustPage } from "../checks/cloudflare.js";
 import type { Config } from "../config/schema.js";
 import { promoteFromStaging } from "../contract.js";
 import { environmentSecrets } from "../deploy.js";
@@ -59,7 +59,7 @@ export function setupSteps(
       ? [`Subscribe to Workers Paid: ${cloudflareDashboard}/workers/plans`]
       : []),
     `Enable R2 once on the account: ${cloudflareDashboard}/r2/overview`,
-    ...(hasPrivateEnvironment(config)
+    ...(needsZeroTrust(config)
       ? [
           `If Zero Trust is not on yet, enable it once for the private environments: open ${zeroTrustPage}, choose a team name and the Free plan (it asks for payment details but does not charge); the checks at the end of setup say whether it is on`,
         ]

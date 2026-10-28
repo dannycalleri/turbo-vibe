@@ -10,9 +10,9 @@ import {
   stateKey,
 } from "../src/infrastructure.js";
 
-function config(services: string): Config {
+function config(services: string, environments = ""): Config {
   const result = parseConfig(
-    `version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n${services}`,
+    `version: 1\nproject: acme\ndomain: acme.example.com\n${environments}services:\n${services}`,
   );
   if (!result.ok) throw new Error(JSON.stringify(result.problems));
   return result.config;
@@ -279,11 +279,10 @@ describe("vercel-static", () => {
     });
   });
 
-  // Built by hand: the validator does not accept `access` with a Vercel target yet.
-  const privateSite: Config = {
-    ...site,
-    environments: { staging: { access: { emails: ["ada@example.com"] } } },
-  };
+  const privateSite = config(
+    `  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: "pnpm build", output: dist }\n`,
+    "environments:\n  staging:\n    access: { emails: [ada@example.com] }\n",
+  );
 
   it("puts every project of a private environment behind Vercel Authentication, and outputs the bypass secrets", () => {
     const root = rootModule(privateSite, "staging", {});
@@ -308,6 +307,12 @@ describe("vercel-static", () => {
         default: {},
       },
     });
+  });
+
+  it("gives a private project of Vercel services only no Cloudflare Access", () => {
+    const root = rootModule(privateSite, "staging", {});
+    expect(root.module.cloudflare).not.toHaveProperty("access");
+    expect(root.output).not.toHaveProperty("access_client_id");
   });
 
   it("leaves the project of a public environment on Standard Protection, with no bypass", () => {
