@@ -388,11 +388,43 @@ describe("secrets", () => {
         new URL(`.github/workflows/${file}`, root),
         "utf8",
       );
-      expect(text, file).not.toMatch(/exec npx|npx --yes/);
+      expect(text, file).not.toMatch(
+        /exec npx|npx[^\n]*(turbo-vibe|TURBO_VIBE_CLI)/,
+      );
       expect(text, file).toContain(
-        "npm ci --omit=dev --ignore-scripts --no-audit --no-fund",
+        'npx --yes "npm@$NPM_VERSION" ci --omit=dev --ignore-scripts --no-audit --no-fund',
       );
     }
+  });
+
+  it("installs from npm-shrinkwrap.json only with the npm that writes it", async () => {
+    const pkg = JSON.parse(
+      await readFile(new URL("package.json", root), "utf8"),
+    );
+    const npm = pkg.packageManager.replace(/^npm@/, "");
+    expect(pkg.volta.npm).toBe(npm);
+    const files = (await readdir(new URL(".github/workflows/", root))).filter(
+      (file) => file.endsWith(".yml"),
+    );
+    let installs = 0;
+    for (const file of files) {
+      const definition = await workflow(file);
+      for (const [name, job] of Object.entries(
+        definition.jobs as Record<string, { steps?: Step[] }>,
+      ))
+        for (const line of (job.steps ?? []).flatMap((step) =>
+          (step.run ?? "").split("\n"),
+        )) {
+          if (!/\bnpm\b[^|;&]*\bci\b/.test(line)) continue;
+          if (line.trim().startsWith("#")) continue;
+          installs++;
+          expect(line, `${file} ${name}`).toContain(
+            'npx --yes "npm@$NPM_VERSION" ci',
+          );
+          expect(definition.env?.NPM_VERSION, file).toBe(npm);
+        }
+    }
+    expect(installs).toBe(16);
   });
 
   it("lets the production job receive the builds bucket that promote reads", async () => {

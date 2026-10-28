@@ -10,6 +10,7 @@ permissions:
 
 env:
   NODE_VERSION: "24"
+  NPM_VERSION: "11.19.1"
   TOFU_VERSION: "1.13.1"
   BUILD_ID: ${{ github.sha }}
   # Git forbids spaces in branch names, so no pull request's preview can share this one.
@@ -48,7 +49,7 @@ jobs:
           tofu_wrapper: false
       - name: Build the CLI
         run: |
-          npm ci
+          npx --yes "npm@$NPM_VERSION" ci
           npm run build
           bin="$RUNNER_TEMP/turbo-vibe-bin"
           mkdir -p "$bin"

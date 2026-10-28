@@ -11,6 +11,9 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+env:
+  NPM_VERSION: "11.19.1"
+
 jobs:
   release-please:
     name: Release pull request
@@ -66,7 +69,7 @@ jobs:
           grep -q "@turbo-vibe/cli@$version\"" .github/workflows/deploy.yml
           grep -q "@turbo-vibe/cli@$version\"" .github/workflows/promote.yml
           grep -q "@turbo-vibe/cli@$version\"" .github/workflows/preview.yml
-      - run: npm ci
+      - run: npx --yes "npm@$NPM_VERSION" ci
       - run: make check validate-infra lint-workflows
       - run: make build
       - name: Publish, under the dist-tag next for a prerelease
