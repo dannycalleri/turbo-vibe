@@ -9,16 +9,27 @@
     <h1>turbo-vibe on Vercel</h1>
     <p>Page build: <code id="page">__BUILD_ID__</code></p>
     <p>API build: <code id="api">loading…</code> from <code id="origin">…</code></p>
+    <p id="sign-in"></p>
     <script>
+      let apiUrl;
       fetch("/_turbo-vibe/config.json", { cache: "no-store" })
         .then((response) => response.json())
-        .then(({ apiUrl }) => {
+        .then((config) => {
+          apiUrl = config.apiUrl;
           document.getElementById("origin").textContent = apiUrl;
           return fetch(`${apiUrl}/api/health`, { credentials: "include", cache: "no-store" });
         })
         .then((response) => response.json())
         .then((body) => { document.getElementById("api").textContent = body.build_id; })
-        .catch((error) => { document.getElementById("api").textContent = `unavailable (${error.message})`; });
+        .catch((error) => {
+          document.getElementById("api").textContent = `unavailable (${error.message})`;
+          if (!apiUrl) return;
+          // A private API answers a call without its cookie with a redirect to the sign-in page, which the browser blocks.
+          const link = document.createElement("a");
+          link.href = `${apiUrl}/_turbo-vibe/sign-in?return=${encodeURIComponent(location.href)}`;
+          link.textContent = "Sign in to the API";
+          document.getElementById("sign-in").append(link);
+        });
     </script>
   </body>
 </html>
