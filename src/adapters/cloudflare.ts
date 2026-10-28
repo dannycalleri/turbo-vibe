@@ -1,5 +1,6 @@
 import { rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { accessFor } from "../config/schema.js";
 import { backendPaths, buildIdVariable, legacyBuildArg } from "../contract.js";
 import { type BackendPort, backendPort } from "../port.js";
 import { checkBuildId } from "../smoke.js";
@@ -9,12 +10,18 @@ import type { Adapter, DeployContext, ServiceContext } from "./types.js";
 import {
   buildIdPath,
   kitHealthPath,
+  signInPath,
   wranglerDeployArgs,
   wranglerPushArgs,
   writeWorker,
 } from "./wrangler.js";
 
 type Backend = Extract<DeployContext["service"], { kind: "backend" }>;
+
+function signInOrigins(context: ServiceContext): readonly string[] | undefined {
+  if (!accessFor(context.config, context.environment)) return undefined;
+  return context.allowedOrigins;
+}
 
 function imageTag(context: DeployContext): string {
   return `${context.config.project}-${context.name}:${context.buildId}`;
@@ -289,6 +296,10 @@ export const cloudflareContainer: Adapter = {
           ...(paths.some((path) => kitHealthPath.startsWith(path))
             ? []
             : [`${context.hostname}${kitHealthPath}`]),
+          // Without the final *, the route misses every URL with a query string.
+          ...(signInOrigins(context)
+            ? [`${context.hostname}${signInPath}*`]
+            : []),
         ];
     return {
       cloudflare: {
@@ -324,6 +335,7 @@ export const cloudflareContainer: Adapter = {
     const assets = frontend ? context.assetsDirs[frontend] : undefined;
     const served = frontend ? context.config.services[frontend] : undefined;
     const notFound = served?.kind === "frontend" ? served.not_found : undefined;
+    const origins = signInOrigins(context);
     const file = await writeWorker(join(context.workDir, name), {
       name,
       buildId: context.buildId,
@@ -331,6 +343,7 @@ export const cloudflareContainer: Adapter = {
       backend: context.service,
       port: port.port,
       secretNames: context.secretNames,
+      ...(origins ? { signInOrigins: origins } : {}),
       ...(image ? { image } : {}),
       ...(assets ? { assets } : {}),
       ...(notFound ? { notFound } : {}),

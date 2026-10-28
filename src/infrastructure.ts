@@ -15,7 +15,7 @@ import {
   isPreview,
 } from "./config/schema.js";
 import { stateSecrets, supabaseOrganization } from "./contract.js";
-import { analyticsFor, hostOf, layout } from "./origins.js";
+import { analyticsFor, hostOf, layout, originSettings } from "./origins.js";
 
 const cloudflareModule = fileURLToPath(
   new URL("../infra/cloudflare", import.meta.url),
@@ -49,6 +49,7 @@ export function contributions(
   managedRedirectUris: Readonly<Record<string, string[]>> = {},
 ): [string, Infrastructure][] {
   const hosts = layout(config, environment);
+  const origins = originSettings(config, environment);
   return Object.entries(config.services).map(([name, service]) => [
     name,
     adapterFor(service.target).plan({
@@ -58,6 +59,7 @@ export function contributions(
       environment,
       hostname: hostOf(hosts, service),
       backendHostname: hosts.backendHostname,
+      ...(origins ? { allowedOrigins: origins.allowedOrigins } : {}),
       ...(managedRedirectUris[name]
         ? { managedRedirectUris: managedRedirectUris[name] }
         : {}),

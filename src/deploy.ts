@@ -55,6 +55,7 @@ function contexts(
   environment: EnvironmentName,
 ): ServiceContext[] {
   const hosts = layout(config, environment);
+  const origins = originSettings(config, environment);
   return Object.entries(config.services).map(([name, service]) => ({
     config,
     name,
@@ -62,6 +63,7 @@ function contexts(
     environment,
     hostname: hostOf(hosts, service),
     backendHostname: hosts.backendHostname,
+    ...(origins ? { allowedOrigins: origins.allowedOrigins } : {}),
   }));
 }
 

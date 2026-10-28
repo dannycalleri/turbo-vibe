@@ -2,8 +2,10 @@ import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { healthModule } from "../src/adapters/wrangler.js";
+import { healthModule, signInModule } from "../src/adapters/wrangler.js";
 import type { BuildRecord } from "../src/builds.js";
+import { parseConfig } from "../src/config/load.js";
+import { deploy } from "../src/deploy.js";
 import {
   capturing,
   digest,
@@ -1723,6 +1725,55 @@ describe("runtime secrets", () => {
       healthModule,
     );
     expect(stdout + stderr).not.toContain("runpw");
+  });
+
+  it("gives the Worker of a private backend on another origin the sign-in path, limited to the page's origin", async () => {
+    const parsed = parseConfig(
+      "version: 1\nproject: acme\ndomain: acme.example.com\nservices:\n  api:\n    kind: backend\n    target: cloudflare-container\n    build: { dockerfile: Dockerfile }\n  web:\n    kind: frontend\n    target: vercel-static\n    build: { command: x, output: dist }\n",
+    );
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.problems));
+    const cwd = await mkdtemp(join(tmpdir(), "turbo-vibe-"));
+    await writeFile(join(cwd, "Dockerfile"), "FROM scratch\n");
+    await mkdir(join(cwd, "dist"));
+    await writeFile(join(cwd, "dist", "index.html"), "<p>hi</p>");
+    let stderr = "";
+    // Built by hand: the validator does not accept `access` on this layout yet.
+    const config = {
+      ...parsed.config,
+      environments: { staging: { access: { emails: ["ada@example.com"] } } },
+    };
+    const code = await deploy(
+      { config, configDir: cwd },
+      "staging",
+      { buildId: "abc1230000000000000000000000000000000000", dryRun: true },
+      {
+        cwd,
+        env: {},
+        run: runner(),
+        capture: capturing(),
+        fetch: async () => new Response("unused"),
+        sleep: async () => {},
+        sql: () => {
+          throw new Error("no database");
+        },
+        stdout: () => {},
+        stderr: (text) => {
+          stderr += text;
+        },
+      },
+    );
+    expect(stderr).toBe("");
+    expect(code).toBe(0);
+    const workerDir = join(
+      cwd,
+      ".turbo-vibe/wrangler/staging/acme-api-staging",
+    );
+    expect(await readFile(join(workerDir, "sign-in.js"), "utf8")).toBe(
+      signInModule,
+    );
+    expect(await readFile(join(workerDir, "worker.js"), "utf8")).toContain(
+      'return signIn(request, ["https://staging.acme.example.com"]);',
+    );
   });
 
   it("writes a Worker that sends requests to the port the Dockerfile exposes", async () => {
