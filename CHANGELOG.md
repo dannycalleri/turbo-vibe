@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.2.0](https://github.com/dannycalleri/turbo-vibe/compare/v1.1.0...v1.2.0) (2026-10-28)
+
+
+### Features
+
+* **check:** compare a private environment's addresses with the Vercel team ([68c7488](https://github.com/dannycalleri/turbo-vibe/commit/68c7488c3a51fa4212a3e1c016e3e5d5834cf3ae))
+* **config:** accept `access` on Vercel targets ([2c7107c](https://github.com/dannycalleri/turbo-vibe/commit/2c7107c19530d589be06d413429bd5426291313d))
+* **infra:** let a cross-origin page's preflight through Access, and keep the Access cookie to its site ([2d96a86](https://github.com/dannycalleri/turbo-vibe/commit/2d96a865331c1b1ac9622c65a69a22344648a5e7))
+* **setup:** name the Vercel team step for a private environment ([f36960a](https://github.com/dannycalleri/turbo-vibe/commit/f36960a7b1bd0d57adaccc6c4839b1273aa70433))
+* **vercel:** protect each Vercel project explicitly, and smoke through the bypass ([c615f35](https://github.com/dannycalleri/turbo-vibe/commit/c615f357e3703f496d8645a8bc16832ceba61f1e))
+* **wrangler:** a sign-in path on a private backend on another origin, which returns only to the page's origins ([de6d65a](https://github.com/dannycalleri/turbo-vibe/commit/de6d65a30c1c0fd1ef548339ca80bd3c353463fa))
+* **wrangler:** the public health answer of a private environment holds no error text ([bb60478](https://github.com/dannycalleri/turbo-vibe/commit/bb6047801ddbcbfb3de3ae4f4bd859e5b443372a))
+* **wrangler:** the Worker answers every preflight of a private backend on another origin, and the validator accepts the layout ([7f93b15](https://github.com/dannycalleri/turbo-vibe/commit/7f93b157856c9ff66f4e77b67af55821fbaced5c))
+
+
+### Bug Fixes
+
+* **preview:** no preview for a run Dependabot starts ([306b7e0](https://github.com/dannycalleri/turbo-vibe/commit/306b7e093bbb1c33517139a9f6dcc99c55d27e1a))
+
 ## [1.1.0](https://github.com/dannycalleri/turbo-vibe/compare/v1.0.1...v1.1.0) (2026-10-27)
 
 

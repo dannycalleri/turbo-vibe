@@ -52,7 +52,7 @@ on:
         required: false
 
 env:
-  TURBO_VIBE_CLI: "@turbo-vibe/cli@1.1.0" # x-release-please-version
+  TURBO_VIBE_CLI: "@turbo-vibe/cli@1.2.0" # x-release-please-version
   NODE_VERSION: "24"
   NPM_VERSION: "11.19.1"
   TOFU_VERSION: "1.13.1"
