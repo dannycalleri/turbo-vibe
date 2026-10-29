@@ -855,7 +855,7 @@ describe("setup", () => {
     });
     expect(result.stdout).toContain("staging is ready");
     expect(result.stdout).toContain(
-      `staging: kept ${cloudflareKept.join(", ")}; GitHub does not return their values, so this run did not check them`,
+      `staging: kept ${cloudflareKept.join(", ")}; GitHub does not return their values, so this run could not test that they work`,
     );
   });
 
