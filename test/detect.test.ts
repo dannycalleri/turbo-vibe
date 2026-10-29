@@ -90,7 +90,7 @@ describe("projectName", () => {
     expect(projectName("@acme/web--app_2")).toBe("web-app-2");
     expect(projectName("2048-game")).toBe("game");
     expect(projectName("123")).toBeUndefined();
-    expect(projectName("a".repeat(70))).toHaveLength(63);
+    expect(projectName("a".repeat(70))).toHaveLength(41);
   });
 });
 

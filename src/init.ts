@@ -11,7 +11,7 @@ import {
 } from "./assistant.js";
 import { schemaUrl } from "./config/json-schema.js";
 import { parseConfig } from "./config/load.js";
-import { hostname, name } from "./config/schema.js";
+import { hostname, project } from "./config/schema.js";
 import { promoteFromStaging } from "./contract.js";
 import {
   type Defaults,
@@ -261,7 +261,7 @@ type Question = Exclude<keyof Answers, "assistant" | "lockfile">;
 type Target = Exclude<Question, "name" | "domain">;
 
 const textQuestions = {
-  name: { message: "Project name", field: name },
+  name: { message: "Project name", field: project },
   domain: {
     message: "Production domain, such as app.example.com",
     field: hostname,
@@ -307,7 +307,7 @@ const targetChoices = (
     );
 
 const problemWith = (
-  field: typeof name | typeof hostname,
+  field: typeof project | typeof hostname,
   value: string,
 ): string | undefined => {
   const parsed = field.safeParse(value);

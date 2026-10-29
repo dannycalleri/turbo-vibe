@@ -19,7 +19,7 @@ The schema checks each field on its own. The rules that relate fields to each ot
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `version` | `1` | required | The file format version. |
-| `project` | name | required | The project's name, used in every resource the kit creates (`<project>-<service>-<environment>` for Workers). Lowercase letters, digits and hyphens, starting with a letter, at most 63 characters. |
+| `project` | name | required | The project's name, used in every resource the kit creates (`<project>-<service>-<environment>` for Workers). Lowercase letters, digits and hyphens, starting with a letter, at most 41 characters, so that its state bucket names fit in the 63 characters Cloudflare R2 allows. |
 | `domain` | hostname | required | Production's hostname. |
 | `previews` | boolean | `false` | Allow `turbo-vibe preview deploy` for pull requests, in the `preview` GitHub environment with its own state bucket and tokens. A project with a database also needs `plan: paid`, because each preview's database is a Supabase branch. Within one Cloudflare account, previews' tokens still reach production's Workers and DNS; see the bootstrap checklist's [What one account leaves shared](bootstrap.md#8-what-one-account-leaves-shared). |
 | `environments` | mapping | see below | Hostnames per environment. |
