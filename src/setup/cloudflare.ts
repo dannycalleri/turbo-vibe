@@ -73,6 +73,13 @@ function ciPermissions(config: Config, environment: string): string[] {
 }
 
 export function stateBucketName(config: Config, environment: string): string {
+  return `turbo-vibe-${config.project}-${environment}`;
+}
+
+export function earlierStateBucketName(
+  config: Config,
+  environment: string,
+): string {
   return `${config.project}-turbo-vibe-${environment}`;
 }
 
@@ -351,27 +358,35 @@ async function waitForPerson(
 
 async function bucket(
   cloudflare: CloudflareApi,
-  name: string,
+  config: Config,
+  environment: string,
   account: string,
   io: Io,
-): Promise<boolean> {
+): Promise<string | undefined> {
   const path = `/accounts/${account}/r2/buckets`;
+  const name = stateBucketName(config, environment);
   for (;;) {
-    const found = await cloudflare.call("GET", `${path}/${name}`);
-    if (found.body?.success) {
-      io.stdout(`cloudflare: bucket ${name} exists\n`);
-      return true;
+    // A bucket under the earlier name holds the environment's state, so it wins over a new-named one.
+    for (const existing of [
+      earlierStateBucketName(config, environment),
+      name,
+    ]) {
+      const found = await cloudflare.call("GET", `${path}/${existing}`);
+      if (found.body?.success) {
+        io.stdout(`cloudflare: bucket ${existing} exists\n`);
+        return existing;
+      }
     }
     const created = await cloudflare.call("POST", path, { name });
     if (created.body?.success) {
       io.stdout(`cloudflare: bucket ${name} created\n`);
-      return true;
+      return name;
     }
     if (!created.body?.errors?.some((error) => error.code === 10042)) {
       io.stderr(
         `cannot create bucket ${name}: ${created.body?.errors?.map((error) => error.message).join("; ") ?? `HTTP ${created.status}`}\n`,
       );
-      return false;
+      return undefined;
     }
     if (
       !(await waitForPerson(
@@ -381,7 +396,7 @@ async function bucket(
       ))
     ) {
       io.stderr("stopped: R2 is not enabled, so there is no state bucket\n");
-      return false;
+      return undefined;
     }
   }
 }
@@ -592,19 +607,18 @@ async function environmentTokens(
   account: string,
   zoneId: string,
   environment: string,
+  buckets: { own: string; builds?: string },
   present: ReadonlySet<string>,
   groups: ReadonlyMap<string, string>,
   io: Io,
 ): Promise<Provided | undefined> {
-  const bucketName = stateBucketName(config, environment);
-  const production = environment === "production";
-  const stagingBucket = stateBucketName(config, "staging");
+  const { own, builds } = buckets;
   const provided: Provided = {
     values: {
       CLOUDFLARE_ACCOUNT_ID: account,
       CLOUDFLARE_ZONE_ID: zoneId,
-      TURBO_VIBE_STATE_BUCKET: bucketName,
-      ...(production ? { TURBO_VIBE_BUILDS_BUCKET: stagingBucket } : {}),
+      TURBO_VIBE_STATE_BUCKET: own,
+      ...(builds ? { TURBO_VIBE_BUILDS_BUCKET: builds } : {}),
     },
     replace: [],
   };
@@ -636,7 +650,7 @@ async function environmentTokens(
     !present.has("AWS_ACCESS_KEY_ID") ||
     !present.has("AWS_SECRET_ACCESS_KEY") ||
     !present.has("TURBO_VIBE_STATE_BUCKET") ||
-    (production && !present.has("TURBO_VIBE_BUILDS_BUCKET"))
+    (builds && !present.has("TURBO_VIBE_BUILDS_BUCKET"))
   ) {
     const r2 = await createToken(
       bootstrap,
@@ -645,14 +659,14 @@ async function environmentTokens(
       [
         {
           effect: "allow",
-          resources: { [bucketResource(account, bucketName)]: "*" },
+          resources: { [bucketResource(account, own)]: "*" },
           permission_groups: [{ id: groups.get(r2Permission) }],
         },
-        ...(production
+        ...(builds
           ? [
               {
                 effect: "allow",
-                resources: { [bucketResource(account, stagingBucket)]: "*" },
+                resources: { [bucketResource(account, builds)]: "*" },
                 permission_groups: [{ id: groups.get(r2ReadPermission) }],
               },
             ]
@@ -670,7 +684,7 @@ async function environmentTokens(
       "AWS_ACCESS_KEY_ID",
       "AWS_SECRET_ACCESS_KEY",
       "TURBO_VIBE_STATE_BUCKET",
-      ...(production ? ["TURBO_VIBE_BUILDS_BUCKET"] : []),
+      ...(builds ? ["TURBO_VIBE_BUILDS_BUCKET"] : []),
     );
   }
   return provided;
@@ -787,17 +801,14 @@ export async function setupCloudflare(
   );
   if (!groups) return undefined;
   const environments = [...present.keys()];
-  const buckets = [
+  const bucketEnvironments = [
     ...new Set([
-      ...environments.map((environment) =>
-        stateBucketName(config, environment),
-      ),
+      ...environments,
       // Production's token reads staging's bucket, so that bucket must exist even when only production is set up.
-      ...(environments.includes("production")
-        ? [stateBucketName(config, "staging")]
-        : []),
+      ...(environments.includes("production") ? ["staging"] : []),
     ]),
   ];
+  const buckets = new Map<string, string>();
   const zoneId = await withSetupToken(
     bootstrap,
     config,
@@ -809,13 +820,22 @@ export async function setupCloudflare(
         return undefined;
       const id = await zone(cloudflare, config, account, io);
       if (!id) return undefined;
-      for (const name of buckets)
-        if (!(await bucket(cloudflare, name, account, io))) return undefined;
+      for (const environment of bucketEnvironments) {
+        const name = await bucket(cloudflare, config, environment, account, io);
+        if (!name) return undefined;
+        buckets.set(environment, name);
+      }
       return id;
     },
   );
   if (!zoneId) return undefined;
   const provided = new Map<string, Provided>();
+  const bucketOf = (environment: string): string => {
+    const name = buckets.get(environment);
+    if (!name)
+      throw new Error(`setup resolved no state bucket for ${environment}`);
+    return name;
+  };
   for (const [environment, names] of present) {
     const tokens = await environmentTokens(
       bootstrap,
@@ -823,6 +843,12 @@ export async function setupCloudflare(
       account,
       zoneId,
       environment,
+      {
+        own: bucketOf(environment),
+        ...(environment === "production"
+          ? { builds: bucketOf("staging") }
+          : {}),
+      },
       names,
       groups,
       io,

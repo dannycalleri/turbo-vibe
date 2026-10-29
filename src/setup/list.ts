@@ -5,7 +5,7 @@ import { environmentSecrets } from "../deploy.js";
 import { appPublic, appSecrets, buildSecrets } from "../secrets.js";
 import { kindOf } from "../setup.js";
 import { cliRange } from "../version.js";
-import { stateBucketName } from "./cloudflare.js";
+import { earlierStateBucketName, stateBucketName } from "./cloudflare.js";
 import { needsPaidSupabase, stepLines, stepsFor } from "./steps.js";
 
 const cloudflareDashboard = "https://dash.cloudflare.com/?to=/:account";
@@ -137,6 +137,7 @@ export function setupSteps(
       (environment) =>
         `  ${environment}: ${stateBucketName(config, environment)}${environment === "production" ? ` (and read-only access to ${stateBucketName(config, "staging")}, for the builds it promotes)` : ""}`,
     ),
+    `  A bucket named ${earlierStateBucketName(config, "<env>")}, from an earlier setup, is kept instead`,
     "",
     "Secrets setup stores in each GitHub environment",
     ...environments.map(
