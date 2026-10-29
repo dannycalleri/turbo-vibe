@@ -1153,12 +1153,12 @@ describe("setup on Cloudflare", () => {
       [
         "/accounts/acc123/r2/buckets",
         "value-t1",
-        { name: "acme-turbo-vibe-staging" },
+        { name: "turbo-vibe-acme-staging" },
       ],
       [
         "/accounts/acc123/r2/buckets",
         "value-t1",
-        { name: "acme-turbo-vibe-production" },
+        { name: "turbo-vibe-acme-production" },
       ],
     ]);
     expect(writes[0]?.body).toMatchObject({
@@ -1177,7 +1177,7 @@ describe("setup on Cloudflare", () => {
           {
             env,
             name: "TURBO_VIBE_STATE_BUCKET",
-            value: `acme-turbo-vibe-${env}`,
+            value: `turbo-vibe-acme-${env}`,
           },
         ]),
       );
@@ -1187,7 +1187,7 @@ describe("setup on Cloudflare", () => {
       {
         env: "production",
         name: "TURBO_VIBE_BUILDS_BUCKET",
-        value: "acme-turbo-vibe-staging",
+        value: "turbo-vibe-acme-staging",
       },
     ]);
   });
@@ -1217,7 +1217,7 @@ describe("setup on Cloudflare", () => {
   it("reuses an existing zone and bucket", async () => {
     const cloudflare = fakeCloudflare({
       zones: [{ id: "zone-1", name: "example.com", status: "active" }],
-      buckets: ["acme-turbo-vibe-staging"],
+      buckets: ["turbo-vibe-acme-staging"],
     });
     const gh = fakeGh();
     expect((await setup(["--env", "staging"], gh, true, cloudflare)).code).toBe(
@@ -1284,7 +1284,7 @@ describe("setup on Cloudflare", () => {
     expect(
       asked.mock.calls.filter(([q]) => q.startsWith("Press Enter")),
     ).toHaveLength(2);
-    expect(result.stdout).toContain("bucket acme-turbo-vibe-staging created");
+    expect(result.stdout).toContain("bucket turbo-vibe-acme-staging created");
   });
 
   it("stops when the person gives up on R2, and leaves no setup token", async () => {
@@ -1571,7 +1571,7 @@ services:
       policies: [
         {
           resources: {
-            "com.cloudflare.edge.r2.bucket.acc123_default_acme-turbo-vibe-staging":
+            "com.cloudflare.edge.r2.bucket.acc123_default_turbo-vibe-acme-staging":
               "*",
           },
           permission_groups: [
@@ -2193,9 +2193,12 @@ describe("setup --list", () => {
     expect(result.stdout).toContain(
       "staging: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, CLOUDFLARE_ACCOUNT_ID",
     );
-    expect(result.stdout).toContain("  staging: acme-turbo-vibe-staging\n");
+    expect(result.stdout).toContain("  staging: turbo-vibe-acme-staging\n");
     expect(result.stdout).toContain(
-      "  production: acme-turbo-vibe-production (and read-only access to acme-turbo-vibe-staging, for the builds it promotes)\n",
+      "  production: turbo-vibe-acme-production (and read-only access to turbo-vibe-acme-staging, for the builds it promotes)\n",
+    );
+    expect(result.stdout).toContain(
+      "  A bucket named acme-turbo-vibe-<env>, from an earlier setup, is kept instead\n",
     );
     expect(fetch).not.toHaveBeenCalled();
     expect(runner).not.toHaveBeenCalled();
@@ -2316,7 +2319,7 @@ services:
         {
           effect: "allow",
           resources: {
-            "com.cloudflare.edge.r2.bucket.acc123_default_acme-turbo-vibe-production":
+            "com.cloudflare.edge.r2.bucket.acc123_default_turbo-vibe-acme-production":
               "*",
           },
           permission_groups: [
@@ -2326,7 +2329,7 @@ services:
         {
           effect: "allow",
           resources: {
-            "com.cloudflare.edge.r2.bucket.acc123_default_acme-turbo-vibe-staging":
+            "com.cloudflare.edge.r2.bucket.acc123_default_turbo-vibe-acme-staging":
               "*",
           },
           permission_groups: [{ id: "id-Workers R2 Storage Bucket Item Read" }],
@@ -2347,7 +2350,7 @@ services:
       cloudflare.requests
         .filter((r) => r.method === "POST" && r.path.endsWith("/r2/buckets"))
         .map((r) => (r.body as { name: string }).name),
-    ).toEqual(["acme-turbo-vibe-production", "acme-turbo-vibe-staging"]);
+    ).toEqual(["turbo-vibe-acme-production", "turbo-vibe-acme-staging"]);
   });
 
   it("points the stored bucket names at the new token's buckets when it replaces an older R2 token", async () => {
@@ -2360,9 +2363,54 @@ services:
     ).toBe(0);
     for (const env of ["staging", "production"])
       expect(storedValue(gh, env, "TURBO_VIBE_STATE_BUCKET")).toBe(
+        `turbo-vibe-acme-${env}`,
+      );
+    expect(storedValue(gh, "production", "TURBO_VIBE_BUILDS_BUCKET")).toBe(
+      "turbo-vibe-acme-staging",
+    );
+  });
+
+  it("keeps the buckets an earlier setup named <project>-turbo-vibe-<env>, which hold the state", async () => {
+    const older = [...cloudflareKept];
+    const gh = fakeGh({ secrets: { staging: older, production: older } });
+    const cloudflare = fakeCloudflare({
+      buckets: ["acme-turbo-vibe-staging", "acme-turbo-vibe-production"],
+    });
+    expect(
+      (await setup(["--replace", "AWS_ACCESS_KEY_ID"], gh, true, cloudflare))
+        .code,
+    ).toBe(0);
+    expect(
+      cloudflare.requests.filter(
+        (r) => r.method === "POST" && r.path.endsWith("/r2/buckets"),
+      ),
+    ).toEqual([]);
+    for (const env of ["staging", "production"])
+      expect(storedValue(gh, env, "TURBO_VIBE_STATE_BUCKET")).toBe(
         `acme-turbo-vibe-${env}`,
       );
     expect(storedValue(gh, "production", "TURBO_VIBE_BUILDS_BUCKET")).toBe(
+      "acme-turbo-vibe-staging",
+    );
+    expect(
+      JSON.stringify(
+        cloudflare.created("turbo-vibe-acme-production-r2")?.body,
+      ).match(/_default_[a-z-]+/g),
+    ).toEqual([
+      "_default_acme-turbo-vibe-production",
+      "_default_acme-turbo-vibe-staging",
+    ]);
+  });
+
+  it("prefers the earlier bucket when a new-named one exists too, since the earlier one holds the state", async () => {
+    const gh = fakeGh();
+    const cloudflare = fakeCloudflare({
+      buckets: ["turbo-vibe-acme-staging", "acme-turbo-vibe-staging"],
+    });
+    expect((await setup(["--env", "staging"], gh, true, cloudflare)).code).toBe(
+      0,
+    );
+    expect(storedValue(gh, "staging", "TURBO_VIBE_STATE_BUCKET")).toBe(
       "acme-turbo-vibe-staging",
     );
   });
@@ -2435,12 +2483,12 @@ describe("setup with previews", () => {
         ),
     ).toBe(false);
     expect(storedValue(gh, "preview", "TURBO_VIBE_STATE_BUCKET")).toBe(
-      "acme-turbo-vibe-preview",
+      "turbo-vibe-acme-preview",
     );
     const buckets = JSON.stringify(
       cloudflare.created("turbo-vibe-acme-preview-r2")?.body,
-    ).match(/acme-turbo-vibe-[a-z-]+/g);
-    expect(buckets).toEqual(["acme-turbo-vibe-preview"]);
+    ).match(/_default_[a-z-]+/g);
+    expect(buckets).toEqual(["_default_turbo-vibe-acme-preview"]);
     expect(cloudflare.created("turbo-vibe-acme-preview")).toBeDefined();
   });
 

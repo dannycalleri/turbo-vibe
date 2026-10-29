@@ -32,7 +32,7 @@ DNS for the project's hostnames lives in Cloudflare, even when the frontend runs
 From the bootstrap token, `setup`:
 
 - finds the zone for your domain, or creates it. While the zone is pending, it prints the two nameservers to set at your registrar. Registration can stay where it is. `check` reports the zone as pending until the change is done, which can take hours.
-- finds or creates a state bucket for each environment, `<project>-turbo-vibe-<env>`, such as `acme-turbo-vibe-staging` and `acme-turbo-vibe-production`.
+- finds or creates a state bucket for each environment, `turbo-vibe-<project>-<env>`, such as `turbo-vibe-acme-staging` and `turbo-vibe-acme-production`. A project that setup prepared before keeps its bucket `<project>-turbo-vibe-<env>`, which holds the environment's state.
 - creates, for each environment, a CI token `turbo-vibe-<project>-<env>` with exactly the permissions `check` requires, and an R2 token `turbo-vibe-<project>-<env>-r2` that can read and write only that environment's bucket. Production's R2 token can also read staging's bucket, where it finds the builds to promote, and cannot write there.
 
 It does the zone and bucket work through a token named `turbo-vibe-<project>-setup`, which expires after an hour and which it deletes when it is done.
