@@ -30,7 +30,7 @@ export function projectName(raw: string): string | undefined {
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^[^a-z]+/, "")
-    .slice(0, 63)
+    .slice(0, 41)
     .replace(/-+$/, "");
   return normalized || undefined;
 }

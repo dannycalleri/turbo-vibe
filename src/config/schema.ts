@@ -7,6 +7,11 @@ export const name = z
     "must be lowercase letters, digits, and hyphens, start with a letter, and be at most 63 characters",
   );
 
+export const project = name.max(
+  41,
+  "must be at most 41 characters, so that its state bucket names fit in Cloudflare's 63",
+);
+
 export const hostname = z
   .string()
   .regex(
@@ -164,7 +169,7 @@ export function isPreview(
 
 export const configSchema = z.strictObject({
   version: z.literal(1),
-  project: name,
+  project,
   domain: hostname,
   previews: z.boolean().optional(),
   environments: z

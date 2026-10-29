@@ -153,6 +153,20 @@ ${services}`;
     ]);
   });
 
+  it("rejects a project name too long for its state bucket names", () => {
+    expect(
+      parseConfig(valid.replace("project: acme", `project: ${"a".repeat(41)}`))
+        .ok,
+    ).toBe(true);
+    expect(
+      problems(valid.replace("project: acme", `project: ${"a".repeat(42)}`)),
+    ).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("at most 41 characters"),
+      }),
+    ]);
+  });
+
   it("rejects an invalid service name", () => {
     expect(
       problems(
