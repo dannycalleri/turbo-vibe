@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/dannycalleri/turbo-vibe/compare/v1.2.0...v1.3.0) (2026-10-29)
+
+
+### Features
+
+* **setup:** name state buckets turbo-vibe-&lt;project&gt;-&lt;env&gt;, like the tokens ([aca9a30](https://github.com/dannycalleri/turbo-vibe/commit/aca9a30f01cea02ec58dca1ffe38751cd31c30fe))
+
+
+### Bug Fixes
+
+* **config:** refuse a project name too long for its state bucket names ([965ab82](https://github.com/dannycalleri/turbo-vibe/commit/965ab8235df5256def9d428f810518769f0a64b9))
+* **setup:** say a kept secret was not tested, not that nothing checked it ([bcf95f8](https://github.com/dannycalleri/turbo-vibe/commit/bcf95f876e3d21688cb5fa8d8972f88e3729255f))
+
 ## [1.2.0](https://github.com/dannycalleri/turbo-vibe/compare/v1.1.0...v1.2.0) (2026-10-28)
 
 
