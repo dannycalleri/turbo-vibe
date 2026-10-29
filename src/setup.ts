@@ -524,7 +524,7 @@ async function verify(
   io.stdout(formatFindings(environment, findings));
   if (kept.length > 0)
     io.stdout(
-      `${environment}: kept ${kept.join(", ")}; GitHub does not return their values, so this run did not check them (--replace sets one again and checks it)\n`,
+      `${environment}: kept ${kept.join(", ")}; GitHub does not return their values, so this run could not test that they work; --replace sets one again\n`,
     );
   return !findings.some((finding) => finding.severity === "fail");
 }
